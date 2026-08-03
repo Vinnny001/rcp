@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Register — RCP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/register.css">
+</head>
+<body>
+
+<div class="login-screen">
+  <div class="login-card">
+    <div class="login-seal"><span>RC</span></div>
+    <h1>Register your dossier</h1>
+    <div class="sub">Step 1 of your journey — Registration. Your requirements are validated once this is submitted.</div>
+
+    {% if errors %}
+      <div class="notice">
+        <ul>
+          {% for err in errors %}
+            <li>{{ err }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <form method="POST" action="/register">
+
+      <div class="section-title">Account<div class="rule"></div></div>
+      <div class="field-row">
+        <div class="field">
+          <label>First name</label>
+          <input type="text" name="first_name" placeholder="Amina" value="{{ old.first_name|default('') }}" required>
+        </div>
+        <div class="field">
+          <label>Last name</label>
+          <input type="text" name="last_name" placeholder="Wanjiru" value="{{ old.last_name|default('') }}" required>
+        </div>
+      </div>
+      <div class="field">
+        <label>Institutional email</label>
+        <input type="email" name="email" placeholder="amina.wanjiru@jkuat.ac.ke" value="{{ old.email|default('') }}" required>
+      </div>
+      <div class="field">
+        <label>Username</label>
+        <input type="text" name="username" placeholder="amina.wanjiru" value="{{ old.username|default('') }}" required>
+      </div>
+      <div class="field">
+        <label>Phone number</label>
+        <input type="text" name="phone" placeholder="+254 7xx xxx xxx" value="{{ old.phone|default('') }}">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Password</label>
+          <input type="password" name="password" placeholder="••••••••••" required>
+        </div>
+        <div class="field">
+          <label>Confirm password</label>
+          <input type="password" name="password_confirm" placeholder="••••••••••" required>
+        </div>
+      </div>
+
+      <div class="section-title">Academic record<div class="rule"></div></div>
+      <div class="field">
+        <label>Student number</label>
+        <input type="text" name="student_number" placeholder="e.g. CS-2026-0512" value="{{ old.student_number|default('') }}" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Department</label>
+          <select name="department" required>
+            <option value="">-- Select --</option>
+            {% for dept in ['Computing', 'Information Systems', 'Data Science', 'Business IT'] %}
+              <option value="{{ dept }}" {% if old.department is defined and old.department == dept %}selected{% endif %}>
+                {{ dept }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Program</label>
+          <select name="program" required>
+            <option value="">-- Select --</option>
+            {% for prog in ['MSc. Computer Science', 'MSc. Information Systems', 'MSc. Data Science', 'BBIT'] %}
+              <option value="{{ prog }}" {% if old.program is defined and old.program == prog %}selected{% endif %}>
+                {{ prog }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Enrollment year</label>
+        <input type="number" name="enrollment_year" value="{{ old.enrollment_year|default('now'|date('Y')) }}" min="1990" max="2100" required>
+      </div>
+
+      <div class="consent">
+        <input type="checkbox" name="consent" id="regConsent" required>
+        <label for="regConsent">I confirm these details are accurate and consent to their validation against institute records.</label>
+      </div>
+
+      <button type="submit" class="btn brass block">Submit registration</button>
+    </form>
+
+    <div class="login-foot">Already registered? <a href="/login">Sign in instead</a></div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sign in — RCP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+
+<div class="login-screen">
+  <div class="login-card">
+    <div class="login-seal"><span>RC</span></div>
+    <h1>Sign in to RCP</h1>
+    <div class="sub">Research Coordination Platform · Registrar's Dossier System</div>
+
+    {% if error %}
+      <div class="notice">{{ error }}</div>
+    {% endif %}
+
+    <div class="role-pick">
+      <button type="button" class="active" data-login-role="student" onclick="pickLoginRole(this)">Student</button>
+      <button type="button" data-login-role="lecturer" onclick="pickLoginRole(this)">Lecturer</button>
+      <button type="button" data-login-role="admin" onclick="pickLoginRole(this)">Admin</button>
+    </div>
+
+    <form method="POST" action="/login">
+      <div class="field">
+        <label>Email or student number</label>
+        <input type="text" name="identifier" placeholder="e.g. CS-2023-0417"
+               value="{{ old.identifier|default('') }}" required autofocus>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="••••••••••" required>
+      </div>
+      <button type="submit" class="btn brass block">Enter the platform</button>
+    </form>
+
+    <div class="login-foot">Forgot your password? <a href="/forgot-password">Reset it here</a></div>
+    <div class="login-foot">New here? <a href="/register">Register as a student</a></div>
+  </div>
+</div>
+
+<script>
+  function pickLoginRole(btn){
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+</script>
+
+</body>
+</html>
