@@ -27,9 +27,11 @@
     </div>
 
     <form method="POST" action="/login">
+      <input type="hidden" id="roleInput" name="role" value="student">
+
       <div class="field">
-        <label>Email or student number</label>
-        <input type="text" name="identifier" placeholder="e.g. CS-2023-0417"
+        <label id="identifierLabel">Email or student number</label>
+        <input type="text" id="identifierInput" name="identifier" placeholder="e.g. CS-2023-0417"
                value="{{ old.identifier|default('') }}" required autofocus>
       </div>
       <div class="field">
@@ -45,9 +47,25 @@
 </div>
 
 <script>
+  const identifierLabel = document.getElementById('identifierLabel');
+  const identifierInput = document.getElementById('identifierInput');
+  const roleInput = document.getElementById('roleInput');
+
+  const fieldConfig = {
+    student:  { label: 'Email or student number', placeholder: 'e.g. CS-2023-0417' },
+    lecturer: { label: 'Email',                    placeholder: 'e.g. peter.kamau@jkuat.ac.ke' },
+    admin:    { label: 'Email',                    placeholder: 'e.g. registrar@jkuat.ac.ke' },
+  };
+
   function pickLoginRole(btn){
     btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+
+    const role = btn.dataset.loginRole;
+    roleInput.value = role;
+    const config = fieldConfig[role];
+    identifierLabel.textContent = config.label;
+    identifierInput.placeholder = config.placeholder;
   }
 </script>
 

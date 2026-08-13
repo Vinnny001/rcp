@@ -9,6 +9,9 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\App;
 use Slim\Interfaces\RouteCollectorProxyInterface as Group;
 use App\Controllers\AuthController;
+use App\Controllers\StudentController;
+
+use App\Controllers\DashboardController;
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
@@ -31,5 +34,11 @@ return function (App $app) {
 $app->post('/login', [AuthController::class, 'login']);
 $app->get('/register', [AuthController::class, 'showRegisterForm']);
 $app->post('/register', [AuthController::class, 'register']);
+
+// Test route for dashboard
+$app->get('/dashboard', [DashboardController::class, 'show']);
+
+$app->get('/student/dashboard', [StudentController::class, 'dashboard']);
+
 $app->post('/logout', [AuthController::class, 'logout']);
 };

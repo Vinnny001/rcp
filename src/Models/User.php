@@ -35,6 +35,28 @@ class User
         return $user ?: null;
     }
 
+    public function findByEmailOrStudentNumber(string $identifier): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT * FROM users WHERE email = :identifier LIMIT 1"
+        );
+        $stmt->execute(['identifier' => $identifier]);
+        $user = $stmt->fetch();
+        if ($user) {
+            return $user;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT u.* FROM users u
+             JOIN students s ON s.user_id = u.user_id
+             WHERE s.student_number = :identifier
+             LIMIT 1"
+        );
+        $stmt->execute(['identifier' => $identifier]);
+        $user = $stmt->fetch();
+        return $user ?: null;
+    }
+
     public function findById(string $userId): ?array
     {
         $stmt = $this->db->prepare(
@@ -62,8 +84,22 @@ class User
             'phone'         => $data['phone'] ?? null,
         ]);
 
-        // MySQL generates the UUID via DEFAULT (uuid()), so fetch it back
         return $this->findByUsername($data['username'])['user_id'];
+    }
+
+    public function createStudent(array $userData, array $studentData, Student $studentModel): string
+    {
+        $this->db->beginTransaction();
+
+        try {
+            $userId = $this->create(array_merge($userData, ['role' => 'student']));
+            $studentModel->create($userId, $studentData);
+            $this->db->commit();
+            return $userId;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
     public function updateLastLogin(string $userId): void
