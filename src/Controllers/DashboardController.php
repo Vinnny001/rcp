@@ -19,7 +19,6 @@ class DashboardController
 
     public function show(Request $request, Response $response): Response
     {
-        session_start();
 
         if (empty($_SESSION['user_id'])) {
             return $response->withHeader('Location', '/login')->withStatus(302);

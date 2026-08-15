@@ -1,0 +1,126 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Thesis Proposal{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Thesis proposal</h1>
+    <div class="sub">Your submitted synopsis and its progress through review.</div>
+  </div>
+  <div class="ref">{% if proposal %}PROP-{{ proposal.proposal_id }}-A{% else %}PROP-{{ student_number }}{% endif %}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">
+    {{ success }}
+  </div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">
+    {{ error }}
+  </div>
+{% endif %}
+
+{% if proposal %}
+  <div class="card" style="margin-bottom:26px;">
+    <h3>{{ proposal.title }}</h3>
+    <div class="meta">
+      Submitted {{ proposal.submission_date|date('d M Y') }}
+      {% if proposal.proposed_supervisor_name %} · Proposed supervisor: {{ proposal.proposed_supervisor_name }}{% endif %}
+    </div>
+    <p style="font-size:.88rem; line-height:1.6; color:#39332a;">{{ proposal.synopsis }}</p>
+
+    {% if proposal.status == 'approved' %}
+      <span class="stamp approved">Approved</span>
+    {% elseif proposal.status == 'rejected' %}
+      <span class="stamp rejected">Rejected</span>
+    {% elseif proposal.status == 'under_review' %}
+      <span class="stamp review">Under Review</span>
+    {% else %}
+      <span class="stamp pending">Submitted</span>
+    {% endif %}
+  </div>
+
+  <div class="section-title">Review timeline<div class="rule"></div></div>
+  <table style="margin-bottom:30px;">
+    <thead><tr><th>Stage</th><th>Date</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Draft</td>
+        <td class="mono">{{ proposal.created_at ? proposal.created_at|date('d M Y') : '—' }}</td>
+        <td><span class="stamp mini approved">Complete</span></td>
+      </tr>
+      <tr>
+        <td>Submitted</td>
+        <td class="mono">{{ proposal.submission_date ? proposal.submission_date|date('d M Y') : '—' }}</td>
+        <td><span class="stamp mini approved">Complete</span></td>
+      </tr>
+      <tr>
+        <td>Under review</td>
+        <td class="mono">{{ proposal.reviewed_at ? proposal.reviewed_at|date('d M Y') : '—' }}</td>
+        <td>
+          {% if proposal.status in ['under_review', 'approved', 'rejected'] %}
+            <span class="stamp mini approved">Complete</span>
+          {% else %}
+            <span class="stamp mini pending">In progress</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>Board approval</td>
+        <td class="mono">{{ proposal.decided_at ? proposal.decided_at|date('d M Y') : '—' }}</td>
+        <td>
+          {% if proposal.status == 'approved' %}
+            <span class="stamp mini approved">Complete</span>
+          {% elseif proposal.status == 'rejected' %}
+            <span class="stamp mini rejected">Rejected</span>
+          {% else %}
+            <span class="stamp mini pending">Pending</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">You haven't submitted a thesis proposal yet. Use the form below to submit one for review.</div>
+{% endif %}
+
+{% if not proposal or proposal.status == 'rejected' %}
+  <div class="section-title">Submit a new proposal<div class="rule"></div></div>
+  <div class="form-card">
+    <form method="POST" action="/student/proposal">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label>Working title</label>
+        <input type="text" name="title" required maxlength="255"
+               value="{{ old.title|default('') }}"
+               placeholder="e.g. Federated Learning for Fraud Detection in Mobile Money">
+      </div>
+
+      <div class="field">
+        <label>Synopsis</label>
+        <textarea name="synopsis" rows="4" required
+                  placeholder="Describe the problem, approach, and expected contribution...">{{ old.synopsis|default('') }}</textarea>
+      </div>
+
+      <div class="field">
+        <label>Propose a supervisor</label>
+        <select name="proposed_supervisor_id" required>
+          <option value="" disabled {% if not old.proposed_supervisor_id %}selected{% endif %}>Select a lecturer</option>
+          {% for s in supervisors %}
+            <option value="{{ s.lecturer_id }}" {% if old.proposed_supervisor_id == s.lecturer_id %}selected{% endif %}>
+              {{ s.name }} — {{ s.department }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="btn brass">Submit proposal</button>
+    </form>
+  </div>
+{% endif %}
+
+{% endblock %}

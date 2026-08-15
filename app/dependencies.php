@@ -10,6 +10,9 @@ use Monolog\Processor\UidProcessor;
 use Slim\Views\Twig;
 use Psr\Container\ContainerInterface;
 
+use App\Models\Lecturer;
+use App\Models\Proposal;
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -42,5 +45,17 @@ return function (ContainerBuilder $containerBuilder) {
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             ]);
         },
+
+
+        Proposal::class => function (ContainerInterface $c) {
+    return new Proposal($c->get(PDO::class));
+},
+
+Lecturer::class => function (ContainerInterface $c) {
+    return new Lecturer($c->get(PDO::class));
+},
+
+
+
     ]);
 };

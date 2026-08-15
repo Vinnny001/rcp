@@ -36,26 +36,29 @@ class User
     }
 
     public function findByEmailOrStudentNumber(string $identifier): ?array
-    {
-        $stmt = $this->db->prepare(
-            "SELECT * FROM users WHERE email = :identifier LIMIT 1"
-        );
-        $stmt->execute(['identifier' => $identifier]);
-        $user = $stmt->fetch();
-        if ($user) {
-            return $user;
-        }
+{
+    $stmt = $this->db->prepare(
+        "SELECT 
+            u.*,
+            s.student_number,
+            s.department,
+            s.program,
+            s.enrollment_year
+         FROM users u
+         LEFT JOIN students s ON s.user_id = u.user_id
+         WHERE u.email = :identifier
+            OR s.student_number = :identifier
+         LIMIT 1"
+    );
 
-        $stmt = $this->db->prepare(
-            "SELECT u.* FROM users u
-             JOIN students s ON s.user_id = u.user_id
-             WHERE s.student_number = :identifier
-             LIMIT 1"
-        );
-        $stmt->execute(['identifier' => $identifier]);
-        $user = $stmt->fetch();
-        return $user ?: null;
-    }
+    $stmt->execute([
+        'identifier' => $identifier
+    ]);
+
+    $user = $stmt->fetch();
+
+    return $user ?: null;
+}
 
     public function findById(string $userId): ?array
     {

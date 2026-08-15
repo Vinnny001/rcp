@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+session_start();
+
 use App\Application\Handlers\HttpErrorHandler;
 use App\Application\Handlers\ShutdownHandler;
 use App\Application\ResponseEmitter\ResponseEmitter;

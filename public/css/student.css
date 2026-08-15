@@ -129,8 +129,11 @@ body{
 .card .meta{ color:var(--slate); font-size:.78rem; margin-bottom:14px; }
 .stat{ font-family:'Fraunces',serif; font-size:2.1rem; font-weight:600; line-height:1; }
 .stat-label{ font-size:.72rem; color:var(--slate); font-family:'IBM Plex Mono',monospace; letter-spacing:.06em; text-transform:uppercase; margin-top:6px;}
-.section-title{ font-family:'Fraunces',serif; font-weight:600; font-size:1.15rem; margin:34px 0 14px; display:flex; align-items:center; gap:10px; }
-.section-title .rule{ flex:1; height:1px; background:var(--paper-line); }
+.section-title{
+    font-family:'Fraunces',serif; font-weight:600; font-size:1.15rem; margin:34px 0 14px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-title .rule{ flex:1; height:1px; background:var(--paper-line); }
 
 table{ width:100%; border-collapse:collapse; background:#fbf8f1; border:1px solid var(--paper-line); border-radius:var(--radius); overflow:hidden;}
 thead th{ text-align:left; font-family:'IBM Plex Mono',monospace; font-size:.64rem; letter-spacing:.08em; text-transform:uppercase; color:var(--slate); background:var(--paper-2); padding:11px 16px; border-bottom:1px solid var(--paper-line); }
@@ -155,3 +158,14 @@ td.strong{ font-weight:600; }
   .grid.cols-3, .grid.cols-2{ grid-template-columns:1fr; }
   .content{ border-radius:0; padding:26px 20px 50px; }
 }
+
+
+  .field{ margin-bottom:16px; }
+
+.form-card{ background:#fbf8f1; border:1px solid var(--paper-line); border-radius:var(--radius); padding:24px; }
+input,textarea,select{
+    width:100%; font-family:'IBM Plex Sans',sans-serif; font-size:.88rem; padding:10px 12px;
+    border:1px solid var(--paper-line); border-radius:var(--radius); background:#fff; color:var(--ink-text);
+  }
+
+

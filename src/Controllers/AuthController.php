@@ -60,11 +60,13 @@ class AuthController
 
         $this->userModel->updateLastLogin($user['user_id']);
 
-        session_start();
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['role'] = $user['role'];
         $_SESSION['first_name'] = $user['first_name'];
-
+        $_SESSION['last_name'] = $user['last_name'];
+        if ($user['role'] === 'student') {
+    $_SESSION['student_number'] = $user['student_number'];
+}
         $redirect = match ($user['role']) {
             'student'  => '/student/dashboard',
             'lecturer' => '/lecturer/dashboard',
@@ -147,7 +149,6 @@ class AuthController
 
     public function logout(Request $request, Response $response): Response
     {
-        session_start();
         session_destroy();
         return $response->withHeader('Location', '/login')->withStatus(302);
     }

@@ -19,7 +19,6 @@ class StudentController
 
     private function requireStudent(): ?string
     {
-        session_start();
         if (empty($_SESSION['user_id']) || ($_SESSION['role'] ?? null) !== 'student') {
             return '/login';
         }
@@ -34,6 +33,7 @@ class StudentController
 
         return $this->view->render($response, 'students/dashboard.twig', [
             'first_name' => $_SESSION['first_name'] ?? '',
+            'active_page' => 'overview',
         ]);
     }
 }

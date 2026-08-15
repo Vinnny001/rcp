@@ -10,12 +10,11 @@ use Slim\App;
 use Slim\Interfaces\RouteCollectorProxyInterface as Group;
 use App\Controllers\AuthController;
 use App\Controllers\StudentController;
-
+use App\Controllers\StudentProposalController;
 use App\Controllers\DashboardController;
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
-        // CORS Pre-Flight OPTIONS Request Handler
         return $response;
     });
 
@@ -29,16 +28,18 @@ return function (App $app) {
         $group->get('/{id}', ViewUserAction::class);
     });
 
-
     $app->get('/login', [AuthController::class, 'showLoginForm']);
-$app->post('/login', [AuthController::class, 'login']);
-$app->get('/register', [AuthController::class, 'showRegisterForm']);
-$app->post('/register', [AuthController::class, 'register']);
+    $app->post('/login', [AuthController::class, 'login']);
+    $app->get('/register', [AuthController::class, 'showRegisterForm']);
+    $app->post('/register', [AuthController::class, 'register']);
 
-// Test route for dashboard
-$app->get('/dashboard', [DashboardController::class, 'show']);
+    $app->get('/dashboard', [DashboardController::class, 'show']);
 
-$app->get('/student/dashboard', [StudentController::class, 'dashboard']);
+    $app->get('/student/dashboard', [StudentController::class, 'dashboard']);
 
-$app->post('/logout', [AuthController::class, 'logout']);
+    $app->post('/logout', [AuthController::class, 'logout']);
+
+    // Student proposal routes
+    $app->get('/student/proposal', [StudentProposalController::class, 'show']);
+    $app->post('/student/proposal', [StudentProposalController::class, 'store']);
 };
