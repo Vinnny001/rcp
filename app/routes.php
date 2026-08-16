@@ -14,6 +14,7 @@ use App\Controllers\StudentProposalController;
 use App\Controllers\DashboardController;
 
 use App\Controllers\StudentRequirementsController;
+use App\Controllers\StudentMeetingsController;
 
 
 return function (App $app) {
@@ -48,5 +49,9 @@ return function (App $app) {
 
     // Student requirements routes
     $app->get('/student/requirements', [StudentRequirementsController::class, 'show']);
-$app->post('/student/requirements/upload', [StudentRequirementsController::class, 'uploadDocument']);
+    $app->post('/student/requirements/upload', [StudentRequirementsController::class, 'uploadDocument']);
+    
+
+    // Student meetings routes
+    $app->get('/student/meetings', [StudentMeetingsController::class, 'show']);
 };

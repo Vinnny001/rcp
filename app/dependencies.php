@@ -14,6 +14,8 @@ use App\Models\Lecturer;
 use App\Models\Proposal;
 use App\Models\Document;
 use App\Models\Payment;
+use App\Models\Meeting;
+use App\Controllers\StudentMeetingsController;
 
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
@@ -64,6 +66,14 @@ Document::class => function (ContainerInterface $c) {
 
 Payment::class => function (ContainerInterface $c) {
     return new Payment($c->get(PDO::class));
+},
+
+Meeting::class => function (ContainerInterface $c) {
+    return new Meeting($c->get(PDO::class));
+},
+
+StudentMeetingsController::class => function (ContainerInterface $c) {
+    return new StudentMeetingsController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

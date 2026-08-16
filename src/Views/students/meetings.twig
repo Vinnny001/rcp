@@ -1,0 +1,75 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Meetings{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Meetings</h1>
+    <div class="sub">Board reviews, supervisory check-ins, and your viva — with AI-generated notes attached.</div>
+  </div>
+  <div class="ref">CAL-{{ student_number }}</div>
+</div>
+
+<div class="section-title">Upcoming<div class="rule"></div></div>
+
+{% if upcoming %}
+  <div class="grid cols-2" style="margin-bottom:32px;">
+    {% for m in upcoming %}
+      <div class="card">
+        <h3>{{ m.meeting_type|replace({'_': ' '})|capitalize }}{% if m.proposal_title %} — {{ m.proposal_title }}{% endif %}</h3>
+        <div class="meta">
+          {{ m.scheduled_at|date('D, j M Y') }} · {{ m.scheduled_at|date('g:i A') }} ·
+          {{ m.mode|capitalize }}
+          {% if m.mode in ['virtual', 'hybrid'] and m.virtual_link %} — {{ m.virtual_link }}{% endif %}
+          {% if m.mode in ['physical', 'hybrid'] and m.location %} — {{ m.location }}{% endif %}
+        </div>
+        {% if m.other_attendees %}
+          <div class="meta">With {{ m.other_attendees }}</div>
+        {% endif %}
+
+        {% if m.status == 'in_progress' %}
+          <span class="stamp mini review">In progress</span>
+        {% elseif m.my_attendance_status == 'confirmed' %}
+          <span class="stamp mini approved">Confirmed</span>
+        {% else %}
+          <span class="stamp mini pending">{{ m.my_attendance_status|default('invited')|capitalize }}</span>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="notice" style="margin-bottom:32px;">No upcoming meetings scheduled.</div>
+{% endif %}
+
+<div class="section-title">Past meetings<div class="rule"></div></div>
+
+{% if past %}
+  {% for m in past %}
+    <div class="card" style="margin-bottom:16px;">
+      <h3>{{ m.meeting_type|replace({'_': ' '})|capitalize }}{% if m.proposal_title %} — {{ m.proposal_title }}{% endif %}</h3>
+      <div class="meta">
+        {{ m.scheduled_at|date('j M Y') }} · {{ m.mode|capitalize }}
+        {% if m.other_attendees %} · With {{ m.other_attendees }}{% endif %}
+        {% if m.ai_notes_enabled %} · AI notes enabled{% endif %}
+      </div>
+
+      {% if m.ai_summary %}
+        <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ m.ai_summary }}</p>
+      {% else %}
+        <p style="font-size:.85rem; color:var(--slate); margin-top:10px;">No notes recorded for this meeting.</p>
+      {% endif %}
+
+      {% if m.status == 'cancelled' %}
+        <span class="stamp mini rejected">Cancelled</span>
+      {% elseif m.my_attendance_status == 'absent' %}
+        <span class="stamp mini rejected">You were marked absent</span>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">No past meetings on record.</div>
+{% endif %}
+
+{% endblock %}
