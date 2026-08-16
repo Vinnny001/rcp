@@ -1,0 +1,46 @@
+{% extends 'layouts/student.twig' %}
+{% import 'partials/_exam_macros.twig' as exam_macros %}
+
+{% block title %}Examination & Graduation{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Examination &amp; graduation</h1>
+    <div class="sub">Outcomes become visible here once grading and graduate school approval are complete.</div>
+  </div>
+  <div class="ref">EXM-{{ student_number }}</div>
+</div>
+
+{% set proposal_approved = proposal and proposal.status == 'approved' %}
+
+<div class="grid cols-2" style="margin-bottom:32px;">
+  {{ exam_macros.exam_card('Internal examination', internal_exam, proposal_approved) }}
+  {{ exam_macros.exam_card('External examination', external_exam, proposal_approved) }}
+</div>
+
+<div class="section-title">Graduation<div class="rule"></div></div>
+
+{% if graduation %}
+  <div class="card">
+    <h3>Ceremony {{ graduation.ceremony_year }}</h3>
+    <div class="meta">
+      {% if graduation.award %}{{ graduation.award }}{% endif %}
+      {% if graduation.class_of_award %} · {{ graduation.class_of_award }}{% endif %}
+    </div>
+    {% if graduation.graduate_school_approved %}
+      <span class="stamp mini approved">Approved{% if graduation.approval_date %} — {{ graduation.approval_date|date('d M Y') }}{% endif %}</span>
+    {% else %}
+      <span class="stamp mini pending">Pending graduate school approval</span>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="card">
+    <h3>Not yet on the graduation list</h3>
+    <div class="meta">You'll be added here automatically once your examination outcome is recorded and outstanding documents are cleared.</div>
+    <span class="stamp mini pending">Not yet eligible</span>
+  </div>
+{% endif %}
+
+{% endblock %}

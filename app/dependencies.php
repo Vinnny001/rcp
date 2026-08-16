@@ -17,6 +17,10 @@ use App\Models\Payment;
 use App\Models\Meeting;
 use App\Controllers\StudentMeetingsController;
 
+use App\Models\Examination;
+use App\Models\Graduation;
+use App\Controllers\StudentExamController;
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -74,6 +78,19 @@ Meeting::class => function (ContainerInterface $c) {
 
 StudentMeetingsController::class => function (ContainerInterface $c) {
     return new StudentMeetingsController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+Examination::class => function (ContainerInterface $c) {
+    return new Examination($c->get(PDO::class));
+},
+
+Graduation::class => function (ContainerInterface $c) {
+    return new Graduation($c->get(PDO::class));
+},
+
+StudentExamController::class => function (ContainerInterface $c) {
+    return new StudentExamController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

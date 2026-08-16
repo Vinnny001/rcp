@@ -1,0 +1,36 @@
+{% macro exam_card(title, exam, proposal_approved) %}
+  <div class="card">
+    <h3>{{ title }}</h3>
+    {% if exam %}
+      <div class="meta">{{ exam.exam_date ? exam.exam_date|date('d M Y') : 'Date to be confirmed' }}</div>
+
+      {% if exam.outcome %}
+        {% if exam.outcome in ['pass', 'distinction'] %}
+          <span class="stamp mini approved">{{ exam.outcome|capitalize }}{% if exam.grade_letter %} — {{ exam.grade_letter }}{% endif %}</span>
+        {% elseif exam.outcome == 'resubmit' %}
+          <span class="stamp mini pending">Resubmit</span>
+        {% else %}
+          <span class="stamp mini rejected">Fail</span>
+        {% endif %}
+      {% else %}
+        <span class="stamp mini pending">Awaiting grading</span>
+      {% endif %}
+
+      {% if exam.graders %}
+        <div class="meta" style="margin-top:10px;">
+          Examiners:
+          {% for g in exam.graders %}
+            {{ g.first_name }} {{ g.last_name }} ({{ g.examiner_type }}){% if g.score is not null %} — {{ g.score }}{% endif %}{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if exam.examiner_comments %}
+        <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ exam.examiner_comments }}</p>
+      {% endif %}
+    {% else %}
+      <div class="meta">Not yet scheduled</div>
+      <span class="stamp mini pending">{{ proposal_approved ? 'Pending scheduling' : 'Awaiting proposal approval' }}</span>
+    {% endif %}
+  </div>
+{% endmacro %}

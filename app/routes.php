@@ -15,6 +15,7 @@ use App\Controllers\DashboardController;
 
 use App\Controllers\StudentRequirementsController;
 use App\Controllers\StudentMeetingsController;
+use App\Controllers\StudentExamController;
 
 
 return function (App $app) {
@@ -54,4 +55,7 @@ return function (App $app) {
 
     // Student meetings routes
     $app->get('/student/meetings', [StudentMeetingsController::class, 'show']);
+
+    // Student exam & graduation route
+    $app->get('/student/exam', [StudentExamController::class, 'show']);
 };
