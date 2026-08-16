@@ -59,7 +59,7 @@ class StudentProposalController
             'first_name'     => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
             'proposal'       => $proposal,
-            'supervisors'      => $lecturerModel->listAvailableSupervisors(),
+            'supervisors'    => $lecturerModel->listAvailableSupervisors(),
             'csrf_token'     => $this->csrfToken(),
             'error'          => $_SESSION['flash_error'] ?? null,
             'success'        => $_SESSION['flash_success'] ?? null,
@@ -89,6 +89,10 @@ class StudentProposalController
             return $this->redirect($response, '/student/proposal');
         }
 
+        // action = 'draft' (save without submitting) or 'submit' (submit for review)
+        $action = $data['action'] ?? 'submit';
+        $submitting = $action === 'submit';
+
         $title              = trim((string) ($data['title'] ?? ''));
         $synopsis           = trim((string) ($data['synopsis'] ?? ''));
         $proposedSupervisor = trim((string) ($data['proposed_supervisor_id'] ?? ''));
@@ -97,17 +101,19 @@ class StudentProposalController
         if ($title === '' || mb_strlen($title) > 255) {
             $errors[] = 'Please provide a working title (up to 255 characters).';
         }
-        if ($synopsis === '' || mb_strlen($synopsis) < 50) {
-            $errors[] = 'Please provide a synopsis of at least 50 characters.';
+        // Drafts can be saved with a shorter/incomplete synopsis; only
+        // enforce the full length requirement when actually submitting.
+        if ($synopsis === '' || ($submitting && mb_strlen($synopsis) < 50)) {
+            $errors[] = $submitting
+                ? 'Please provide a synopsis of at least 50 characters before submitting.'
+                : 'Please provide a synopsis.';
         }
-        if ($proposedSupervisor === '') {
-            $errors[] = 'Please propose a supervisor.';
+        if ($submitting && $proposedSupervisor === '') {
+            $errors[] = 'Please propose a supervisor before submitting.';
         }
 
         $proposalModel = new Proposal($this->db);
-        if (!$errors && $proposalModel->findActiveByStudentId($student['student_id'])) {
-            $errors[] = 'You already have an active proposal under review.';
-        }
+        $existing = $proposalModel->findActiveByStudentId($student['student_id']);
 
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
@@ -120,17 +126,34 @@ class StudentProposalController
         }
 
         try {
-            $proposalModel->create($student['student_id'], [
-                'title' => $title,
-                'synopsis' => $synopsis,
-                'proposed_supervisor_id' => $proposedSupervisor,
-            ]);
+            if ($existing && $existing['status'] === 'draft') {
+                // Editing/advancing an existing draft.
+                $proposalModel->updateDraft($existing['proposal_id'], [
+                    'title' => $title,
+                    'synopsis' => $synopsis,
+                    'proposed_supervisor_id' => $proposedSupervisor ?: null,
+                ], $submitting);
+            } elseif ($existing) {
+                // Already submitted/approved/under review — nothing to do here.
+                $_SESSION['flash_error'] = 'You already have an active proposal under review.';
+                return $this->redirect($response, '/student/proposal');
+            } else {
+                // Brand new proposal.
+                $proposalModel->create($student['student_id'], [
+                    'title' => $title,
+                    'synopsis' => $synopsis,
+                    'proposed_supervisor_id' => $proposedSupervisor ?: null,
+                ], $submitting);
+            }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Submission failed: ' . $e->getMessage();
             return $this->redirect($response, '/student/proposal');
         }
 
-        $_SESSION['flash_success'] = 'Your proposal was submitted for review.';
+        $_SESSION['flash_success'] = $submitting
+            ? 'Your proposal was submitted for review.'
+            : 'Draft saved. You can keep editing it until you submit.';
+
         return $this->redirect($response, '/student/proposal');
     }
 

@@ -12,6 +12,8 @@ use Psr\Container\ContainerInterface;
 
 use App\Models\Lecturer;
 use App\Models\Proposal;
+use App\Models\Document;
+use App\Models\Payment;
 
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
@@ -53,6 +55,15 @@ return function (ContainerBuilder $containerBuilder) {
 
 Lecturer::class => function (ContainerInterface $c) {
     return new Lecturer($c->get(PDO::class));
+},
+
+
+Document::class => function (ContainerInterface $c) {
+    return new Document($c->get(PDO::class));
+},
+
+Payment::class => function (ContainerInterface $c) {
+    return new Payment($c->get(PDO::class));
 },
 
 

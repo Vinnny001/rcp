@@ -15,18 +15,6 @@ class Proposal
         $this->db = $db;
     }
 
-    /**
-     * Latest non-rejected proposal for a student, with the review-timeline
-     * columns the proposal page needs (created_at / submission_date /
-     * reviewed_at / decided_at). If your `thesis_proposals` table doesn't
-     * have reviewed_at / decided_at yet, add them:
-     *
-     *   ALTER TABLE thesis_proposals
-     *     ADD COLUMN reviewed_at DATETIME NULL,
-     *     ADD COLUMN decided_at  DATETIME NULL;
-     *
-     * and set them when a reviewer/board updates the status.
-     */
     public function findActiveByStudentId(string $studentId): ?array
     {
         $stmt = $this->db->prepare(
@@ -53,11 +41,19 @@ class Proposal
         return $row;
     }
 
-    public function create(string $studentId, array $data): void
+    /**
+     * Creates a new proposal. Pass $submit = false to save as a draft
+     * (no submission_date, status stays 'draft'), or true to submit it
+     * immediately for review.
+     */
+    public function create(string $studentId, array $data, bool $submit = true): void
     {
+        $status = $submit ? 'submitted' : 'draft';
+        $submissionDate = $submit ? date('Y-m-d') : null;
+
         $stmt = $this->db->prepare(
             "INSERT INTO thesis_proposals (student_id, title, synopsis, proposed_supervisor_id, status, submission_date)
-             VALUES (:student_id, :title, :synopsis, :proposed_supervisor_id, 'submitted', CURDATE())"
+             VALUES (:student_id, :title, :synopsis, :proposed_supervisor_id, :status, :submission_date)"
         );
 
         $stmt->execute([
@@ -65,6 +61,46 @@ class Proposal
             'title'                   => $data['title'],
             'synopsis'                => $data['synopsis'],
             'proposed_supervisor_id'  => $data['proposed_supervisor_id'],
+            'status'                  => $status,
+            'submission_date'         => $submissionDate,
+        ]);
+    }
+
+    /**
+     * Updates an existing DRAFT proposal's content, and optionally
+     * submits it (status -> submitted, submission_date set) in the
+     * same call. Only rows currently in 'draft' status can be touched
+     * this way — once submitted, editing here is a no-op by design.
+     */
+    public function updateDraft(string $proposalId, array $data, bool $submit = false): void
+    {
+        if ($submit) {
+            $stmt = $this->db->prepare(
+                "UPDATE thesis_proposals
+                 SET title = :title,
+                     synopsis = :synopsis,
+                     proposed_supervisor_id = :proposed_supervisor_id,
+                     status = 'submitted',
+                     submission_date = CURDATE()
+                 WHERE proposal_id = :proposal_id
+                   AND status = 'draft'"
+            );
+        } else {
+            $stmt = $this->db->prepare(
+                "UPDATE thesis_proposals
+                 SET title = :title,
+                     synopsis = :synopsis,
+                     proposed_supervisor_id = :proposed_supervisor_id
+                 WHERE proposal_id = :proposal_id
+                   AND status = 'draft'"
+            );
+        }
+
+        $stmt->execute([
+            'title'                   => $data['title'],
+            'synopsis'                => $data['synopsis'],
+            'proposed_supervisor_id'  => $data['proposed_supervisor_id'],
+            'proposal_id'             => $proposalId,
         ]);
     }
 }

@@ -13,6 +13,9 @@ use App\Controllers\StudentController;
 use App\Controllers\StudentProposalController;
 use App\Controllers\DashboardController;
 
+use App\Controllers\StudentRequirementsController;
+
+
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
         return $response;
@@ -42,4 +45,8 @@ return function (App $app) {
     // Student proposal routes
     $app->get('/student/proposal', [StudentProposalController::class, 'show']);
     $app->post('/student/proposal', [StudentProposalController::class, 'store']);
+
+    // Student requirements routes
+    $app->get('/student/requirements', [StudentRequirementsController::class, 'show']);
+$app->post('/student/requirements/upload', [StudentRequirementsController::class, 'uploadDocument']);
 };

@@ -23,7 +23,7 @@
   </div>
 {% endif %}
 
-{% if proposal %}
+{% if proposal and proposal.status != 'draft' %}
   <div class="card" style="margin-bottom:26px;">
     <h3>{{ proposal.title }}</h3>
     <div class="meta">
@@ -83,12 +83,17 @@
       </tr>
     </tbody>
   </table>
+{% elseif proposal and proposal.status == 'draft' %}
+  <div class="notice">This proposal is still a draft. Keep editing it, then submit when you're ready — it won't be reviewed until you do.</div>
 {% else %}
-  <div class="notice">You haven't submitted a thesis proposal yet. Use the form below to submit one for review.</div>
+  <div class="notice">You haven't started a thesis proposal yet. Fill in the form below — you can save it as a draft and come back later, or submit it straight for review.</div>
 {% endif %}
 
-{% if not proposal or proposal.status == 'rejected' %}
-  <div class="section-title">Submit a new proposal<div class="rule"></div></div>
+{% if not proposal or proposal.status in ['draft', 'rejected'] %}
+  <div class="section-title">
+    {% if proposal and proposal.status == 'draft' %}Edit your draft{% else %}Submit a new proposal{% endif %}
+    <div class="rule"></div>
+  </div>
   <div class="form-card">
     <form method="POST" action="/student/proposal">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -96,29 +101,32 @@
       <div class="field">
         <label>Working title</label>
         <input type="text" name="title" required maxlength="255"
-               value="{{ old.title|default('') }}"
+               value="{{ old.title|default(proposal.title|default('')) }}"
                placeholder="e.g. Federated Learning for Fraud Detection in Mobile Money">
       </div>
 
       <div class="field">
         <label>Synopsis</label>
-        <textarea name="synopsis" rows="4" required
-                  placeholder="Describe the problem, approach, and expected contribution...">{{ old.synopsis|default('') }}</textarea>
+        <textarea name="synopsis" rows="4"
+                  placeholder="Describe the problem, approach, and expected contribution...">{{ old.synopsis|default(proposal.synopsis|default('')) }}</textarea>
       </div>
 
       <div class="field">
         <label>Propose a supervisor</label>
-        <select name="proposed_supervisor_id" required>
-          <option value="" disabled {% if not old.proposed_supervisor_id %}selected{% endif %}>Select a lecturer</option>
+        <select name="proposed_supervisor_id">
+          <option value="" {% if not (old.proposed_supervisor_id|default(proposal.proposed_supervisor_id|default(''))) %}selected{% endif %}>Select a lecturer</option>
           {% for s in supervisors %}
-            <option value="{{ s.lecturer_id }}" {% if old.proposed_supervisor_id == s.lecturer_id %}selected{% endif %}>
+            <option value="{{ s.lecturer_id }}" {% if old.proposed_supervisor_id|default(proposal.proposed_supervisor_id|default('')) == s.lecturer_id %}selected{% endif %}>
               {{ s.name }} — {{ s.department }}
             </option>
           {% endfor %}
         </select>
       </div>
 
-      <button type="submit" class="btn brass">Submit proposal</button>
+      <div style="display:flex; gap:12px;">
+        <button type="submit" name="action" value="draft" class="btn ghost">Save as draft</button>
+        <button type="submit" name="action" value="submit" class="btn brass">Submit for review</button>
+      </div>
     </form>
   </div>
 {% endif %}

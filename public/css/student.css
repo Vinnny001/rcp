@@ -169,3 +169,25 @@ input,textarea,select{
   }
 
 
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(16,22,31,.72); backdrop-filter:blur(2px);
+  display:none; align-items:center; justify-content:center; z-index:100; padding:24px;
+}
+.modal-overlay.open{ display:flex; }
+.modal{
+  width:100%; max-width:520px; max-height:88vh; overflow-y:auto;
+  background:var(--paper); border-radius:var(--radius); padding:30px 32px;
+  box-shadow:0 30px 70px rgba(0,0,0,.5); position:relative;
+}
+.modal-close{
+  position:absolute; top:18px; right:20px; background:none; border:none; cursor:pointer;
+  font-family:'IBM Plex Mono',monospace; font-size:.9rem; color:var(--slate);
+}
+.modal-close:hover{ color:var(--ink-text); }
+.modal .ref{ margin-bottom:4px; }
+.modal h2{ font-family:'Fraunces',serif; font-weight:600; font-size:1.28rem; margin:0 0 4px; }
+.modal .sub{ color:var(--slate); font-size:.82rem; margin-bottom:22px; }
+.modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+.btn.ghost{ background:transparent; color:var(--ink-text); }
+
+
