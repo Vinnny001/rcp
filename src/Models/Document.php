@@ -45,4 +45,40 @@ class Document
             'mime_type'      => $data['mime_type'],
         ]);
     }
+
+
+
+    public function findBySupervisorId(string $lecturerId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT d.*,
+                    s.student_number,
+                    CONCAT(u.first_name, ' ', u.last_name) AS student_name
+             FROM documents d
+             JOIN students s ON s.user_id = d.uploaded_by
+             JOIN users u ON u.user_id = d.uploaded_by
+             JOIN supervision_assignments sa ON sa.student_id = s.student_id
+             WHERE sa.supervisor_id = :lecturer_id
+               AND sa.is_active = 1
+             ORDER BY d.uploaded_at DESC"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function updateValidation(string $documentId, string $status, ?string $notes, string $validatedByUserId): void
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE documents
+             SET validation_status = :status, validation_notes = :notes, validated_by = :validated_by
+             WHERE document_id = :document_id"
+        );
+        $stmt->execute([
+            'status'       => $status,
+            'notes'        => $notes,
+            'validated_by' => $validatedByUserId,
+            'document_id'  => $documentId,
+        ]);
+    }
+
 }

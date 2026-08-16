@@ -72,4 +72,20 @@ class Meeting
         $stmt->execute(['user_id' => $userId, 'user_id2' => $userId]);
         return $stmt->fetchAll();
     }
+
+
+    public function countUpcomingWithinDaysForUser(string $userId, int $days = 7): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(DISTINCT m.meeting_id)
+             FROM meetings m
+             INNER JOIN meeting_attendees ma ON ma.meeting_id = m.meeting_id
+             WHERE ma.user_id = :user_id
+               AND m.status IN ('scheduled', 'in_progress')
+               AND m.scheduled_at BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL :days DAY)"
+        );
+        $stmt->execute(['user_id' => $userId, 'days' => $days]);
+        return (int) $stmt->fetchColumn();
+    }
+
 }

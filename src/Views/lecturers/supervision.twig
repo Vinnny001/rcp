@@ -1,0 +1,187 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Supervision{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Supervision</h1>
+    <div class="sub">Students under your supervision, incoming requests, and their submitted documents.</div>
+  </div>
+  <div class="ref">SUP-{{ staff_number }}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Your students<div class="rule"></div></div>
+
+{% if students %}
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>Student</th><th>Number</th><th>Program</th><th>Role</th><th>Proposal status</th></tr></thead>
+    <tbody>
+      {% for s in students %}
+        <tr>
+          <td class="strong">{{ s.student_name }}</td>
+          <td class="mono">{{ s.student_number }}</td>
+          <td>{{ s.program }}</td>
+          <td class="mono">{{ s.role == 'main' ? 'Main' : 'Co-supervisor' }}</td>
+          <td>
+            {% if s.proposal_status == 'approved' %}
+              <span class="stamp mini approved">Approved</span>
+            {% elseif s.proposal_status == 'under_review' %}
+              <span class="stamp mini review">Under review</span>
+            {% elseif s.proposal_status == 'rejected' %}
+              <span class="stamp mini rejected">Rejected</span>
+            {% else %}
+              <span class="stamp mini pending">{{ s.proposal_status|default('—')|capitalize }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice" style="margin-bottom:32px;">You have no active supervisions yet.</div>
+{% endif %}
+
+<div class="section-title">Assignment requests<div class="rule"></div></div>
+
+{% if assignment_requests %}
+  {% for r in assignment_requests %}
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <div>
+        <h3>{{ r.student_name }}</h3>
+        <div class="meta">Proposes you as {{ r.role == 'main' ? 'main supervisor' : 'co-supervisor' }} — "{{ r.title }}"</div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn ghost" onclick="openModal('declineModal-{{ r.request_id }}')">Decline</button>
+        <form method="POST" action="/lecturer/supervision/accept" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="request_id" value="{{ r.request_id }}">
+          <button type="submit" class="btn brass">Accept</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="declineModal-{{ r.request_id }}" onclick="closeModal(event,'declineModal-{{ r.request_id }}')">
+      <div class="modal" onclick="event.stopPropagation()">
+        <button type="button" class="modal-close" onclick="hideModal('declineModal-{{ r.request_id }}')">✕ Close</button>
+        <div class="ref">SUP-{{ staff_number }} · DECLINE REQUEST</div>
+        <h2>Decline supervision request</h2>
+        <div class="sub">{{ r.student_name }} — "{{ r.title }}"</div>
+
+        <form method="POST" action="/lecturer/supervision/decline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="request_id" value="{{ r.request_id }}">
+          <div class="field">
+            <label>Reason (optional)</label>
+            <textarea name="decline_reason" rows="3" placeholder="Let the student know why, so they can find a better fit..."></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn ghost" onclick="hideModal('declineModal-{{ r.request_id }}')">Cancel</button>
+            <button type="submit" class="btn brass">Confirm decline</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">No pending assignment requests.</div>
+{% endif %}
+
+{% if request_history %}
+  <div class="section-title" style="margin-top:26px;">Recent decisions<div class="rule"></div></div>
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>Student</th><th>Proposal</th><th>Decision</th><th>Date</th></tr></thead>
+    <tbody>
+      {% for h in request_history %}
+        <tr>
+          <td class="strong">{{ h.student_name }}</td>
+          <td>{{ h.title }}</td>
+          <td>
+            {% if h.status == 'accepted' %}
+              <span class="stamp mini approved">Accepted</span>
+            {% elseif h.status == 'declined' %}
+              <span class="stamp mini rejected">Declined</span>
+            {% else %}
+              <span class="stamp mini pending">{{ h.status|capitalize }}</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ h.decided_at ? h.decided_at|date('d M Y') : '—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+<div class="section-title">Student documents<div class="rule"></div></div>
+
+{% if documents %}
+  <table>
+    <thead><tr><th>Student</th><th>File</th><th>Type</th><th>Uploaded</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for doc in documents %}
+        <tr>
+          <td class="strong">{{ doc.student_name }}</td>
+          <td>{{ doc.file_name }}</td>
+          <td class="mono">{{ doc.document_type|replace({'_': ' '})|capitalize }}</td>
+          <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
+          <td>
+            {% if doc.validation_status == 'valid' %}
+              <span class="stamp mini approved">Valid</span>
+            {% elseif doc.validation_status == 'rejected' %}
+              <span class="stamp mini rejected">Rejected</span>
+            {% else %}
+              <span class="stamp mini pending">Pending</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if doc.validation_status == 'pending' %}
+              <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem;" onclick="openModal('docModal-{{ doc.document_id }}')">Review</button>
+            {% elseif doc.validation_notes %}
+              <span class="meta" style="margin:0;">{{ doc.validation_notes }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% for doc in documents %}
+    {% if doc.validation_status == 'pending' %}
+      <div class="modal-overlay" id="docModal-{{ doc.document_id }}" onclick="closeModal(event,'docModal-{{ doc.document_id }}')">
+        <div class="modal" onclick="event.stopPropagation()">
+          <button type="button" class="modal-close" onclick="hideModal('docModal-{{ doc.document_id }}')">✕ Close</button>
+          <div class="ref">{{ doc.student_name }} · {{ doc.document_type|replace({'_': ' '})|capitalize }}</div>
+          <h2>Review document</h2>
+          <div class="sub">{{ doc.file_name }} — uploaded {{ doc.uploaded_at|date('d M Y') }}</div>
+
+          <form method="POST" action="/lecturer/supervision/documents/validate">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="document_id" value="{{ doc.document_id }}">
+
+            <div class="field">
+              <label>Notes (optional)</label>
+              <textarea name="notes" rows="3" placeholder="Comments for the student's record..."></textarea>
+            </div>
+
+            <div class="modal-actions">
+              <button type="submit" name="status" value="rejected" class="btn ghost">Reject</button>
+              <button type="submit" name="status" value="valid" class="btn brass">Mark valid</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+  {% endfor %}
+{% else %}
+  <div class="notice">No documents uploaded by your students yet.</div>
+{% endif %}
+
+{% endblock %}

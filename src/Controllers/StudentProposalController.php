@@ -10,6 +10,8 @@ use Psr\Http\Message\ServerRequestInterface;
 
 use App\Models\Lecturer;
 use App\Models\Proposal;
+use App\Models\SupervisionRequest;
+
 use PDO;
 
 class StudentProposalController
@@ -133,22 +135,32 @@ class StudentProposalController
                     'synopsis' => $synopsis,
                     'proposed_supervisor_id' => $proposedSupervisor ?: null,
                 ], $submitting);
+
+                if ($submitting && $proposedSupervisor !== '') {
+                    $requestModel = new SupervisionRequest($this->db);
+                    $requestModel->create($existing['proposal_id'], $student['student_id'], $proposedSupervisor);
+                }
             } elseif ($existing) {
                 // Already submitted/approved/under review — nothing to do here.
                 $_SESSION['flash_error'] = 'You already have an active proposal under review.';
                 return $this->redirect($response, '/student/proposal');
             } else {
                 // Brand new proposal.
-                $proposalModel->create($student['student_id'], [
+                $proposalId = $proposalModel->create($student['student_id'], [
                     'title' => $title,
                     'synopsis' => $synopsis,
                     'proposed_supervisor_id' => $proposedSupervisor ?: null,
                 ], $submitting);
+
+                if ($submitting && $proposedSupervisor !== '') {
+                    $requestModel = new SupervisionRequest($this->db);
+                    $requestModel->create($proposalId, $student['student_id'], $proposedSupervisor);
+                }
             }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Submission failed: ' . $e->getMessage();
             return $this->redirect($response, '/student/proposal');
-        }
+        } 
 
         $_SESSION['flash_success'] = $submitting
             ? 'Your proposal was submitted for review.'

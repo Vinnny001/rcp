@@ -17,6 +17,9 @@ use App\Controllers\StudentRequirementsController;
 use App\Controllers\StudentMeetingsController;
 use App\Controllers\StudentExamController;
 
+use App\Controllers\LecturerOverviewController;
+use App\Controllers\LecturerSupervisionController;
+
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
@@ -58,4 +61,15 @@ return function (App $app) {
 
     // Student exam & graduation route
     $app->get('/student/exam', [StudentExamController::class, 'show']);
+
+
+// LECTURER ROUTES
+    // Lecturer overview route
+    $app->get('/lecturer/dashboard', [LecturerOverviewController::class, 'show']);
+
+    // Lecturer supervision routes
+    $app->get('/lecturer/supervision', [LecturerSupervisionController::class, 'show']);
+    $app->post('/lecturer/supervision/accept', [LecturerSupervisionController::class, 'accept']);
+    $app->post('/lecturer/supervision/decline', [LecturerSupervisionController::class, 'decline']);
+    $app->post('/lecturer/supervision/documents/validate', [LecturerSupervisionController::class, 'validateDocument']);
 };

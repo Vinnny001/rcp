@@ -46,7 +46,7 @@ class Proposal
      * (no submission_date, status stays 'draft'), or true to submit it
      * immediately for review.
      */
-    public function create(string $studentId, array $data, bool $submit = true): void
+    public function create(string $studentId, array $data, bool $submit = true): string
     {
         $status = $submit ? 'submitted' : 'draft';
         $submissionDate = $submit ? date('Y-m-d') : null;
@@ -64,6 +64,8 @@ class Proposal
             'status'                  => $status,
             'submission_date'         => $submissionDate,
         ]);
+
+        return $this->findActiveByStudentId($studentId)['proposal_id'];
     }
 
     /**

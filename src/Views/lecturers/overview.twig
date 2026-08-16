@@ -1,0 +1,70 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Supervision Overview{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Supervision overview</h1>
+    <div class="sub">Your current load and what needs your attention this week.</div>
+  </div>
+  <div class="ref">STAFF-{{ staff_number }}</div>
+</div>
+
+{% set pct = max_supervision_load > 0 ? (active_supervisions / max_supervision_load * 100)|round : 0 %}
+{% set slots_left = max_supervision_load - active_supervisions %}
+
+<div class="grid cols-3" style="margin-bottom:32px;">
+  <div class="card">
+    <h3>Active supervisions</h3>
+    <div class="gauge">
+      <div class="gauge-ring" style="--pct:{{ pct }}" data-val="{{ active_supervisions }}/{{ max_supervision_load }}"></div>
+      <div class="meta">
+        {% if slots_left > 0 %}
+          {{ slots_left }} slot{{ slots_left != 1 ? 's' : '' }} remaining before you reach your max load.
+        {% else %}
+          You're at your maximum supervision load.
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Pending proposal reviews</h3>
+    <div class="stat">{{ pending_reviews|length }}</div>
+    <div class="stat-label">Awaiting your decision</div>
+  </div>
+  <div class="card">
+    <h3>Upcoming meetings</h3>
+    <div class="stat">{{ upcoming_meetings }}</div>
+    <div class="stat-label">Next 7 days</div>
+  </div>
+</div>
+
+<div class="section-title">Awaiting your review<div class="rule"></div></div>
+
+{% if pending_reviews %}
+  <table>
+    <thead><tr><th>Student</th><th>Proposal title</th><th>Submitted</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for p in pending_reviews %}
+        <tr>
+          <td class="strong">{{ p.student_name }}</td>
+          <td>{{ p.title }}</td>
+          <td class="mono">{{ p.submission_date ? p.submission_date|date('d M Y') : '—' }}</td>
+          <td>
+            {% if p.status == 'under_review' %}
+              <span class="stamp mini review">Review</span>
+            {% else %}
+              <span class="stamp mini pending">Submitted</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No proposals awaiting your review right now.</div>
+{% endif %}
+
+{% endblock %}

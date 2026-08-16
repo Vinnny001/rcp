@@ -21,6 +21,10 @@ use App\Models\Examination;
 use App\Models\Graduation;
 use App\Controllers\StudentExamController;
 
+use App\Controllers\LecturerOverviewController;
+use App\Controllers\LecturerSupervisionController;
+use App\Models\SupervisionRequest;
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -91,6 +95,20 @@ Graduation::class => function (ContainerInterface $c) {
 
 StudentExamController::class => function (ContainerInterface $c) {
     return new StudentExamController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+// Lecturer Overview Controller
+LecturerOverviewController::class => function (ContainerInterface $c) {
+    return new LecturerOverviewController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+SupervisionRequest::class => function (ContainerInterface $c) {
+    return new SupervisionRequest($c->get(PDO::class));
+},
+
+LecturerSupervisionController::class => function (ContainerInterface $c) {
+    return new LecturerSupervisionController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

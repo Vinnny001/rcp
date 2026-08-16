@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{% block title %}RCP{% endblock %} — Research Coordination Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/lecturer.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">RC</div>
+      <div class="brand-text">
+        <div class="t1">Research Coordination Platform</div>
+        <div class="t2">Registrar's Dossier System</div>
+      </div>
+    </div>
+
+    <div class="user-chip">
+      <div class="who">
+        <div class="name">{{ first_name }} {{ last_name }}</div>
+        <div class="role">Lecturer</div>
+        <form method="POST" action="/logout" style="display:inline;">
+          <button type="submit" class="logout-link">Sign out</button>
+        </form>
+      </div>
+      <div class="avatar">{{ first_name|slice(0,1) }}{{ last_name|slice(0,1) }}</div>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <nav class="tabs">
+      <a class="tab {{ active_page == 'l-overview' ? 'active' : '' }}" href="/lecturer/dashboard">
+        <span class="num">01</span>Overview
+      </a>
+      <a class="tab {{ active_page == 'l-supervision' ? 'active' : '' }}" href="/lecturer/supervision">
+        <span class="num">02</span>Supervision
+      </a>
+      <a class="tab {{ active_page == 'l-meetings' ? 'active' : '' }}" href="/lecturer/meetings">
+        <span class="num">03</span>Meetings &amp; Grading
+      </a>
+    </nav>
+    <div class="sidebar-foot">RCP v1 · BBIT Dept<br>JKUAT Graduate School</div>
+  </aside>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>
