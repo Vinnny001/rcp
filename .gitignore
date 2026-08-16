@@ -4,3 +4,6 @@
 
 # Composer
 /vendor/
+
+# Files uploaded by users
+public/uploads
