@@ -77,7 +77,7 @@ class Lecturer
     public function findActiveSupervisions(string $lecturerId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT sa.assignment_id, sa.role,
+            "SELECT sa.assignment_id, sa.role, sa.proposal_id, sa.student_id,
                     s.student_number, s.program,
                     CONCAT(u.first_name, ' ', u.last_name) AS student_name,
                     p.status AS proposal_status
@@ -92,6 +92,4 @@ class Lecturer
         $stmt->execute(['lecturer_id' => $lecturerId]);
         return $stmt->fetchAll();
     }
-
-
 }

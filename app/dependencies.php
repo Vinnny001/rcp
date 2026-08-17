@@ -24,6 +24,7 @@ use App\Controllers\StudentExamController;
 use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
 use App\Models\SupervisionRequest;
+use App\Controllers\LecturerMeetingsController;
 
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
@@ -109,6 +110,11 @@ SupervisionRequest::class => function (ContainerInterface $c) {
 
 LecturerSupervisionController::class => function (ContainerInterface $c) {
     return new LecturerSupervisionController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+LecturerMeetingsController::class => function (ContainerInterface $c) {
+    return new LecturerMeetingsController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

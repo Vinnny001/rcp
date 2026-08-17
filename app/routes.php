@@ -19,6 +19,7 @@ use App\Controllers\StudentExamController;
 
 use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
+use App\Controllers\LecturerMeetingsController;
 
 
 return function (App $app) {
@@ -72,4 +73,10 @@ return function (App $app) {
     $app->post('/lecturer/supervision/accept', [LecturerSupervisionController::class, 'accept']);
     $app->post('/lecturer/supervision/decline', [LecturerSupervisionController::class, 'decline']);
     $app->post('/lecturer/supervision/documents/validate', [LecturerSupervisionController::class, 'validateDocument']);
+
+
+    $app->get('/lecturer/meetings', [LecturerMeetingsController::class, 'show']);
+    $app->post('/lecturer/meetings/schedule', [LecturerMeetingsController::class, 'schedule']);
+    $app->post('/lecturer/meetings/grade', [LecturerMeetingsController::class, 'grade']);
+
 };

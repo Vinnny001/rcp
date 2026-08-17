@@ -54,7 +54,16 @@
 
 </div>
 
+<script>
+  function openModal(id){ document.getElementById(id).classList.add('open'); }
+  function hideModal(id){ document.getElementById(id).classList.remove('open'); }
+  function closeModal(e, id){ if(e.target.id===id) hideModal(id); }
+</script>
+
 {% block extra_scripts %}{% endblock %}
+
+
+
 
 </body>
 </html>

@@ -1,0 +1,163 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Meetings & Grading{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Meetings &amp; grading</h1>
+    <div class="sub">Scheduled sessions and outstanding examination scores.</div>
+  </div>
+  <div class="ref">CAL-{{ staff_number }}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">
+  Scheduled meetings<div class="rule"></div>
+  <button class="btn ghost" style="padding:6px 14px; font-size:.74rem;" onclick="openModal('scheduleModal')">Schedule meeting</button>
+</div>
+
+{% if upcoming %}
+  <div class="grid cols-2" style="margin-bottom:32px;">
+    {% for m in upcoming %}
+      <div class="card">
+        <h3>{{ m.meeting_type|replace({'_': ' '})|capitalize }}{% if m.proposal_title %} — {{ m.proposal_title }}{% endif %}</h3>
+        <div class="meta">
+          {{ m.scheduled_at|date('D, j M Y') }} · {{ m.scheduled_at|date('g:i A') }} ·
+          {{ m.mode|capitalize }}
+          {% if m.mode in ['virtual', 'hybrid'] and m.virtual_link %} — {{ m.virtual_link }}{% endif %}
+          {% if m.mode in ['physical', 'hybrid'] and m.location %} — {{ m.location }}{% endif %}
+        </div>
+        {% if m.other_attendees %}
+          <div class="meta">With {{ m.other_attendees }}</div>
+        {% endif %}
+        <span class="stamp mini pending">{{ m.status == 'in_progress' ? 'In progress' : 'Scheduled' }}</span>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="notice" style="margin-bottom:32px;">No meetings scheduled.</div>
+{% endif %}
+
+{% if past %}
+  <div class="section-title">Past meetings<div class="rule"></div></div>
+  {% for m in past %}
+    <div class="card" style="margin-bottom:14px;">
+      <h3>{{ m.meeting_type|replace({'_': ' '})|capitalize }}{% if m.proposal_title %} — {{ m.proposal_title }}{% endif %}</h3>
+      <div class="meta">
+        {{ m.scheduled_at|date('j M Y') }} · {{ m.mode|capitalize }}
+        {% if m.other_attendees %} · With {{ m.other_attendees }}{% endif %}
+      </div>
+      {% if m.ai_summary %}
+        <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ m.ai_summary }}</p>
+      {% endif %}
+      {% if m.status == 'cancelled' %}
+        <span class="stamp mini rejected">Cancelled</span>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% endif %}
+
+<div class="section-title">Grade an examination<div class="rule"></div></div>
+
+{% if pending_grading %}
+  {% for g in pending_grading %}
+    <div class="form-card" style="margin-bottom:18px;">
+      <div class="meta" style="margin-bottom:16px;">
+        {{ g.student_name }} · {{ g.exam_type|capitalize }} examination · {{ g.exam_date ? g.exam_date|date('d M Y') : 'Date TBC' }}
+        {% if g.title %} · "{{ g.title }}"{% endif %}
+        · You are the {{ g.examiner_type }} examiner
+      </div>
+      <form method="POST" action="/lecturer/meetings/grade">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="grader_id" value="{{ g.grader_id }}">
+        <div class="field"><label>Score (0–100)</label><input type="number" name="score" min="0" max="100" step="0.01" placeholder="e.g. 78" required></div>
+        <div class="field"><label>Feedback</label><textarea name="feedback" rows="3" placeholder="Comments for the candidate and examination record..."></textarea></div>
+        <button type="submit" class="btn brass">Submit grade</button>
+      </form>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">No examinations awaiting your grade right now.</div>
+{% endif %}
+
+<!-- ============ MODAL: SCHEDULE MEETING ============ -->
+<div class="modal-overlay" id="scheduleModal" onclick="closeModal(event,'scheduleModal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <button type="button" class="modal-close" onclick="hideModal('scheduleModal')">✕ Close</button>
+    <div class="ref">CAL-{{ staff_number }} · NEW MEETING</div>
+    <h2>Schedule a meeting</h2>
+    <div class="sub">Invited attendees are notified once you confirm.</div>
+
+    <form method="POST" action="/lecturer/meetings/schedule">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label>Student</label>
+        <select name="proposal_id" required>
+          <option value="">Select a student</option>
+          {% for s in students %}
+            {% if s.proposal_id %}
+              <option value="{{ s.proposal_id }}">{{ s.student_name }} — {{ s.student_number }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Meeting type</label>
+        <select name="meeting_type" required>
+          <option value="approval_board">Approval board</option>
+          <option value="supervisory">Supervisory check-in</option>
+          <option value="concept_presentation">Concept presentation</option>
+          <option value="viva">Viva</option>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <div class="field"><label>Date</label><input type="date" name="date" required></div>
+        <div class="field"><label>Time</label><input type="time" name="time" required></div>
+      </div>
+
+      <label>Mode</label>
+      <div class="mode-pick">
+        <button type="button" class="active" data-mode="physical" onclick="pickMode(this)">Physical</button>
+        <button type="button" data-mode="virtual" onclick="pickMode(this)">Virtual</button>
+        <button type="button" data-mode="hybrid" onclick="pickMode(this)">Hybrid</button>
+      </div>
+      <input type="hidden" name="mode" id="modeInput" value="physical">
+
+      <div class="field"><label>Location</label><input type="text" name="location" placeholder="e.g. Room CS-204"></div>
+      <div class="field"><label>Virtual link (if applicable)</label><input type="text" name="virtual_link" placeholder="e.g. meet.rcp/board-0417"></div>
+
+      <div class="field" style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+        <input type="checkbox" name="ai_notes_enabled" checked style="width:auto;" id="aiNotes">
+        <label for="aiNotes" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem; color:var(--ink-text);">Enable AI meeting notes</label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="hideModal('scheduleModal')">Cancel</button>
+        <button type="submit" class="btn brass">Schedule meeting</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function pickMode(btn){
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('modeInput').value = btn.dataset.mode;
+  }
+</script>
+{% endblock %}

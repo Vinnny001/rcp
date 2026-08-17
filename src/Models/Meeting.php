@@ -88,4 +88,53 @@ class Meeting
         return (int) $stmt->fetchColumn();
     }
 
+
+    public function create(string $proposalId, array $data, string $createdByUserId): string
+    {
+        $meetingId = $this->generateUuid();
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO meetings
+                (meeting_id, proposal_id, meeting_type, scheduled_at, location, virtual_link, mode, status, ai_notes_enabled, created_by)
+             VALUES
+                (:meeting_id, :proposal_id, :meeting_type, :scheduled_at, :location, :virtual_link, :mode, 'scheduled', :ai_notes_enabled, :created_by)"
+        );
+        $stmt->execute([
+            'meeting_id'        => $meetingId,
+            'proposal_id'       => $proposalId,
+            'meeting_type'      => $data['meeting_type'],
+            'scheduled_at'      => $data['scheduled_at'],
+            'location'          => $data['location'] ?: null,
+            'virtual_link'      => $data['virtual_link'] ?: null,
+            'mode'              => $data['mode'],
+            'ai_notes_enabled'  => $data['ai_notes_enabled'] ? 1 : 0,
+            'created_by'        => $createdByUserId,
+        ]);
+
+        return $meetingId;
+    }
+
+    public function addAttendee(string $meetingId, string $userId, string $role): void
+    {
+        $stmt = $this->db->prepare(
+            "INSERT INTO meeting_attendees (attendee_id, meeting_id, user_id, role_in_meeting, attendance_status)
+             VALUES (:attendee_id, :meeting_id, :user_id, :role, 'invited')"
+        );
+        $stmt->execute([
+            'attendee_id' => $this->generateUuid(),
+            'meeting_id'  => $meetingId,
+            'user_id'     => $userId,
+            'role'        => $role,
+        ]);
+    }
+
+    private function generateUuid(): string
+    {
+        $data = random_bytes(16);
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+    }
+
+
 }
