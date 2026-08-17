@@ -19,6 +19,8 @@ class LecturerMeetingsController
 
     private const VALID_MEETING_TYPES = ['approval_board', 'supervisory', 'concept_presentation', 'viva'];
     private const VALID_MODES = ['physical', 'virtual', 'hybrid'];
+    private const VALID_ATTENDEE_ROLES = ['chairperson', 'examiner', 'supervisor', 'observer'];
+    
 
     public function __construct(PDO $db, Twig $twig)
     {
@@ -77,6 +79,7 @@ class LecturerMeetingsController
             'upcoming'         => $meetingModel->findUpcomingForUser($userId),
             'past'             => $meetingModel->findPastForUser($userId),
             'students'         => $lecturerModel->findActiveSupervisions($lecturer['lecturer_id']),
+            'other_lecturers'  => $lecturerModel->listAllExcept($userId),
             'pending_grading'  => $examModel->findPendingGradingForLecturer($userId),
             'csrf_token'       => $this->csrfToken(),
             'error'            => $_SESSION['flash_error'] ?? null,
@@ -124,6 +127,10 @@ class LecturerMeetingsController
         $location = trim((string) ($data['location'] ?? ''));
         $virtualLink = trim((string) ($data['virtual_link'] ?? ''));
         $aiNotes = !empty($data['ai_notes_enabled']);
+        $includeStudent = !empty($data['include_student']);
+
+        $extraLecturerUserIds = array_filter((array) ($data['attendee_lecturers'] ?? []));
+        $lecturerAttendeeRole = $data['lecturer_attendee_role'] ?? 'examiner';
 
         $errors = [];
         if (!$studentByProposal) {
@@ -143,6 +150,9 @@ class LecturerMeetingsController
         }
         if (in_array($mode, ['virtual', 'hybrid'], true) && $virtualLink === '') {
             $errors[] = 'Please provide a virtual link for a virtual or hybrid meeting.';
+        }
+        if ($extraLecturerUserIds && !in_array($lecturerAttendeeRole, self::VALID_ATTENDEE_ROLES, true)) {
+            $errors[] = 'Please select a valid role for invited lecturers.';
         }
 
         if ($errors) {
@@ -165,16 +175,18 @@ class LecturerMeetingsController
 
             $meetingModel->addAttendee($meetingId, $_SESSION['user_id'], 'supervisor');
 
-            // The student's own user_id is not directly on the assignment
-            // row returned by findActiveSupervisions() — look it up.
-            $studentUser = $this->db->prepare(
-                "SELECT u.user_id FROM students s JOIN users u ON u.user_id = s.user_id WHERE s.student_id = :student_id LIMIT 1"
-            );
-            $studentUser->execute(['student_id' => $studentByProposal['student_id'] ?? '']);
-            $studentUserId = $studentUser->fetchColumn();
+            $alreadyAdded = [$_SESSION['user_id']];
 
-            if ($studentUserId) {
-                $meetingModel->addAttendee($meetingId, $studentUserId, 'student');
+            if ($includeStudent && !empty($studentByProposal['student_user_id'])) {
+                $meetingModel->addAttendee($meetingId, $studentByProposal['student_user_id'], 'student');
+                $alreadyAdded[] = $studentByProposal['student_user_id'];
+            }
+
+            foreach ($extraLecturerUserIds as $lecturerUserId) {
+                if (!in_array($lecturerUserId, $alreadyAdded, true)) {
+                    $meetingModel->addAttendee($meetingId, $lecturerUserId, $lecturerAttendeeRole);
+                    $alreadyAdded[] = $lecturerUserId;
+                }
             }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Could not schedule the meeting: ' . $e->getMessage();
@@ -184,6 +196,8 @@ class LecturerMeetingsController
         $_SESSION['flash_success'] = 'Meeting scheduled.';
         return $this->redirect($response, '/lecturer/meetings');
     }
+
+
 
     public function grade(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {

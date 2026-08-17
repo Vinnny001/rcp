@@ -20,21 +20,28 @@
       <div class="card">
         <h3>{{ m.meeting_type|replace({'_': ' '})|capitalize }}{% if m.proposal_title %} — {{ m.proposal_title }}{% endif %}</h3>
         <div class="meta">
-          {{ m.scheduled_at|date('D, j M Y') }} · {{ m.scheduled_at|date('g:i A') }} ·
-          {{ m.mode|capitalize }}
-          {% if m.mode in ['virtual', 'hybrid'] and m.virtual_link %} — {{ m.virtual_link }}{% endif %}
-          {% if m.mode in ['physical', 'hybrid'] and m.location %} — {{ m.location }}{% endif %}
+          {{ m.scheduled_at|date('D, j M Y') }} · {{ m.scheduled_at|date('g:i A') }}
+          {% if m.is_invited %}
+            · {{ m.mode|capitalize }}
+            {% if m.mode in ['virtual', 'hybrid'] and m.virtual_link %} — {{ m.virtual_link }}{% endif %}
+            {% if m.mode in ['physical', 'hybrid'] and m.location %} — {{ m.location }}{% endif %}
+          {% endif %}
         </div>
-        {% if m.other_attendees %}
+
+        {% if m.is_invited and m.other_attendees %}
           <div class="meta">With {{ m.other_attendees }}</div>
+        {% elseif not m.is_invited %}
+          <div class="meta">{{ m.attendee_count }} attendee{{ m.attendee_count != 1 ? 's' : '' }} — you are not invited to this meeting</div>
         {% endif %}
 
         {% if m.status == 'in_progress' %}
           <span class="stamp mini review">In progress</span>
-        {% elseif m.my_attendance_status == 'confirmed' %}
+        {% elseif m.is_invited and m.my_attendance_status == 'confirmed' %}
           <span class="stamp mini approved">Confirmed</span>
-        {% else %}
+        {% elseif m.is_invited %}
           <span class="stamp mini pending">{{ m.my_attendance_status|default('invited')|capitalize }}</span>
+        {% else %}
+          <span class="stamp mini pending">Scheduled</span>
         {% endif %}
       </div>
     {% endfor %}
@@ -50,20 +57,27 @@
     <div class="card" style="margin-bottom:16px;">
       <h3>{{ m.meeting_type|replace({'_': ' '})|capitalize }}{% if m.proposal_title %} — {{ m.proposal_title }}{% endif %}</h3>
       <div class="meta">
-        {{ m.scheduled_at|date('j M Y') }} · {{ m.mode|capitalize }}
-        {% if m.other_attendees %} · With {{ m.other_attendees }}{% endif %}
-        {% if m.ai_notes_enabled %} · AI notes enabled{% endif %}
+        {{ m.scheduled_at|date('j M Y') }}
+        {% if m.is_invited %}
+          · {{ m.mode|capitalize }}
+          {% if m.other_attendees %} · With {{ m.other_attendees }}{% endif %}
+          {% if m.ai_notes_enabled %} · AI notes enabled{% endif %}
+        {% else %}
+          · {{ m.attendee_count }} attendee{{ m.attendee_count != 1 ? 's' : '' }} — you were not invited to this meeting
+        {% endif %}
       </div>
 
-      {% if m.ai_summary %}
-        <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ m.ai_summary }}</p>
-      {% else %}
-        <p style="font-size:.85rem; color:var(--slate); margin-top:10px;">No notes recorded for this meeting.</p>
+      {% if m.is_invited %}
+        {% if m.ai_summary %}
+          <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ m.ai_summary }}</p>
+        {% else %}
+          <p style="font-size:.85rem; color:var(--slate); margin-top:10px;">No notes recorded for this meeting.</p>
+        {% endif %}
       {% endif %}
 
       {% if m.status == 'cancelled' %}
         <span class="stamp mini rejected">Cancelled</span>
-      {% elseif m.my_attendance_status == 'absent' %}
+      {% elseif m.is_invited and m.my_attendance_status == 'absent' %}
         <span class="stamp mini rejected">You were marked absent</span>
       {% endif %}
     </div>

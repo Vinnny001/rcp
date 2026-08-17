@@ -78,7 +78,7 @@ class Lecturer
     {
         $stmt = $this->db->prepare(
             "SELECT sa.assignment_id, sa.role, sa.proposal_id, sa.student_id,
-                    s.student_number, s.program,
+                    s.student_number, s.program, s.user_id AS student_user_id,
                     CONCAT(u.first_name, ' ', u.last_name) AS student_name,
                     p.status AS proposal_status
              FROM supervision_assignments sa
@@ -92,4 +92,21 @@ class Lecturer
         $stmt->execute(['lecturer_id' => $lecturerId]);
         return $stmt->fetchAll();
     }
+
+    public function listAllExcept(string $excludeUserId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT l.lecturer_id, l.user_id, l.department,
+                    CONCAT(u.first_name, ' ', u.last_name) AS name
+             FROM lecturers l
+             JOIN users u ON u.user_id = l.user_id
+             WHERE l.user_id != :exclude_user_id
+             ORDER BY u.first_name, u.last_name"
+        );
+        $stmt->execute(['exclude_user_id' => $excludeUserId]);
+        return $stmt->fetchAll();
+    }
+
+
+    
 }

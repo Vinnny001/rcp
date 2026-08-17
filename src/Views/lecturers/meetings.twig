@@ -111,6 +111,11 @@
         </select>
       </div>
 
+      <div class="field" style="display:flex; align-items:center; gap:8px; margin-top:-6px;">
+        <input type="checkbox" name="include_student" checked style="width:auto;" id="includeStudent">
+        <label for="includeStudent" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem; color:var(--ink-text);">Invite this student to the meeting</label>
+      </div>
+
       <div class="field">
         <label>Meeting type</label>
         <select name="meeting_type" required>
@@ -140,6 +145,33 @@
       <div class="field" style="display:flex; align-items:center; gap:8px; margin-top:4px;">
         <input type="checkbox" name="ai_notes_enabled" checked style="width:auto;" id="aiNotes">
         <label for="aiNotes" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem; color:var(--ink-text);">Enable AI meeting notes</label>
+      </div>
+
+      <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Other attendees<div class="rule"></div></div>
+
+      <div class="field">
+        <label>Invite other lecturers</label>
+        <div style="max-height:160px; overflow-y:auto; border:1px solid var(--paper-line); border-radius:var(--radius); padding:10px 12px; background:#fbf8f1;">
+          {% for l in other_lecturers %}
+            <label style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.85rem; color:var(--ink-text); margin-bottom:8px;">
+              <input type="checkbox" name="attendee_lecturers[]" value="{{ l.user_id }}" style="width:auto;">
+              {{ l.name }} — {{ l.department }}
+            </label>
+          {% endfor %}
+          {% if not other_lecturers %}
+            <div class="meta" style="margin:0;">No other lecturers to invite.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Role for invited lecturers</label>
+        <select name="lecturer_attendee_role">
+          <option value="examiner">Examiner</option>
+          <option value="chairperson">Chairperson</option>
+          <option value="supervisor">Co-supervisor</option>
+          <option value="observer">Observer</option>
+        </select>
       </div>
 
       <div class="modal-actions">

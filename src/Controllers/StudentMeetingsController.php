@@ -29,14 +29,32 @@ class StudentMeetingsController
         return null;
     }
 
-    private function getStudentNumber(string $userId): ?string
+    private function getStudentRecord(string $userId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT student_number FROM students WHERE user_id = :user_id LIMIT 1"
+            "SELECT student_id, student_number FROM students WHERE user_id = :user_id LIMIT 1"
         );
         $stmt->execute(['user_id' => $userId]);
         $row = $stmt->fetch();
-        return $row['student_number'] ?? null;
+        return $row ?: null;
+    }
+
+    /**
+     * Strips location, virtual_link, and attendee names from any meeting
+     * the student is not an invited attendee of. attendee_count stays —
+     * the student can see how many people are involved, just not who,
+     * and not where/how to join.
+     */
+    private function stripUninvitedDetails(array $meetings): array
+    {
+        return array_map(function (array $m) {
+            if (empty($m['is_invited'])) {
+                $m['location'] = null;
+                $m['virtual_link'] = null;
+                $m['other_attendees'] = null;
+            }
+            return $m;
+        }, $meetings);
     }
 
     public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
@@ -46,14 +64,18 @@ class StudentMeetingsController
         }
 
         $userId = $_SESSION['user_id'];
+        $student = $this->getStudentRecord($userId);
         $meetingModel = new Meeting($this->db);
+
+        $upcoming = $student ? $meetingModel->findUpcomingForStudent($student['student_id'], $userId) : [];
+        $past = $student ? $meetingModel->findPastForStudent($student['student_id'], $userId) : [];
 
         return $this->twig->render($response, 'students/meetings.twig', [
             'active_page'    => 'meetings',
             'first_name'     => $_SESSION['first_name'] ?? '',
-            'student_number' => $this->getStudentNumber($userId),
-            'upcoming'       => $meetingModel->findUpcomingForUser($userId),
-            'past'           => $meetingModel->findPastForUser($userId),
+            'student_number' => $student['student_number'] ?? null,
+            'upcoming'       => $this->stripUninvitedDetails($upcoming),
+            'past'           => $this->stripUninvitedDetails($past),
         ]);
     }
 }

@@ -137,4 +137,58 @@ class Meeting
     }
 
 
+    public function findUpcomingForStudent(string $studentId, string $userId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT m.*,
+                    p.title AS proposal_title,
+                    CASE WHEN ma_self.attendee_id IS NOT NULL THEN 1 ELSE 0 END AS is_invited,
+                    ma_self.attendance_status AS my_attendance_status,
+                    (SELECT COUNT(*) FROM meeting_attendees ma_count WHERE ma_count.meeting_id = m.meeting_id) AS attendee_count,
+                    GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name, ' (', ma_other.role_in_meeting, ')')
+                                 SEPARATOR ', ') AS other_attendees
+             FROM meetings m
+             JOIN thesis_proposals p ON p.proposal_id = m.proposal_id
+             LEFT JOIN meeting_attendees ma_self
+                    ON ma_self.meeting_id = m.meeting_id AND ma_self.user_id = :user_id
+             LEFT JOIN meeting_attendees ma_other
+                    ON ma_other.meeting_id = m.meeting_id AND ma_other.user_id != :user_id2
+             LEFT JOIN users u ON u.user_id = ma_other.user_id
+             WHERE p.student_id = :student_id
+               AND m.status IN ('scheduled', 'in_progress')
+               AND m.scheduled_at >= NOW()
+             GROUP BY m.meeting_id
+             ORDER BY m.scheduled_at ASC"
+        );
+        $stmt->execute(['student_id' => $studentId, 'user_id' => $userId, 'user_id2' => $userId]);
+        return $stmt->fetchAll();
+    }
+
+    public function findPastForStudent(string $studentId, string $userId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT m.*,
+                    p.title AS proposal_title,
+                    CASE WHEN ma_self.attendee_id IS NOT NULL THEN 1 ELSE 0 END AS is_invited,
+                    ma_self.attendance_status AS my_attendance_status,
+                    (SELECT COUNT(*) FROM meeting_attendees ma_count WHERE ma_count.meeting_id = m.meeting_id) AS attendee_count,
+                    GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name, ' (', ma_other.role_in_meeting, ')')
+                                 SEPARATOR ', ') AS other_attendees
+             FROM meetings m
+             JOIN thesis_proposals p ON p.proposal_id = m.proposal_id
+             LEFT JOIN meeting_attendees ma_self
+                    ON ma_self.meeting_id = m.meeting_id AND ma_self.user_id = :user_id
+             LEFT JOIN meeting_attendees ma_other
+                    ON ma_other.meeting_id = m.meeting_id AND ma_other.user_id != :user_id2
+             LEFT JOIN users u ON u.user_id = ma_other.user_id
+             WHERE p.student_id = :student_id
+               AND (m.status IN ('completed', 'cancelled')
+                    OR (m.status IN ('scheduled', 'in_progress') AND m.scheduled_at < NOW()))
+             GROUP BY m.meeting_id
+             ORDER BY m.scheduled_at DESC"
+        );
+        $stmt->execute(['student_id' => $studentId, 'user_id' => $userId, 'user_id2' => $userId]);
+        return $stmt->fetchAll();
+    }
+
 }
