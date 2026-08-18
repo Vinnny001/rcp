@@ -113,4 +113,15 @@ class StudentEnrollment
         $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
+
+
+    public function setCurrentSemester(string $enrollmentId, string $semesterId): void
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE student_enrollments SET current_semester_id = :semester_id WHERE enrollment_id = :enrollment_id"
+        );
+        $stmt->execute(['semester_id' => $semesterId, 'enrollment_id' => $enrollmentId]);
+    }
+
+
 }

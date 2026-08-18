@@ -92,6 +92,68 @@ class StudentController
         $paymentModel = new Payment($this->db);
 
         foreach (self::FEE_PRIORITY as $type) {
+            if ($type === 'tuition') {
+                $semesterId = $activeEnrollment['current_semester_id'] ?? null;
+                if (!$semesterId) {
+                    continue;
+                }
+
+                $semester = $scheduleModel->findSemesterById($semesterId);
+                if (!$semester) {
+                    continue;
+                }
+
+                $paid = $paymentModel->sumConfirmedByType($student['student_id'], 'tuition', $semesterId);
+                $required = (float) $semester['tuition_amount'];
+
+                if ($paid < $required) {
+                    return [
+                        'type'      => 'tuition',
+                        'paid'      => $paid,
+                        'required'  => $required,
+                        'remaining' => $required - $paid,
+                        'currency'  => $semester['currency'],
+                        'due_date'  => $semester['tuition_due_date'],
+                        'semester_number' => $semester['semester_number'],
+                    ];
+                }
+
+                continue;
+            }
+
+            if ($type === 'examination_fee') {
+                $semesterId = $activeEnrollment['current_semester_id'] ?? null;
+                if (!$semesterId) {
+                    continue;
+                }
+
+                $examFees = $scheduleModel->findExamFeesForSemester($semesterId);
+                if (!$examFees) {
+                    continue; // no exam fee required this semester at all
+                }
+
+                foreach ($examFees as $fee) {
+                    $paid = $paymentModel->sumConfirmedByType(
+                        $student['student_id'], 'examination_fee', $semesterId, $fee['exam_type']
+                    );
+                    $required = (float) $fee['amount'];
+
+                    if ($paid < $required) {
+                        return [
+                            'type'      => 'examination_fee',
+                            'exam_type' => $fee['exam_type'],
+                            'paid'      => $paid,
+                            'required'  => $required,
+                            'remaining' => $required - $paid,
+                            'currency'  => $fee['currency'],
+                            'due_date'  => $fee['due_date'],
+                        ];
+                    }
+                }
+
+                continue; // both internal and external (whichever exist) are paid up
+            }
+
             $rate = $scheduleModel->findRateForType($activeEnrollment['schedule_id'], $type);
             if (!$rate) {
                 continue;

@@ -49,6 +49,19 @@
     <div class="notice">Registration fee waived — carried over from your previous enrollment on approved leave.</div>
   {% endif %}
 
+
+
+<div class="stat-label">
+          {{ next_due.type|replace({'_': ' '})|capitalize }}{% if next_due.semester_number %} (Semester {{ next_due.semester_number }}){% endif %} — {{ next_due.currency }} {{ next_due.paid|number_format(0) }} of {{ next_due.currency }} {{ next_due.required|number_format(0) }} paid
+          {% if next_due.due_date %} · due {{ next_due.due_date|date('d M Y') }}{% endif %}
+        </div>
+
+        <div class="stat-label">
+          {{ next_due.type|replace({'_': ' '})|capitalize }}{% if next_due.exam_type %} ({{ next_due.exam_type|capitalize }}){% endif %}{% if next_due.semester_number %} (Semester {{ next_due.semester_number }}){% endif %} — {{ next_due.currency }} {{ next_due.paid|number_format(0) }} of {{ next_due.currency }} {{ next_due.required|number_format(0) }} paid
+          {% if next_due.due_date %} · due {{ next_due.due_date|date('d M Y') }}{% endif %}
+        </div>
+
+
   <div class="grid cols-3">
     <div class="card">
       <h3>Proposal status</h3>
