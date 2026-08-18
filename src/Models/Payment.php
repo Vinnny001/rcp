@@ -25,4 +25,18 @@ class Payment
         $stmt->execute(['student_id' => $studentId]);
         return $stmt->fetchAll();
     }
+
+
+    public function sumConfirmedByType(string $studentId, string $paymentType): float
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM payments
+             WHERE student_id = :student_id AND payment_type = :payment_type AND status = 'confirmed'"
+        );
+        $stmt->execute(['student_id' => $studentId, 'payment_type' => $paymentType]);
+        return (float) $stmt->fetchColumn();
+    }
+
+
+
 }

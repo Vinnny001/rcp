@@ -85,14 +85,14 @@
     <button class="modal-close" onclick="hideModal('uploadModal')">✕ Close</button>
     <div class="ref">REQ-{{ student_number }} · NEW DOCUMENT</div>
     <h2>Upload a document</h2>
-    <div class="sub">Accepted formats: PDF, JPG, PNG. Files are checked by the registrar before your record updates.</div>
+    <div class="sub">Accepted format: PDF. Files are checked by the registrar before your record updates.</div>
 
     <form method="POST" action="/student/requirements/upload" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <div class="field">
         <label>File</label>
-        <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required>
+        <input type="file" name="file" accept=".pdf" required>
       </div>
 
       <div class="field">

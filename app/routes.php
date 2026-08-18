@@ -21,6 +21,8 @@ use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
 use App\Controllers\LecturerMeetingsController;
 
+use App\Controllers\StudentEnrollmentController;
+
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
@@ -78,5 +80,13 @@ return function (App $app) {
     $app->get('/lecturer/meetings', [LecturerMeetingsController::class, 'show']);
     $app->post('/lecturer/meetings/schedule', [LecturerMeetingsController::class, 'schedule']);
     $app->post('/lecturer/meetings/grade', [LecturerMeetingsController::class, 'grade']);
+
+
+
+    // Student enrollment routes
+    $app->get('/student/enroll', [StudentEnrollmentController::class, 'show']);
+    $app->post('/student/enroll', [StudentEnrollmentController::class, 'enroll']);
+    $app->post('/student/leave/request', [StudentEnrollmentController::class, 'requestLeave']);
+
 
 };

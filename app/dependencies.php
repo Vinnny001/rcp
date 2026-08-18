@@ -26,6 +26,13 @@ use App\Controllers\LecturerSupervisionController;
 use App\Models\SupervisionRequest;
 use App\Controllers\LecturerMeetingsController;
 
+
+
+use App\Models\StudentEnrollment;
+use App\Models\StudentLeave;
+use App\Models\ProgramSchedule;
+use App\Controllers\StudentEnrollmentController;
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -115,6 +122,26 @@ LecturerSupervisionController::class => function (ContainerInterface $c) {
 
 LecturerMeetingsController::class => function (ContainerInterface $c) {
     return new LecturerMeetingsController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+
+
+
+StudentEnrollment::class => function (ContainerInterface $c) {
+    return new StudentEnrollment($c->get(PDO::class));
+},
+
+StudentLeave::class => function (ContainerInterface $c) {
+    return new StudentLeave($c->get(PDO::class));
+},
+
+ProgramSchedule::class => function (ContainerInterface $c) {
+    return new ProgramSchedule($c->get(PDO::class));
+},
+
+StudentEnrollmentController::class => function (ContainerInterface $c) {
+    return new StudentEnrollmentController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

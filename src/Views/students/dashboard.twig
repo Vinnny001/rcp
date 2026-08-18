@@ -3,42 +3,121 @@
 {% block title %}Overview{% endblock %}
 
 {% block content %}
+
+{% if no_enrollment %}
+  <div class="page-head">
+    <div>
+      <h1>Your dossier</h1>
+      <div class="sub">You don't have an active program enrollment yet.</div>
+    </div>
+    <div class="ref">{{ student_number }}</div>
+  </div>
+
+  <div class="notice">
+    You need to select a program schedule before your dossier can be tracked.
+  </div>
+  <a href="/student/enroll" class="btn brass">Choose a program schedule</a>
+
+{% else %}
+
   <div class="page-head">
     <div>
       <h1>Your dossier</h1>
       <div class="sub">Track where your thesis stands, from registration through to graduation.</div>
     </div>
-    <div class="ref">STUDENT DASHBOARD</div>
+    <div class="ref">FILE {{ student_number }}</div>
   </div>
 
   <div class="rail">
-    <div class="rail-step done"><div class="line"></div><div class="dot">1</div><div class="label">Registration</div></div>
-    <div class="rail-step current"><div class="line"></div><div class="dot">2</div><div class="label">Requirements<br>Validation</div></div>
-    <div class="rail-step"><div class="line"></div><div class="dot">3</div><div class="label">Proposal<br>Approval</div></div>
-    <div class="rail-step"><div class="line"></div><div class="dot">4</div><div class="label">Concept<br>Presentation</div></div>
-    <div class="rail-step"><div class="line"></div><div class="dot">5</div><div class="label">Examination</div></div>
-    <div class="rail-step"><div class="line"></div><div class="dot">6</div><div class="label">Graduation</div></div>
+    <div class="rail-step {{ rail_step > 1 ? 'done' : (rail_step == 1 ? 'current' : '') }}"><div class="line"></div><div class="dot">1</div><div class="label">Registration</div></div>
+    <div class="rail-step {{ rail_step > 2 ? 'done' : (rail_step == 2 ? 'current' : '') }}"><div class="line"></div><div class="dot">2</div><div class="label">Requirements<br>Validation</div></div>
+    <div class="rail-step {{ rail_step > 3 ? 'done' : (rail_step == 3 ? 'current' : '') }}"><div class="line"></div><div class="dot">3</div><div class="label">Proposal<br>Approval</div></div>
+    <div class="rail-step {{ rail_step > 4 ? 'done' : (rail_step == 4 ? 'current' : '') }}"><div class="line"></div><div class="dot">4</div><div class="label">Concept<br>Presentation</div></div>
+    <div class="rail-step {{ rail_step > 5 ? 'done' : (rail_step == 5 ? 'current' : '') }}"><div class="line"></div><div class="dot">5</div><div class="label">Examination</div></div>
+    <div class="rail-step {{ rail_step > 6 ? 'done' : (rail_step == 6 ? 'current' : '') }}"><div class="line"></div><div class="dot">6</div><div class="label">Graduation</div></div>
   </div>
+
+  {% if not registration.done %}
+    <div class="notice">
+      {% if registration.required %}
+        {{ (registration.required - registration.paid)|number_format(0) }} {{ registration.currency }} remaining before your registration step is marked complete.
+      {% else %}
+        Registration fee amount has not been set for your program schedule yet.
+      {% endif %}
+    </div>
+  {% elseif registration.waived %}
+    <div class="notice">Registration fee waived — carried over from your previous enrollment on approved leave.</div>
+  {% endif %}
 
   <div class="grid cols-3">
     <div class="card">
       <h3>Proposal status</h3>
-      <div class="meta">No proposal submitted yet</div>
-      <span class="stamp pending">Not started</span>
+      {% if proposal %}
+        <div class="meta">"{{ proposal.title }}"</div>
+        {% if proposal.status == 'approved' %}
+          <span class="stamp approved">Approved</span>
+        {% elseif proposal.status == 'rejected' %}
+          <span class="stamp rejected">Rejected</span>
+        {% elseif proposal.status == 'under_review' %}
+          <span class="stamp review">Under Review</span>
+        {% elseif proposal.status == 'revision_required' %}
+          <span class="stamp pending">Revision Required</span>
+        {% elseif proposal.status == 'draft' %}
+          <span class="stamp pending">Draft</span>
+        {% else %}
+          <span class="stamp pending">Submitted</span>
+        {% endif %}
+      {% else %}
+        <div class="meta">No proposal submitted yet</div>
+        <span class="stamp pending">Not started</span>
+      {% endif %}
     </div>
+
     <div class="card">
-      <h3>Outstanding balance</h3>
-      <div class="stat">—</div>
-      <div class="stat-label">No pending fees on record</div>
+      <h3>Next payment due</h3>
+      {% if next_due %}
+        <div class="stat">{{ next_due.currency }} {{ next_due.remaining|number_format(0) }}</div>
+        <div class="stat-label">
+          {{ next_due.type|replace({'_': ' '})|capitalize }} — {{ next_due.currency }} {{ next_due.paid|number_format(0) }} of {{ next_due.currency }} {{ next_due.required|number_format(0) }} paid
+          {% if next_due.due_date %} · due {{ next_due.due_date|date('d M Y') }}{% endif %}
+        </div>
+      {% else %}
+        <div class="stat">—</div>
+        <div class="stat-label">No outstanding fees on record</div>
+      {% endif %}
     </div>
+
     <div class="card">
       <h3>Supervisor</h3>
-      <div class="meta">Not yet assigned</div>
+      {% if supervisor_name %}
+        <div class="meta">{{ supervisor_status == 'assigned' ? 'Confirmed' : 'Proposed, awaiting board confirmation' }}</div>
+        <div style="font-weight:600;">{{ supervisor_name }}</div>
+        {% if supervisor_department %}
+          <div class="meta">Dept. of {{ supervisor_department }}</div>
+        {% endif %}
+      {% else %}
+        <div class="meta">Not yet assigned</div>
+      {% endif %}
     </div>
   </div>
 
   <div class="section-title">Next meeting<div class="rule"></div></div>
-  <div class="card">
-    <div class="meta">No meetings scheduled yet.</div>
-  </div>
+  {% if next_meeting %}
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <h3>{{ next_meeting.meeting_type|replace({'_': ' '})|capitalize }}</h3>
+        <div class="meta">
+          {{ next_meeting.scheduled_at|date('D, j M Y') }} · {{ next_meeting.scheduled_at|date('g:i A') }}
+          {% if next_meeting.is_invited %} · {{ next_meeting.mode|capitalize }}{% endif %}
+        </div>
+      </div>
+      <span class="stamp pending mini">Scheduled</span>
+    </div>
+  {% else %}
+    <div class="card">
+      <div class="meta">No meetings scheduled yet.</div>
+    </div>
+  {% endif %}
+
+{% endif %}
 {% endblock %}

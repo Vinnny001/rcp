@@ -20,7 +20,7 @@ class StudentRequirementsController
     // needs to change to serve them back later).
     private const UPLOAD_DIR = __DIR__ . '/../../public/uploads/documents';
 
-    private const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png'];
+    private const ALLOWED_MIME = ['application/pdf'];
     private const MAX_SIZE_KB = 10240; // 10MB
 
     public function __construct(PDO $db, Twig $twig)
@@ -104,7 +104,7 @@ class StudentRequirementsController
 
         $mimeType = $file->getClientMediaType();
         if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
-            $_SESSION['flash_error'] = 'Only PDF, JPG, and PNG files are accepted.';
+            $_SESSION['flash_error'] = 'Only PDF files are accepted.';
             return $this->redirect($response, '/student/requirements');
         }
 

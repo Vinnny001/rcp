@@ -1,0 +1,74 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Enroll{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Choose a program schedule</h1>
+    <div class="sub">Select the cohort you're enrolling into. Your personal details are already on file — you won't need to re-enter them.</div>
+  </div>
+  <div class="ref">{{ student_number }}</div>
+</div>
+
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if fee_waived %}
+  <div class="notice">Your registration fee is waived — your last enrollment ended on approved leave, and you haven't exceeded the consecutive-leave limit.</div>
+{% endif %}
+
+<div class="form-card">
+  <form method="POST" action="/student/enroll">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label>Program schedule</label>
+      <select name="schedule_id" required>
+        <option value="">Select a schedule</option>
+        {% for s in schedules %}
+          <option value="{{ s.schedule_id }}">{{ s.department }} — {{ s.program }} ({{ s.enrollment_year }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Reason for returning (optional)</label>
+      <textarea name="return_reason" rows="3" placeholder="Anything the registrar should know..."></textarea>
+    </div>
+
+    <button type="submit" class="btn brass">Confirm enrollment</button>
+  </form>
+</div>
+
+{% if history %}
+  <div class="section-title">Your enrollment history<div class="rule"></div></div>
+  <table>
+    <thead><tr><th>Program</th><th>Cohort</th><th>Enrolled</th><th>Ended</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+        <tr>
+          <td>{{ h.program }}</td>
+          <td class="mono">{{ h.enrollment_year }}</td>
+          <td class="mono">{{ h.enrolled_at|date('d M Y') }}</td>
+          <td class="mono">{{ h.ended_at ? h.ended_at|date('d M Y') : '—' }}</td>
+          <td>
+            {% if h.status == 'active' %}
+              <span class="stamp mini approved">Active</span>
+            {% elseif h.status == 'on_leave' %}
+              <span class="stamp mini pending">On leave</span>
+            {% elseif h.status == 'completed' %}
+              <span class="stamp mini approved">Completed</span>
+            {% else %}
+              <span class="stamp mini rejected">Withdrawn</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% endblock %}
