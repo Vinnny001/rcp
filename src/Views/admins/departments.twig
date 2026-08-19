@@ -1,0 +1,64 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Departments{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Departments</h1>
+    <div class="sub">Manage the academic departments used across registration and programs.</div>
+  </div>
+  <div class="ref">DEPT-REGISTRY</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Add a department<div class="rule"></div></div>
+<div class="form-card" style="margin-bottom:32px;">
+  <form method="POST" action="/admin/departments/create" style="display:flex; gap:12px; align-items:flex-end;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field" style="flex:1; margin-bottom:0;">
+      <label>Department name</label>
+      <input type="text" name="name" placeholder="e.g. Computing" required>
+    </div>
+    <button type="submit" class="btn brass">Add</button>
+  </form>
+</div>
+
+<div class="section-title">All departments<div class="rule"></div></div>
+{% if departments %}
+  <table>
+    <thead><tr><th>Name</th><th></th></tr></thead>
+    <tbody>
+      {% for dept in departments %}
+        <tr>
+          <td class="strong">
+            <form method="POST" action="/admin/departments/update" style="display:flex; gap:8px; align-items:center;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="department_id" value="{{ dept.department_id }}">
+              <input type="text" name="name" value="{{ dept.name }}" style="max-width:280px;">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.74rem;">Save</button>
+            </form>
+          </td>
+          <td>
+            <form method="POST" action="/admin/departments/delete" onsubmit="return confirm('Delete this department? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="department_id" value="{{ dept.department_id }}">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.74rem; color: var(--rust);">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No departments yet.</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Programs{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Programs</h1>
+    <div class="sub">Manage degree programs and the department each belongs to.</div>
+  </div>
+  <div class="ref">PROG-REGISTRY</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Add a program<div class="rule"></div></div>
+<div class="form-card" style="margin-bottom:32px;">
+  <form method="POST" action="/admin/programs/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Department</label>
+        <select name="department_id" required>
+          <option value="">-- Select --</option>
+          {% for dept in departments %}
+            <option value="{{ dept.department_id }}">{{ dept.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Program name</label>
+        <input type="text" name="name" placeholder="e.g. BBIT" required>
+      </div>
+    </div>
+    <button type="submit" class="btn brass">Add program</button>
+  </form>
+</div>
+
+<div class="section-title">All programs<div class="rule"></div></div>
+{% if programs %}
+  <table>
+    <thead><tr><th>Program</th><th>Department</th><th></th></tr></thead>
+    <tbody>
+      {% for prog in programs %}
+        <tr>
+          <td colspan="3">
+            <form method="POST" action="/admin/programs/update" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="program_id" value="{{ prog.program_id }}">
+              <input type="text" name="name" value="{{ prog.name }}" style="max-width:240px;">
+              <select name="department_id" style="max-width:220px;">
+                {% for dept in departments %}
+                  <option value="{{ dept.department_id }}" {% if dept.department_id == prog.department_id %}selected{% endif %}>
+                    {{ dept.name }}
+                  </option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.74rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="3" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/programs/delete" onsubmit="return confirm('Delete this program? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="program_id" value="{{ prog.program_id }}">
+              <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.7rem; color: var(--rust);">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No programs yet.</div>
+{% endif %}
+
+{% endblock %}

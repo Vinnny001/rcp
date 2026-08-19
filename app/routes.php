@@ -107,4 +107,15 @@ return function (App $app) {
 $app->post('/admin/users/toggle', [AdminController::class, 'toggleUser']);
 
 
+$app->get('/admin/departments', [AdminController::class, 'departments']);
+$app->post('/admin/departments/create', [AdminController::class, 'createDepartment']);
+$app->post('/admin/departments/update', [AdminController::class, 'updateDepartment']);
+$app->post('/admin/departments/delete', [AdminController::class, 'deleteDepartment']);
+
+$app->get('/admin/programs', [AdminController::class, 'programs']);
+$app->post('/admin/programs/create', [AdminController::class, 'createProgram']);
+$app->post('/admin/programs/update', [AdminController::class, 'updateProgram']);
+$app->post('/admin/programs/delete', [AdminController::class, 'deleteProgram']);
+
+
 };

@@ -58,7 +58,7 @@ class StudentThesisController
         return $response->withHeader('Location', $path)->withStatus(302);
     }
 
-    public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+            public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $this->redirect($response, $redirect);
@@ -73,9 +73,9 @@ class StudentThesisController
         $regModel = new ThesisRegistration($this->db);
         $registration = $regModel->findActiveByStudentId($student['student_id']);
 
-        if (!$registration) {
-            return $this->twig->render($response, 'students/thesis.twig', [
-                'active_page'    => 'proposal',
+        if (!$registration && !$regModel->isRegisteredForThesis($student['student_id'])) {
+            return $this->twig->render($response, 'students/thesis-fees.twig', [
+                'active_page'    => 'thesis',
                 'first_name'     => $_SESSION['first_name'] ?? '',
                 'student_number' => $student['student_number'] ?? null,
                 'not_registered' => true,
@@ -85,23 +85,42 @@ class StudentThesisController
             ]);
         }
 
+        if (!$registration) {
+            return $this->twig->render($response, 'students/thesis-fees.twig', [
+                'active_page'    => 'thesis',
+                'first_name'     => $_SESSION['first_name'] ?? '',
+                'student_number' => $student['student_number'] ?? null,
+                'not_registered' => true,
+                'error'          => 'You have a thesis proposal on record, but no formal thesis registration was found. Please contact the registrar.',
+                'csrf_token'     => $this->csrfToken(),
+                'success'        => $_SESSION['flash_success'] ?? null,
+            ]);
+        }
+
         $owed = $regModel->computeOwed($registration);
         $paymentModel = new ThesisPayment($this->db);
         $history = $paymentModel->findByRegistrationId($registration['thesis_registration_id']);
 
-        return $this->twig->render($response, 'students/thesis.twig', [
-            'active_page'    => 'proposal',
+        $proposalModel = new \App\Models\Proposal($this->db);
+        $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
+
+        return $this->twig->render($response, 'students/thesis-fees.twig', [
+            'active_page'    => 'thesis',
             'first_name'     => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
             'not_registered' => false,
             'registration'   => $registration,
             'owed'           => $owed,
             'history'        => $history,
+            'has_proposal'   => (bool) $proposal,
             'csrf_token'     => $this->csrfToken(),
             'error'          => $_SESSION['flash_error'] ?? null,
             'success'        => $_SESSION['flash_success'] ?? null,
         ]);
     }
+
+
+
 
     public function register(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
@@ -217,6 +236,9 @@ class StudentThesisController
         $_SESSION['flash_success'] = 'Payment submitted and awaiting confirmation.';
         return $this->redirect($response, '/student/thesis');
     }
+
+
+    
 
 
 }

@@ -29,8 +29,17 @@
       <button type="submit" class="btn brass">Register for thesis</button>
     </form>
   </div>
+  
 
 {% else %}
+
+
+  {% if not has_proposal %}
+    <div class="notice" style="display:flex; justify-content:space-between; align-items:center; gap:16px;">
+      <span>You're registered for thesis, but haven't submitted a proposal yet. Your review fee won't apply until your proposal goes under review.</span>
+      <a href="/student/proposal" class="btn brass" style="white-space:nowrap;">Submit proposal</a>
+    </div>
+  {% endif %}
 
   <div class="grid cols-2" style="margin-bottom:32px;">
     <div class="card">

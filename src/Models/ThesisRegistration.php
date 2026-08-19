@@ -151,4 +151,33 @@ class ThesisRegistration
         $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
+
+
+
+        /**
+     * A student counts as registered for thesis if EITHER:
+     *  - they have an active row in student_thesis_registrations, OR
+     *  - they already have a thesis proposal on record (submitting a
+     *    proposal implies registration must have happened, even if the
+     *    registration row is somehow missing/out of sync).
+     *
+     * Use this for the "have they registered at all" check. Fee
+     * calculations (computeOwed) still require the actual registration
+     * row, since that's where program_id and registered_at live.
+     */
+    public function isRegisteredForThesis(string $studentId): bool
+    {
+        if ($this->findActiveByStudentId($studentId)) {
+            return true;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM thesis_proposals WHERE student_id = :student_id LIMIT 1"
+        );
+        $stmt->execute(['student_id' => $studentId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+
+
 }
