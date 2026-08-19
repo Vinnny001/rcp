@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\ThesisRegistration;
+
+
 use PDO;
 
 class AdminStats
@@ -33,10 +36,24 @@ class AdminStats
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Sums pending payments across BOTH payment systems — the older
+     * program-side `payments` table (registration/tuition/exam, mostly
+     * dormant now per the thesis-first pivot) and the newer `thesis_payments`
+     * table (thesis_registration/thesis_review_fee, where real activity
+     * is happening currently). Assumes both are single-currency (KES) —
+     * if either table ever holds mixed currencies, this sum becomes
+     * meaningless and would need to be split per-currency instead.
+     */
     public function pendingPaymentsTotal(): float
     {
         $stmt = $this->db->query("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'pending'");
-        return (float) $stmt->fetchColumn();
+        $programPending = (float) $stmt->fetchColumn();
+
+        $stmt = $this->db->query("SELECT COALESCE(SUM(amount), 0) FROM thesis_payments WHERE status = 'pending'");
+        $thesisPending = (float) $stmt->fetchColumn();
+
+        return $programPending + $thesisPending;
     }
 
     public function meetingsThisWeekCount(): int
@@ -121,6 +138,61 @@ class AdminStats
         }
 
         return $result;
+    }
+
+
+    /**
+     * Unpaid thesis fees across all actively-registered students — split
+     * by fee type (registration vs review fee) so admin can see which
+     * kind of arrears dominates, plus the combined total. Reuses
+     * ThesisRegistration::computeOwed() rather than reimplementing the
+     * elapsed-years/priority logic in SQL — that logic already exists
+     * and is tested, duplicating it here would risk drifting out of sync.
+     *
+     * N+1 by nature (one computeOwed() call per active registration) —
+     * fine at current scale, would need rework if thesis registrations
+     * grow into the thousands.
+     */
+    public function unpaidThesisFeesSummary(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT * FROM student_thesis_registrations WHERE status = 'active'"
+        );
+        $registrations = $stmt->fetchAll();
+
+        $regModel = new ThesisRegistration($this->db);
+
+        $totalUnpaid = 0.0;
+        $registrationUnpaidCount = 0;
+        $registrationUnpaidAmount = 0.0;
+        $reviewUnpaidCount = 0;
+        $reviewUnpaidAmount = 0.0;
+        $currency = 'KES'; // assumes single-currency, same caveat as pendingPaymentsTotal()
+
+        foreach ($registrations as $reg) {
+            $owed = $regModel->computeOwed($reg);
+
+            foreach ($owed as $item) {
+                $totalUnpaid += $item['remaining'];
+
+                if ($item['fee_type'] === 'thesis_registration') {
+                    $registrationUnpaidCount++;
+                    $registrationUnpaidAmount += $item['remaining'];
+                } else {
+                    $reviewUnpaidCount++;
+                    $reviewUnpaidAmount += $item['remaining'];
+                }
+            }
+        }
+
+        return [
+            'total_unpaid'              => $totalUnpaid,
+            'currency'                  => $currency,
+            'registration_unpaid_count' => $registrationUnpaidCount,
+            'registration_unpaid_amount'=> $registrationUnpaidAmount,
+            'review_unpaid_count'       => $reviewUnpaidCount,
+            'review_unpaid_amount'      => $reviewUnpaidAmount,
+        ];
     }
 
     

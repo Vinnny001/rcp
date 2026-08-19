@@ -47,6 +47,7 @@ class AdminController
             'lecturer_count'         => $stats->lecturerCount(),
             'proposals_under_review' => $stats->proposalsUnderReviewCount(),
             'pending_payments'       => $stats->pendingPaymentsTotal(),
+            'unpaid_thesis'          => $stats->unpaidThesisFeesSummary(),
             'meetings_this_week'     => $stats->meetingsThisWeekCount(),
             'graduation_pending'     => $stats->graduationPendingApprovalCount(),
             'by_department'          => $stats->byDepartment(),

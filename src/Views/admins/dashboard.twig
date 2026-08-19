@@ -19,6 +19,17 @@
 </div>
 
 <div class="grid cols-3" style="margin-bottom:32px;">
+
+<div class="card">
+  <div class="stat">KES {{ unpaid_thesis.total_unpaid|number_format(0) }}</div>
+  <div class="stat-label">Unpaid thesis fees</div>
+  <div class="meta" style="margin-top:8px; margin-bottom:0;">
+    Registration: KES {{ unpaid_thesis.registration_unpaid_amount|number_format(0) }} ({{ unpaid_thesis.registration_unpaid_count }} student{{ unpaid_thesis.registration_unpaid_count != 1 ? 's' : '' }})<br>
+    Review fee: KES {{ unpaid_thesis.review_unpaid_amount|number_format(0) }} ({{ unpaid_thesis.review_unpaid_count }} student{{ unpaid_thesis.review_unpaid_count != 1 ? 's' : '' }})
+  </div>
+</div>
+
+
   <div class="card"><div class="stat">KES {{ pending_payments|number_format(0) }}</div><div class="stat-label">Pending payments</div></div>
   <div class="card"><div class="stat">{{ meetings_this_week }}</div><div class="stat-label">Meetings this week</div></div>
   <div class="card"><div class="stat">{{ graduation_pending }}</div><div class="stat-label">Graduation candidates pending approval</div></div>
