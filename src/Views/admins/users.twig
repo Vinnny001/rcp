@@ -1,0 +1,54 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Users{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Users</h1>
+    <div class="sub">Every account on the platform, by role and status.</div>
+  </div>
+  <div class="ref">USR-REGISTRY</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+
+<div class="section-title">All accounts<div class="rule"></div></div>
+
+{% if users %}
+  <table>
+    <thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Last login</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td class="strong">{{ u.first_name }} {{ u.last_name }}</td>
+          <td class="mono">{{ u.role|capitalize }}</td>
+          <td>{{ u.department ?? '—' }}</td>
+          <td class="mono">{{ u.last_login ? u.last_login|date('d M Y') : 'Never' }}</td>
+          <td>
+            {% if u.is_active %}
+              <span class="stamp mini approved">Active</span>
+            {% else %}
+              <span class="stamp mini rejected">Suspended</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="POST" action="/admin/users/toggle" style="display:inline;">
+              <input type="hidden" name="user_id" value="{{ u.user_id }}">
+              <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">
+                {{ u.is_active ? 'Suspend' : 'Reactivate' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No users found.</div>
+{% endif %}
+
+{% endblock %}

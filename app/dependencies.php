@@ -43,6 +43,9 @@ use App\Controllers\StudentThesisController;
 use App\Models\Department;
 use App\Models\Program;
 
+use App\Models\AdminUser;
+
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -182,6 +185,11 @@ Program::class => function (ContainerInterface $c) {
     return new Program($c->get(PDO::class));
 },
 
+
+
+AdminUser::class => function (ContainerInterface $c) {
+    return new AdminUser($c->get(PDO::class));
+},
 
 
 

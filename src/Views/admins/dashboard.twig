@@ -1,0 +1,46 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Overview{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Registry overview</h1>
+    <div class="sub">Platform-wide status across students, staff, and pending work.</div>
+  </div>
+  <div class="ref">ADM · JKUAT-GS</div>
+</div>
+
+<div class="grid cols-3" style="margin-bottom:16px;">
+  <div class="card"><div class="stat">{{ active_students }}</div><div class="stat-label">Active students</div></div>
+  <div class="card"><div class="stat">{{ lecturer_count }}</div><div class="stat-label">Supervising lecturers</div></div>
+  <div class="card"><div class="stat">{{ proposals_under_review }}</div><div class="stat-label">Proposals under review</div></div>
+</div>
+
+<div class="grid cols-3" style="margin-bottom:32px;">
+  <div class="card"><div class="stat">KES {{ pending_payments|number_format(0) }}</div><div class="stat-label">Pending payments</div></div>
+  <div class="card"><div class="stat">{{ meetings_this_week }}</div><div class="stat-label">Meetings this week</div></div>
+  <div class="card"><div class="stat">{{ graduation_pending }}</div><div class="stat-label">Graduation candidates pending approval</div></div>
+</div>
+
+<div class="section-title">By department<div class="rule"></div></div>
+{% if by_department %}
+  <table>
+    <thead><tr><th>Department</th><th>Active students</th><th>Open proposals</th><th>Avg. supervisor load</th></tr></thead>
+    <tbody>
+      {% for dept in by_department %}
+        <tr>
+          <td class="strong">{{ dept.department }}</td>
+          <td class="mono">{{ dept.active_students }}</td>
+          <td class="mono">{{ dept.open_proposals }}</td>
+          <td class="mono">{{ dept.avg_supervisor_load|number_format(1) }} / 5</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No department data available yet.</div>
+{% endif %}
+
+{% endblock %}

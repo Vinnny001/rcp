@@ -24,6 +24,8 @@ use App\Controllers\LecturerMeetingsController;
 use App\Controllers\StudentEnrollmentController;
 use App\Controllers\StudentThesisController;
 
+use App\Controllers\AdminController;
+
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
@@ -95,5 +97,14 @@ return function (App $app) {
 
 
     $app->post('/student/thesis/pay', [StudentThesisController::class, 'pay']);
+
+
+
+    $app->get('/admin/dashboard', [AdminController::class, 'dashboard']);
+
+
+    $app->get('/admin/users', [AdminController::class, 'users']);
+$app->post('/admin/users/toggle', [AdminController::class, 'toggleUser']);
+
 
 };
