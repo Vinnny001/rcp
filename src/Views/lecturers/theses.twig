@@ -1,0 +1,88 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Theses{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Theses</h1>
+    <div class="sub">Full record for every thesis you supervise or examine, from proposal to graduation.</div>
+  </div>
+  <div class="ref">THS-{{ staff_number }}</div>
+</div>
+
+{% if theses %}
+  {% for t in theses %}
+    <div class="card" style="margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h3>{{ t.title }}</h3>
+          <div class="meta">{{ t.student_name }} · {{ t.student_number }} · {{ t.program }} · you are {{ t.role == 'main' ? 'main supervisor' : 'co-supervisor' }}</div>
+        </div>
+        {% if t.proposal_status == 'approved' %}
+          <span class="stamp mini approved">Proposal approved</span>
+        {% elseif t.proposal_status == 'under_review' %}
+          <span class="stamp mini review">Proposal under review</span>
+        {% else %}
+          <span class="stamp mini pending">{{ t.proposal_status|default('Draft')|capitalize }}</span>
+        {% endif %}
+      </div>
+
+      <div class="grid cols-3" style="margin-top:16px;">
+        <div class="card" style="background:#f4efe4;">
+          <div class="meta" style="margin-bottom:6px;">Internal examination</div>
+          {% if t.internal_exam_score %}
+            <div class="stat" style="font-size:1.4rem;">{{ t.internal_exam_score }}</div>
+            <span class="stamp mini approved">Graded</span>
+          {% elseif t.internal_exam_date %}
+            <div class="meta">{{ t.internal_exam_date|date('d M Y') }}</div>
+            <span class="stamp mini pending">Scheduled</span>
+          {% else %}
+            <span class="stamp mini pending">Not yet scheduled</span>
+          {% endif %}
+        </div>
+        <div class="card" style="background:#f4efe4;">
+          <div class="meta" style="margin-bottom:6px;">External examination</div>
+          {% if t.external_exam_score %}
+            <div class="stat" style="font-size:1.4rem;">{{ t.external_exam_score }}</div>
+            <span class="stamp mini approved">Graded</span>
+          {% elseif t.external_exam_date %}
+            <div class="meta">{{ t.external_exam_date|date('d M Y') }}</div>
+            <span class="stamp mini pending">Scheduled</span>
+          {% else %}
+            <span class="stamp mini pending">Not yet scheduled</span>
+          {% endif %}
+        </div>
+        <div class="card" style="background:#f4efe4;">
+          <div class="meta" style="margin-bottom:6px;">Final thesis document</div>
+          {% if t.final_document_name %}
+            <div class="strong" style="font-size:.85rem;">{{ t.final_document_name }}</div>
+            {% if t.final_document_status == 'valid' %}
+              <span class="stamp mini approved">Accepted</span>
+            {% else %}
+              <span class="stamp mini pending">Awaiting review</span>
+            {% endif %}
+          {% else %}
+            <span class="stamp mini pending">Not submitted</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="margin-top:14px; display:flex; justify-content:space-between; align-items:center;">
+        {% if t.graduation_status == 'eligible' %}
+          <span class="stamp mini approved">Graduation eligible</span>
+        {% elseif t.graduation_status == 'registered' %}
+          <span class="stamp mini approved">On graduation list</span>
+        {% else %}
+          <span class="stamp mini pending">Not yet eligible for graduation</span>
+        {% endif %}
+        <a href="/lecturer/theses/{{ t.thesis_id }}" class="btn ghost" style="padding:6px 14px; font-size:.74rem;">View full record</a>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">You have no theses under supervision or examination yet.</div>
+{% endif %}
+
+{% endblock %}
