@@ -43,4 +43,24 @@
   <div class="notice">No department data available yet.</div>
 {% endif %}
 
+
+<div class="section-title">By course<div class="rule"></div></div>
+{% if by_program %}
+  <table>
+    <thead><tr><th>Program</th><th>Active students</th><th>Open proposals</th></tr></thead>
+    <tbody>
+      {% for prog in by_program %}
+        <tr>
+          <td class="strong">{{ prog.program }}</td>
+          <td class="mono">{{ prog.active_students }}</td>
+          <td class="mono">{{ prog.open_proposals }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No program data available yet.</div>
+{% endif %}
+
+
 {% endblock %}

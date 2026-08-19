@@ -78,4 +78,50 @@ class AdminStats
         );
         return $stmt->fetchAll();
     }
+
+
+    public function byProgram(): array
+    {
+        $studentCounts = [];
+        $stmt = $this->db->query(
+            "SELECT program, COUNT(*) AS cnt
+             FROM students
+             WHERE current_status = 'active'
+             GROUP BY program"
+        );
+        foreach ($stmt->fetchAll() as $row) {
+            $studentCounts[$row['program']] = (int) $row['cnt'];
+        }
+
+        $proposalCounts = [];
+        $stmt = $this->db->query(
+            "SELECT s.program, COUNT(tp.proposal_id) AS cnt
+             FROM students s
+             JOIN thesis_proposals tp ON tp.student_id = s.student_id
+             WHERE tp.status IN ('submitted', 'under_review')
+             GROUP BY s.program"
+        );
+        foreach ($stmt->fetchAll() as $row) {
+            $proposalCounts[$row['program']] = (int) $row['cnt'];
+        }
+
+        $programs = array_unique(array_merge(
+            array_keys($studentCounts),
+            array_keys($proposalCounts)
+        ));
+        sort($programs);
+
+        $result = [];
+        foreach ($programs as $program) {
+            $result[] = [
+                'program'          => $program,
+                'active_students'  => $studentCounts[$program] ?? 0,
+                'open_proposals'   => $proposalCounts[$program] ?? 0,
+            ];
+        }
+
+        return $result;
+    }
+
+    
 }

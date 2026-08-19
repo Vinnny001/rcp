@@ -40,16 +40,17 @@ class AdminController
 
         $stats = new AdminStats($this->db);
 
-        return $this->twig->render($response, 'admins/dashboard.twig', [
-            'active_page'          => 'overview',
-            'first_name'           => $_SESSION['first_name'] ?? '',
-            'active_students'      => $stats->activeStudentCount(),
-            'lecturer_count'       => $stats->lecturerCount(),
+                return $this->twig->render($response, 'admins/dashboard.twig', [
+            'active_page'            => 'overview',
+            'first_name'             => $_SESSION['first_name'] ?? '',
+            'active_students'        => $stats->activeStudentCount(),
+            'lecturer_count'         => $stats->lecturerCount(),
             'proposals_under_review' => $stats->proposalsUnderReviewCount(),
-            'pending_payments'     => $stats->pendingPaymentsTotal(),
-            'meetings_this_week'   => $stats->meetingsThisWeekCount(),
-            'graduation_pending'   => $stats->graduationPendingApprovalCount(),
-            'by_department'        => $stats->byDepartment(),
+            'pending_payments'       => $stats->pendingPaymentsTotal(),
+            'meetings_this_week'     => $stats->meetingsThisWeekCount(),
+            'graduation_pending'     => $stats->graduationPendingApprovalCount(),
+            'by_department'          => $stats->byDepartment(),
+            'by_program'             => $stats->byProgram(),
         ]);
     }
 
