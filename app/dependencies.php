@@ -33,6 +33,16 @@ use App\Models\StudentLeave;
 use App\Models\ProgramSchedule;
 use App\Controllers\StudentEnrollmentController;
 
+
+use App\Models\ThesisRegistration;
+use App\Models\ThesisFeeRate;
+use App\Models\ThesisPayment;
+use App\Controllers\StudentThesisController;
+
+
+use App\Models\Department;
+use App\Models\Program;
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -143,6 +153,35 @@ ProgramSchedule::class => function (ContainerInterface $c) {
 StudentEnrollmentController::class => function (ContainerInterface $c) {
     return new StudentEnrollmentController($c->get(PDO::class), $c->get(Twig::class));
 },
+
+
+
+ThesisRegistration::class => function (ContainerInterface $c) {
+    return new ThesisRegistration($c->get(PDO::class));
+},
+
+ThesisFeeRate::class => function (ContainerInterface $c) {
+    return new ThesisFeeRate($c->get(PDO::class));
+},
+
+ThesisPayment::class => function (ContainerInterface $c) {
+    return new ThesisPayment($c->get(PDO::class));
+},
+
+StudentThesisController::class => function (ContainerInterface $c) {
+    return new StudentThesisController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+
+Department::class => function (ContainerInterface $c) {
+    return new Department($c->get(PDO::class));
+},
+
+Program::class => function (ContainerInterface $c) {
+    return new Program($c->get(PDO::class));
+},
+
 
 
 

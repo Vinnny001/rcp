@@ -1,0 +1,182 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Thesis{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Thesis</h1>
+    <div class="sub">Registration, review fees, and your proposal's progress.</div>
+  </div>
+  <div class="ref">{{ student_number }}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not_registered %}
+
+  <div class="notice">You haven't registered for thesis yet. Registration is separate from your program enrollment and doesn't follow a semester schedule — your thesis timeline is your own.</div>
+
+  <div class="form-card">
+    <form method="POST" action="/student/thesis/register">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn brass">Register for thesis</button>
+    </form>
+  </div>
+
+{% else %}
+
+  <div class="grid cols-2" style="margin-bottom:32px;">
+    <div class="card">
+      <h3>Registration status</h3>
+      <div class="meta">Registered {{ registration.registered_at|date('d M Y') }}</div>
+      {% if registration.status == 'active' %}
+        <span class="stamp mini approved">Active</span>
+      {% elseif registration.status == 'completed' %}
+        <span class="stamp mini approved">Completed</span>
+      {% else %}
+        <span class="stamp mini rejected">Withdrawn</span>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>Fees owed</h3>
+      {% if owed %}
+        <div class="stat">{{ owed|length }}</div>
+        <div class="stat-label">Outstanding item{{ owed|length != 1 ? 's' : '' }}</div>
+      {% else %}
+        <div class="stat">—</div>
+        <div class="stat-label">Nothing currently owed</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if owed %}
+    <div class="section-title">Outstanding fees<div class="rule"></div></div>
+    <table style="margin-bottom:32px;">
+      <thead><tr><th>Fee</th><th>Paid</th><th>Required</th><th>Remaining</th><th>Due</th><th></th></tr></thead>
+      <tbody>
+        {% for item in owed %}
+          <tr>
+            <td class="strong">
+              {{ item.fee_type|replace({'_': ' '})|capitalize }}
+              {% if item.year %} (Year {{ item.year }}){% endif %}
+            </td>
+            <td class="mono">{{ item.currency }} {{ item.paid|number_format(0) }}</td>
+            <td class="mono">{{ item.currency }} {{ item.required|number_format(0) }}</td>
+            <td class="mono">{{ item.currency }} {{ item.remaining|number_format(0) }}</td>
+            <td class="mono">{{ item.due_date ? item.due_date|date('d M Y') : '—' }}</td>
+            <td>
+              <button type="button" class="btn ghost" style="padding:6px 14px; font-size:.74rem;"
+                onclick="openPayModal('{{ item.fee_type }}', '{{ item.year ?? '' }}', '{{ item.remaining }}', '{{ item.currency }}', '{{ item.fee_type|replace({'_': ' '})|capitalize }}{% if item.year %} (Year {{ item.year }}){% endif %}')">
+                Pay
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <div class="section-title">Payment history<div class="rule"></div></div>
+  {% if history %}
+    <table>
+      <thead><tr><th>Fee</th><th>Amount</th><th>Method</th><th>Date</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for h in history %}
+          <tr>
+            <td>
+              {{ h.fee_type|replace({'_': ' '})|capitalize }}
+              {% if h.thesis_year %} (Year {{ h.thesis_year }}){% endif %}
+            </td>
+            <td class="mono">{{ h.currency }} {{ h.amount|number_format(0) }}</td>
+            <td class="mono">{{ h.payment_method|replace({'_': ' '})|capitalize }}</td>
+            <td class="mono">{{ h.payment_date ? h.payment_date|date('d M Y') : '—' }}</td>
+            <td>
+              {% if h.status == 'confirmed' %}
+                <span class="stamp mini approved">Confirmed</span>
+              {% elseif h.status == 'rejected' %}
+                <span class="stamp mini rejected">Rejected</span>
+              {% else %}
+                <span class="stamp mini pending">Pending</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="notice">No thesis payments on record yet.</div>
+  {% endif %}
+
+  <!-- ============ MODAL: PAY FEE ============ -->
+  <div class="modal-overlay" id="payModal" onclick="closePayModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button type="button" class="modal-close" onclick="hidePayModal()">✕ Close</button>
+      <div class="ref">{{ student_number }} · PAYMENT</div>
+      <h2 id="payModalTitle">Pay fee</h2>
+      <div class="sub">Record a payment for this fee. It will show as pending until verified by the registrar.</div>
+
+      <form method="POST" action="/student/thesis/pay">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="fee_type" id="payFeeType">
+        <input type="hidden" name="thesis_year" id="payYear">
+
+        <div class="field">
+          <label>Amount due</label>
+          <input type="text" id="payAmountDisplay" disabled>
+          <input type="hidden" name="amount" id="payAmount">
+          <input type="hidden" name="currency" id="payCurrency">
+        </div>
+
+        <div class="field">
+          <label>Payment method</label>
+          <select name="payment_method" required>
+            <option value="mpesa">M-Pesa</option>
+            <option value="bank">Bank</option>
+            <option value="manual_upload">Manual upload (receipt)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Reference number</label>
+          <input type="text" name="reference_number" placeholder="Transaction/receipt reference" required>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" onclick="hidePayModal()">Cancel</button>
+          <button type="submit" class="btn brass">Submit payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function openPayModal(feeType, year, remaining, currency, label){
+    document.getElementById('payFeeType').value = feeType;
+    document.getElementById('payYear').value = year;
+    document.getElementById('payAmount').value = remaining;
+    document.getElementById('payCurrency').value = currency;
+    document.getElementById('payAmountDisplay').value = currency + ' ' + remaining;
+    document.getElementById('payModalTitle').textContent = 'Pay ' + label;
+    document.getElementById('payModal').classList.add('open');
+  }
+  function hidePayModal(){
+    document.getElementById('payModal').classList.remove('open');
+  }
+  function closePayModal(e){
+    if (e.target.id === 'payModal') hidePayModal();
+  }
+</script>
+{% endblock %}

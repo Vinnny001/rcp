@@ -6,6 +6,8 @@ namespace App\Controllers;
 
 use App\Models\Student;
 use App\Models\User;
+use App\Models\Department;
+use App\Models\Program;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Views\Twig;
@@ -14,12 +16,21 @@ class AuthController
 {
     private User $userModel;
     private Student $studentModel;
+    private Department $departmentModel;
+    private Program $programModel;
     private Twig $view;
 
-    public function __construct(User $userModel, Student $studentModel, Twig $view)
-    {
+    public function __construct(
+        User $userModel,
+        Student $studentModel,
+        Department $departmentModel,
+        Program $programModel,
+        Twig $view
+    ) {
         $this->userModel = $userModel;
         $this->studentModel = $studentModel;
+        $this->departmentModel = $departmentModel;
+        $this->programModel = $programModel;
         $this->view = $view;
     }
 
@@ -63,10 +74,7 @@ class AuthController
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['role'] = $user['role'];
         $_SESSION['first_name'] = $user['first_name'];
-        $_SESSION['last_name'] = $user['last_name'];
-        if ($user['role'] === 'student') {
-    $_SESSION['student_number'] = $user['student_number'];
-}
+
         $redirect = match ($user['role']) {
             'student'  => '/student/dashboard',
             'lecturer' => '/lecturer/dashboard',
@@ -79,7 +87,10 @@ class AuthController
 
     public function showRegisterForm(Request $request, Response $response): Response
     {
-        return $this->view->render($response, 'auth/register.twig');
+        return $this->view->render($response, 'auth/register.twig', [
+            'departments' => $this->departmentModel->all(),
+            'programs' => $this->programModel->all(),
+        ]);
     }
 
     public function register(Request $request, Response $response): Response
@@ -87,20 +98,25 @@ class AuthController
         $data = $request->getParsedBody();
         $errors = $this->validateRegistration($data);
 
+        $formData = [
+            'departments' => $this->departmentModel->all(),
+            'programs' => $this->programModel->all(),
+        ];
+
         if (!empty($errors)) {
-            return $this->view->render($response, 'auth/register.twig', ['errors' => $errors, 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => $errors, 'old' => $data]);
         }
 
         if ($this->userModel->findByUsername($data['username'])) {
-            return $this->view->render($response, 'auth/register.twig', ['errors' => ['Username already taken.'], 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => ['Username already taken.'], 'old' => $data]);
         }
 
         if ($this->userModel->findByEmail($data['email'])) {
-            return $this->view->render($response, 'auth/register.twig', ['errors' => ['Email already registered.'], 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => ['Email already registered.'], 'old' => $data]);
         }
 
         if ($this->studentModel->findByStudentNumber($data['student_number'])) {
-            return $this->view->render($response, 'auth/register.twig', ['errors' => ['Student number already registered.'], 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => ['Student number already registered.'], 'old' => $data]);
         }
 
         try {
@@ -122,8 +138,8 @@ class AuthController
                 $this->studentModel
             );
         } catch (\Throwable $e) {
-            return $this->view->render($response, 'auth/register.twig', [
-                'errors' => ['Registration failed: ' . $e->getMessage()],
+            return $this->view->render($response, 'auth/register.twig', $formData + [
+                'errors' => ['Registration failed. Please check your details and try again.'],
                 'old' => $data,
             ]);
         }

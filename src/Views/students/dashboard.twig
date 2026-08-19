@@ -4,22 +4,6 @@
 
 {% block content %}
 
-{% if no_enrollment %}
-  <div class="page-head">
-    <div>
-      <h1>Your dossier</h1>
-      <div class="sub">You don't have an active program enrollment yet.</div>
-    </div>
-    <div class="ref">{{ student_number }}</div>
-  </div>
-
-  <div class="notice">
-    You need to select a program schedule before your dossier can be tracked.
-  </div>
-  <a href="/student/enroll" class="btn brass">Choose a program schedule</a>
-
-{% else %}
-
   <div class="page-head">
     <div>
       <h1>Your dossier</h1>
@@ -37,30 +21,15 @@
     <div class="rail-step {{ rail_step > 6 ? 'done' : (rail_step == 6 ? 'current' : '') }}"><div class="line"></div><div class="dot">6</div><div class="label">Graduation</div></div>
   </div>
 
-  {% if not registration.done %}
+  {% if not registration.registered %}
     <div class="notice">
-      {% if registration.required %}
-        {{ (registration.required - registration.paid)|number_format(0) }} {{ registration.currency }} remaining before your registration step is marked complete.
-      {% else %}
-        Registration fee amount has not been set for your program schedule yet.
-      {% endif %}
+      You haven't registered for thesis yet. <a href="/student/thesis">Register for thesis</a> to begin.
     </div>
-  {% elseif registration.waived %}
-    <div class="notice">Registration fee waived — carried over from your previous enrollment on approved leave.</div>
+  {% elseif not registration.done %}
+    <div class="notice">
+      {{ (registration.required - registration.paid)|number_format(0) }} {{ registration.currency }} remaining before your registration step is marked complete.
+    </div>
   {% endif %}
-
-
-
-<div class="stat-label">
-          {{ next_due.type|replace({'_': ' '})|capitalize }}{% if next_due.semester_number %} (Semester {{ next_due.semester_number }}){% endif %} — {{ next_due.currency }} {{ next_due.paid|number_format(0) }} of {{ next_due.currency }} {{ next_due.required|number_format(0) }} paid
-          {% if next_due.due_date %} · due {{ next_due.due_date|date('d M Y') }}{% endif %}
-        </div>
-
-        <div class="stat-label">
-          {{ next_due.type|replace({'_': ' '})|capitalize }}{% if next_due.exam_type %} ({{ next_due.exam_type|capitalize }}){% endif %}{% if next_due.semester_number %} (Semester {{ next_due.semester_number }}){% endif %} — {{ next_due.currency }} {{ next_due.paid|number_format(0) }} of {{ next_due.currency }} {{ next_due.required|number_format(0) }} paid
-          {% if next_due.due_date %} · due {{ next_due.due_date|date('d M Y') }}{% endif %}
-        </div>
-
 
   <div class="grid cols-3">
     <div class="card">
@@ -88,15 +57,18 @@
 
     <div class="card">
       <h3>Next payment due</h3>
-      {% if next_due %}
-        <div class="stat">{{ next_due.currency }} {{ next_due.remaining|number_format(0) }}</div>
+      {% if thesis_owed %}
+        <div class="stat">{{ thesis_owed.currency }} {{ thesis_owed.remaining|number_format(0) }}</div>
         <div class="stat-label">
-          {{ next_due.type|replace({'_': ' '})|capitalize }} — {{ next_due.currency }} {{ next_due.paid|number_format(0) }} of {{ next_due.currency }} {{ next_due.required|number_format(0) }} paid
-          {% if next_due.due_date %} · due {{ next_due.due_date|date('d M Y') }}{% endif %}
+          {{ thesis_owed.fee_type|replace({'_': ' '})|capitalize }}{% if thesis_owed.year %} (Year {{ thesis_owed.year }}){% endif %}
+          {% if thesis_owed.due_date %} · due {{ thesis_owed.due_date|date('d M Y') }}{% endif %}
         </div>
+      {% elseif not_registered_for_thesis %}
+        <div class="stat">—</div>
+        <div class="stat-label">Not yet registered for thesis</div>
       {% else %}
         <div class="stat">—</div>
-        <div class="stat-label">No outstanding fees on record</div>
+        <div class="stat-label">No outstanding thesis fees</div>
       {% endif %}
     </div>
 
@@ -132,5 +104,4 @@
     </div>
   {% endif %}
 
-{% endif %}
 {% endblock %}

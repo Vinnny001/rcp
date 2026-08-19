@@ -70,24 +70,20 @@
       <div class="field-row">
         <div class="field">
           <label>Department</label>
-          <select name="department" required>
+          <select name="department" id="departmentSelect" required>
             <option value="">-- Select --</option>
-            {% for dept in ['Computing', 'Information Systems', 'Data Science', 'Business IT'] %}
-              <option value="{{ dept }}" {% if old.department is defined and old.department == dept %}selected{% endif %}>
-                {{ dept }}
+            {% for dept in departments %}
+              <option value="{{ dept.name }}" data-dept-id="{{ dept.department_id }}"
+                {% if old.department is defined and old.department == dept.name %}selected{% endif %}>
+                {{ dept.name }}
               </option>
             {% endfor %}
           </select>
         </div>
         <div class="field">
           <label>Program</label>
-          <select name="program" required>
-            <option value="">-- Select --</option>
-            {% for prog in ['MSc. Computer Science', 'MSc. Information Systems', 'MSc. Data Science', 'BBIT'] %}
-              <option value="{{ prog }}" {% if old.program is defined and old.program == prog %}selected{% endif %}>
-                {{ prog }}
-              </option>
-            {% endfor %}
+          <select name="program" id="programSelect" required>
+            <option value="">-- Select a department first --</option>
           </select>
         </div>
       </div>
@@ -107,6 +103,66 @@
     <div class="login-foot">Already registered? <a href="/login">Sign in instead</a></div>
   </div>
 </div>
+
+<script>
+  // All programs, tagged with their department_id, provided by the server.
+  // Filtering happens client-side so there's no page reload when the
+  // student picks a department.
+  const allPrograms = [
+    {% for prog in programs %}
+      { departmentId: "{{ prog.department_id }}", name: "{{ prog.name|escape('js') }}" },
+    {% endfor %}
+  ];
+
+  const oldProgram = "{{ old.program|default('')|escape('js') }}";
+
+  const departmentSelect = document.getElementById('departmentSelect');
+  const programSelect = document.getElementById('programSelect');
+
+  function populatePrograms(departmentId, preselect) {
+    programSelect.innerHTML = '';
+
+    if (!departmentId) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '-- Select a department first --';
+      programSelect.appendChild(opt);
+      return;
+    }
+
+    const opts = allPrograms.filter(p => p.departmentId === departmentId);
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = opts.length ? '-- Select --' : '-- No programs found for this department --';
+    programSelect.appendChild(placeholder);
+
+    opts.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      if (preselect && p.name === preselect) opt.selected = true;
+      programSelect.appendChild(opt);
+    });
+  }
+
+  departmentSelect.addEventListener('change', function () {
+    const selected = this.options[this.selectedIndex];
+    const deptId = selected ? selected.getAttribute('data-dept-id') : null;
+    populatePrograms(deptId, null);
+  });
+
+  // On page load: if a department was already selected (e.g. redisplay
+  // after a validation error), populate its programs and restore the
+  // previously chosen one.
+  window.addEventListener('DOMContentLoaded', function () {
+    const selected = departmentSelect.options[departmentSelect.selectedIndex];
+    const deptId = selected ? selected.getAttribute('data-dept-id') : null;
+    if (deptId) {
+      populatePrograms(deptId, oldProgram);
+    }
+  });
+</script>
 
 </body>
 </html>

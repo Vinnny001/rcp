@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{% block title %}RCP{% endblock %} — RCP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/admin.css">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">RC</div>
+      <div class="brand-text">
+        <div class="t1">Research Coordination Platform</div>
+        <div class="t2">Registrar's Dossier System</div>
+      </div>
+    </div>
+    <div class="user-chip">
+      <div class="who">
+        <div class="name">{{ first_name }}</div>
+        <div class="role">Admin</div>
+        <form method="POST" action="/logout" style="display:inline;">
+          <button type="submit" class="logout-link">Sign out</button>
+        </form>
+      </div>
+      <div class="avatar">{{ first_name|slice(0,1)|upper }}</div>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <nav class="tabs">
+      <a class="tab {% if active_page == 'overview' %}active{% endif %}" href="/admin/dashboard"><span class="num">01</span>Overview</a>
+      <a class="tab {% if active_page == 'users' %}active{% endif %}" href="/admin/users"><span class="num">02</span>Users</a>
+      <a class="tab {% if active_page == 'audit' %}active{% endif %}" href="/admin/audit"><span class="num">03</span>Audit Log</a>
+    </nav>
+    <div class="sidebar-foot">RCP v1<br>JKUAT Graduate School</div>
+  </aside>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>

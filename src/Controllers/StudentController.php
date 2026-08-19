@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\Proposal;
-use App\Models\Payment;
-use App\Models\StudentEnrollment;
-use App\Models\ProgramSchedule;
 use App\Models\Meeting;
+use App\Models\ThesisRegistration;
+use App\Models\ThesisPayment;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Views\Twig;
@@ -18,8 +17,6 @@ class StudentController
 {
     private PDO $db;
     private Twig $view;
-
-    private const FEE_PRIORITY = ['registration', 'thesis_fee', 'tuition', 'examination_fee'];
 
     public function __construct(PDO $db, Twig $view)
     {
@@ -46,148 +43,50 @@ class StudentController
     }
 
     /**
-     * Registration (step 1) is "done" once confirmed registration payments
-     * for the student's ACTIVE enrollment meet or exceed that cohort's
-     * registration rate — OR the registration-fee waiver applies (most
-     * recent enrollment ended via approved leave, under the 3-consecutive
-     * cap). Partial payments keep it "current", not "done".
+     * Registration (step 1) now means THESIS registration, not program
+     * enrollment — there is no program registration in this flow anymore.
+     * "Done" means the thesis_registration fee is fully paid. If the
+     * student hasn't registered for thesis at all yet, this is naturally
+     * "not done" — computeOwed() on a null registration isn't called;
+     * we short-circuit to "not done" directly.
      */
-    private function registrationStatus(array $student, array $activeEnrollment): array
+    private function registrationStatus(?array $thesisRegistration): array
     {
-        $enrollmentModel = new StudentEnrollment($this->db);
-        $scheduleModel = new ProgramSchedule($this->db);
-
-        if ($enrollmentModel->registrationFeeWaived($student['student_id'])) {
-            return ['done' => true, 'paid' => 0.0, 'required' => 0.0, 'currency' => null, 'waived' => true];
+        if (!$thesisRegistration) {
+            return ['done' => false, 'paid' => 0.0, 'required' => null, 'currency' => null, 'registered' => false];
         }
 
-        $rate = $scheduleModel->findRateForType($activeEnrollment['schedule_id'], 'registration');
+        $regModel = new ThesisRegistration($this->db);
+        $owed = $regModel->computeOwed($thesisRegistration);
 
-        if (!$rate) {
-            return ['done' => false, 'paid' => 0.0, 'required' => null, 'currency' => null, 'waived' => false];
+        // If the first owed item is thesis_registration, it's still unpaid.
+        // If owed is empty, or the first item is a review fee, registration
+        // itself is fully settled.
+        $regStillOwed = null;
+        foreach ($owed as $item) {
+            if ($item['fee_type'] === 'thesis_registration') {
+                $regStillOwed = $item;
+                break;
+            }
         }
 
-        $paymentModel = new Payment($this->db);
-        $paid = $paymentModel->sumConfirmedByType($student['student_id'], 'registration');
+        if ($regStillOwed) {
+            return [
+                'done'       => false,
+                'paid'       => $regStillOwed['paid'],
+                'required'   => $regStillOwed['required'],
+                'currency'   => $regStillOwed['currency'],
+                'registered' => true,
+            ];
+        }
 
-        return [
-            'done'     => $paid >= (float) $rate['amount'],
-            'paid'     => $paid,
-            'required' => (float) $rate['amount'],
-            'currency' => $rate['currency'],
-            'waived'   => false,
-        ];
+        return ['done' => true, 'paid' => 0.0, 'required' => 0.0, 'currency' => null, 'registered' => true];
     }
 
     /**
-     * Returns the next fee type the student owes, walked in a fixed
-     * priority order (registration, then thesis_fee, then tuition, then
-     * examination_fee). The first type where confirmed payments fall
-     * short of the cohort's rate is "next due". Returns null if every
-     * fee type is fully paid, or if no rate exists to compare against.
-     */
-    private function nextFeeDue(array $student, array $activeEnrollment): ?array
-    {
-        $scheduleModel = new ProgramSchedule($this->db);
-        $paymentModel = new Payment($this->db);
-
-        foreach (self::FEE_PRIORITY as $type) {
-            if ($type === 'tuition') {
-                $semesterId = $activeEnrollment['current_semester_id'] ?? null;
-                if (!$semesterId) {
-                    continue;
-                }
-
-                $semester = $scheduleModel->findSemesterById($semesterId);
-                if (!$semester) {
-                    continue;
-                }
-
-                $paid = $paymentModel->sumConfirmedByType($student['student_id'], 'tuition', $semesterId);
-                $required = (float) $semester['tuition_amount'];
-
-                if ($paid < $required) {
-                    return [
-                        'type'      => 'tuition',
-                        'paid'      => $paid,
-                        'required'  => $required,
-                        'remaining' => $required - $paid,
-                        'currency'  => $semester['currency'],
-                        'due_date'  => $semester['tuition_due_date'],
-                        'semester_number' => $semester['semester_number'],
-                    ];
-                }
-
-                continue;
-            }
-
-            if ($type === 'examination_fee') {
-                $semesterId = $activeEnrollment['current_semester_id'] ?? null;
-                if (!$semesterId) {
-                    continue;
-                }
-
-                $examFees = $scheduleModel->findExamFeesForSemester($semesterId);
-                if (!$examFees) {
-                    continue; // no exam fee required this semester at all
-                }
-
-                foreach ($examFees as $fee) {
-                    $paid = $paymentModel->sumConfirmedByType(
-                        $student['student_id'], 'examination_fee', $semesterId, $fee['exam_type']
-                    );
-                    $required = (float) $fee['amount'];
-
-                    if ($paid < $required) {
-                        return [
-                            'type'      => 'examination_fee',
-                            'exam_type' => $fee['exam_type'],
-                            'paid'      => $paid,
-                            'required'  => $required,
-                            'remaining' => $required - $paid,
-                            'currency'  => $fee['currency'],
-                            'due_date'  => $fee['due_date'],
-                        ];
-                    }
-                }
-
-                continue; // both internal and external (whichever exist) are paid up
-            }
-
-            $rate = $scheduleModel->findRateForType($activeEnrollment['schedule_id'], $type);
-            if (!$rate) {
-                continue;
-            }
-
-            if ($type === 'registration') {
-                $enrollmentModel = new StudentEnrollment($this->db);
-                if ($enrollmentModel->registrationFeeWaived($student['student_id'])) {
-                    continue;
-                }
-            }
-
-            $paid = $paymentModel->sumConfirmedByType($student['student_id'], $type);
-            $required = (float) $rate['amount'];
-
-            if ($paid < $required) {
-                return [
-                    'type'      => $type,
-                    'paid'      => $paid,
-                    'required'  => $required,
-                    'remaining' => $required - $paid,
-                    'currency'  => $rate['currency'],
-                    'due_date'  => $rate['due_date'],
-                ];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Maps proposal status onto the six-step journey rail. Step 2
-     * (Requirements Validation) still has no dedicated tracking model —
-     * treated as complete once step 1 clears, same placeholder as before.
+     * Maps status onto the six-step journey rail. Step 1 is now thesis
+     * registration (paid). Step 2 (Requirements Validation) still has no
+     * dedicated tracking — treated as complete once step 1 clears.
      */
     private function currentRailStep(bool $registrationDone, ?array $proposal): int
     {
@@ -218,16 +117,18 @@ class StudentController
             return $response->withHeader('Location', '/login')->withStatus(302);
         }
 
-        $enrollmentModel = new StudentEnrollment($this->db);
-        $activeEnrollment = $enrollmentModel->findActive($student['student_id']);
+        // Thesis registration — the new "registration" step. No longer
+        // gated on program enrollment; a student can have proposal,
+        // supervisor, and meeting data with zero program enrollment.
+        $thesisRegModel = new ThesisRegistration($this->db);
+        $thesisRegistration = $thesisRegModel->findActiveByStudentId($student['student_id']);
 
-        if (!$activeEnrollment) {
-            return $this->view->render($response, 'students/dashboard.twig', [
-                'first_name'      => $_SESSION['first_name'] ?? '',
-                'active_page'     => 'overview',
-                'student_number'  => $student['student_number'] ?? null,
-                'no_enrollment'   => true,
-            ]);
+        $registration = $this->registrationStatus($thesisRegistration);
+
+        $thesisOwed = null;
+        if ($thesisRegistration) {
+            $owedList = $thesisRegModel->computeOwed($thesisRegistration);
+            $thesisOwed = $owedList[0] ?? null;
         }
 
         $proposalModel = new Proposal($this->db);
@@ -235,9 +136,6 @@ class StudentController
 
         $meetingModel = new Meeting($this->db);
         $upcomingMeetings = $meetingModel->findUpcomingForStudent($student['student_id'], $userId);
-
-        $registration = $this->registrationStatus($student, $activeEnrollment);
-        $nextDue = $this->nextFeeDue($student, $activeEnrollment);
 
         $supervisorName = null;
         $supervisorStatus = null;
@@ -261,19 +159,18 @@ class StudentController
         }
 
         return $this->view->render($response, 'students/dashboard.twig', [
-            'first_name'            => $_SESSION['first_name'] ?? '',
-            'active_page'           => 'overview',
-            'student_number'        => $student['student_number'] ?? null,
-            'no_enrollment'         => false,
-            'active_enrollment'     => $activeEnrollment,
-            'proposal'              => $proposal,
-            'rail_step'             => $this->currentRailStep($registration['done'], $proposal),
-            'registration'          => $registration,
-            'next_due'              => $nextDue,
-            'supervisor_name'       => $supervisorName,
-            'supervisor_status'     => $supervisorStatus,
-            'supervisor_department' => $supervisorDepartment,
-            'next_meeting'          => $upcomingMeetings[0] ?? null,
+            'first_name'              => $_SESSION['first_name'] ?? '',
+            'active_page'             => 'overview',
+            'student_number'          => $student['student_number'] ?? null,
+            'proposal'                => $proposal,
+            'rail_step'               => $this->currentRailStep($registration['done'], $proposal),
+            'registration'            => $registration,
+            'thesis_owed'             => $thesisOwed,
+            'not_registered_for_thesis' => !$thesisRegistration,
+            'supervisor_name'         => $supervisorName,
+            'supervisor_status'       => $supervisorStatus,
+            'supervisor_department'   => $supervisorDepartment,
+            'next_meeting'            => $upcomingMeetings[0] ?? null,
         ]);
     }
 }

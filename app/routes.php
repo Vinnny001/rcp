@@ -22,6 +22,7 @@ use App\Controllers\LecturerSupervisionController;
 use App\Controllers\LecturerMeetingsController;
 
 use App\Controllers\StudentEnrollmentController;
+use App\Controllers\StudentThesisController;
 
 
 return function (App $app) {
@@ -88,5 +89,11 @@ return function (App $app) {
     $app->post('/student/enroll', [StudentEnrollmentController::class, 'enroll']);
     $app->post('/student/leave/request', [StudentEnrollmentController::class, 'requestLeave']);
 
+
+    $app->get('/student/thesis', [StudentThesisController::class, 'show']);
+    $app->post('/student/thesis/register', [StudentThesisController::class, 'register']);
+
+
+    $app->post('/student/thesis/pay', [StudentThesisController::class, 'pay']);
 
 };
