@@ -13,8 +13,8 @@
 <div class="login-screen">
   <div class="login-card">
     <div class="login-seal"><span>RC</span></div>
-    <h1>Register your dossier</h1>
-    <div class="sub">Step 1 of your journey — Registration. Your requirements are validated once this is submitted.</div>
+    <h1>Create your account</h1>
+    <div class="sub">You can register for a thesis schedule any time after signing in.</div>
 
     {% if errors %}
       <div class="notice">
@@ -40,8 +40,8 @@
         </div>
       </div>
       <div class="field">
-        <label>Institutional email</label>
-        <input type="email" name="email" placeholder="amina.wanjiru@jkuat.ac.ke" value="{{ old.email|default('') }}" required>
+        <label>Personal email</label>
+        <input type="email" name="email" placeholder="amina.wanjiru@gmail.com" value="{{ old.email|default('') }}" required>
       </div>
       <div class="field">
         <label>Username</label>
@@ -61,108 +61,22 @@
           <input type="password" name="password_confirm" placeholder="••••••••••" required>
         </div>
       </div>
-
-      <div class="section-title">Academic record<div class="rule"></div></div>
       <div class="field">
-        <label>Student number</label>
-        <input type="text" name="student_number" placeholder="e.g. CS-2026-0512" value="{{ old.student_number|default('') }}" required>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label>Department</label>
-          <select name="department" id="departmentSelect" required>
-            <option value="">-- Select --</option>
-            {% for dept in departments %}
-              <option value="{{ dept.name }}" data-dept-id="{{ dept.department_id }}"
-                {% if old.department is defined and old.department == dept.name %}selected{% endif %}>
-                {{ dept.name }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="field">
-          <label>Program</label>
-          <select name="program" id="programSelect" required>
-            <option value="">-- Select a department first --</option>
-          </select>
-        </div>
-      </div>
-      <div class="field">
-        <label>Enrollment year</label>
-        <input type="number" name="enrollment_year" value="{{ old.enrollment_year|default('now'|date('Y')) }}" min="1990" max="2100" required>
+        <label>Student number (if known)</label>
+        <input type="text" name="student_number" placeholder="e.g. CS-2026-0512" value="{{ old.student_number|default('') }}">
       </div>
 
       <div class="consent">
         <input type="checkbox" name="consent" id="regConsent" required>
-        <label for="regConsent">I confirm these details are accurate and consent to their validation against institute records.</label>
+        <label for="regConsent">I confirm these details are accurate.</label>
       </div>
 
-      <button type="submit" class="btn brass block">Submit registration</button>
+      <button type="submit" class="btn brass block">Create account</button>
     </form>
 
     <div class="login-foot">Already registered? <a href="/login">Sign in instead</a></div>
   </div>
 </div>
-
-<script>
-  // All programs, tagged with their department_id, provided by the server.
-  // Filtering happens client-side so there's no page reload when the
-  // student picks a department.
-  const allPrograms = [
-    {% for prog in programs %}
-      { departmentId: "{{ prog.department_id }}", name: "{{ prog.name|escape('js') }}" },
-    {% endfor %}
-  ];
-
-  const oldProgram = "{{ old.program|default('')|escape('js') }}";
-
-  const departmentSelect = document.getElementById('departmentSelect');
-  const programSelect = document.getElementById('programSelect');
-
-  function populatePrograms(departmentId, preselect) {
-    programSelect.innerHTML = '';
-
-    if (!departmentId) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '-- Select a department first --';
-      programSelect.appendChild(opt);
-      return;
-    }
-
-    const opts = allPrograms.filter(p => p.departmentId === departmentId);
-
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = opts.length ? '-- Select --' : '-- No programs found for this department --';
-    programSelect.appendChild(placeholder);
-
-    opts.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.name;
-      opt.textContent = p.name;
-      if (preselect && p.name === preselect) opt.selected = true;
-      programSelect.appendChild(opt);
-    });
-  }
-
-  departmentSelect.addEventListener('change', function () {
-    const selected = this.options[this.selectedIndex];
-    const deptId = selected ? selected.getAttribute('data-dept-id') : null;
-    populatePrograms(deptId, null);
-  });
-
-  // On page load: if a department was already selected (e.g. redisplay
-  // after a validation error), populate its programs and restore the
-  // previously chosen one.
-  window.addEventListener('DOMContentLoaded', function () {
-    const selected = departmentSelect.options[departmentSelect.selectedIndex];
-    const deptId = selected ? selected.getAttribute('data-dept-id') : null;
-    if (deptId) {
-      populatePrograms(deptId, oldProgram);
-    }
-  });
-</script>
 
 </body>
 </html>

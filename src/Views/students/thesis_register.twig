@@ -1,0 +1,136 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Register for Thesis{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Register for thesis</h1>
+    <div class="sub">Choose your department, then a program with an open thesis schedule.</div>
+  </div>
+</div>
+
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="form-card">
+  <form method="POST" action="/student/thesis/register">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label>Department</label>
+      <select id="departmentSelect" required>
+        <option value="">-- Select --</option>
+        {% for d in departments %}
+          <option value="{{ d.department_id }}">{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Program</label>
+      <select id="programSelect" required disabled>
+        <option value="">-- Select a department first --</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Schedule</label>
+      <select name="schedule_id" id="scheduleSelect" required disabled>
+        <option value="">-- Select a program first --</option>
+      </select>
+    </div>
+
+    <button type="submit" class="btn brass">Register</button>
+  </form>
+</div>
+
+<script>
+  const allPrograms = [
+    {% for p in programs %}
+      { departmentId: "{{ p.department_id }}", programId: "{{ p.program_id }}", name: "{{ p.name|escape('js') }}" },
+    {% endfor %}
+  ];
+  const allSchedules = [
+    {% for s in schedules %}
+      { scheduleId: "{{ s.schedule_id }}", programId: "{{ s.program_id }}",
+        start: "{{ s.enrollment_start_date|date('d M Y') }}", end: "{{ s.enrollment_end_date|date('d M Y') }}" },
+    {% endfor %}
+  ];
+
+  const departmentSelect = document.getElementById('departmentSelect');
+  const programSelect = document.getElementById('programSelect');
+  const scheduleSelect = document.getElementById('scheduleSelect');
+
+  departmentSelect.addEventListener('change', function () {
+    const deptId = this.value;
+    programSelect.innerHTML = '';
+    scheduleSelect.innerHTML = '<option value="">-- Select a program first --</option>';
+    scheduleSelect.disabled = true;
+
+    if (!deptId) {
+      programSelect.innerHTML = '<option value="">-- Select a department first --</option>';
+      programSelect.disabled = true;
+      return;
+    }
+
+    const opts = allPrograms.filter(p => p.departmentId === deptId);
+    programSelect.disabled = false;
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = opts.length ? '-- Select --' : '-- No schedules available for this department --';
+    programSelect.appendChild(placeholder);
+
+    opts.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.programId;
+      opt.textContent = p.name;
+      programSelect.appendChild(opt);
+    });
+  });
+
+  programSelect.addEventListener('change', function () {
+    const programId = this.value;
+    scheduleSelect.innerHTML = '';
+
+    if (!programId) {
+      scheduleSelect.innerHTML = '<option value="">-- Select a program first --</option>';
+      scheduleSelect.disabled = true;
+      return;
+    }
+
+    const matches = allSchedules.filter(s => s.programId === programId);
+    scheduleSelect.disabled = false;
+
+    if (matches.length === 0) {
+      scheduleSelect.innerHTML = '<option value="">No schedule available</option>';
+      return;
+    }
+
+    if (matches.length === 1) {
+      const opt = document.createElement('option');
+      opt.value = matches[0].scheduleId;
+      opt.textContent = matches[0].start + ' – ' + matches[0].end;
+      opt.selected = true;
+      scheduleSelect.appendChild(opt);
+      return;
+    }
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '-- Select a schedule --';
+    scheduleSelect.appendChild(placeholder);
+
+    matches.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.scheduleId;
+      opt.textContent = s.start + ' – ' + s.end;
+      scheduleSelect.appendChild(opt);
+    });
+  });
+</script>
+
+{% endblock %}

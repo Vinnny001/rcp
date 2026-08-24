@@ -30,10 +30,10 @@ class StudentThesisController
         return null;
     }
 
-    private function getStudentRecord(string $userId): ?array
+        private function getStudentRecord(string $userId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT student_id, student_number, department, program FROM students WHERE user_id = :user_id LIMIT 1"
+            "SELECT student_id, student_number FROM students WHERE user_id = :user_id LIMIT 1"
         );
         $stmt->execute(['user_id' => $userId]);
         $row = $stmt->fetch();
@@ -122,6 +122,64 @@ class StudentThesisController
 
 
 
+        /**
+     * Step 1 of thesis registration: shows departments, then (via AJAX
+     * or a second form step) programs with an available schedule under
+     * that department, then the schedule(s) themselves if a program has
+     * more than one.
+     */
+    public function showRegisterPicker(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireStudent()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $student = $this->getStudentRecord($_SESSION['user_id']);
+        if (!$student) {
+            $_SESSION['flash_error'] = 'Could not find your student record.';
+            return $this->redirect($response, '/login');
+        }
+
+        $regModel = new ThesisRegistration($this->db);
+        if ($regModel->findActiveByStudentId($student['student_id'])) {
+            $_SESSION['flash_error'] = 'You are already registered for thesis.';
+            return $this->redirect($response, '/student/thesis');
+        }
+
+        $departments = $this->db->query("SELECT department_id, name FROM departments ORDER BY name")->fetchAll();
+
+        // Programs that actually have at least one thesis_schedules row,
+        // tagged with their department, for client-side cascading —
+        // same pattern as the old register.twig's department/program picker.
+        $programs = $this->db->query(
+            "SELECT DISTINCT p.program_id, p.name, p.department_id
+             FROM programs p
+             JOIN thesis_schedules ts ON ts.program_id = p.program_id
+             ORDER BY p.name"
+        )->fetchAll();
+
+        $schedules = $this->db->query(
+            "SELECT schedule_id, program_id, enrollment_start_date, enrollment_end_date
+             FROM thesis_schedules
+             ORDER BY enrollment_start_date DESC"
+        )->fetchAll();
+
+        return $this->twig->render($response, 'students/thesis_register.twig', [
+            'active_page' => 'thesis',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'departments' => $departments,
+            'programs'    => $programs,
+            'schedules'   => $schedules,
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $_SESSION['flash_error'] ?? null,
+        ]);
+    }
+
+    /**
+     * Step 2: student has picked a specific schedule_id — register them
+     * against it directly. No more resolving program_id from the
+     * student's own record, since students no longer carry one.
+     */
     public function register(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
@@ -131,38 +189,39 @@ class StudentThesisController
         $data = $request->getParsedBody();
         if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
             $_SESSION['flash_error'] = 'Your session expired — please try again.';
-            return $this->redirect($response, '/student/proposal');
+            return $this->redirect($response, '/student/thesis/register');
         }
 
         $student = $this->getStudentRecord($_SESSION['user_id']);
         if (!$student) {
             $_SESSION['flash_error'] = 'Could not find your student record.';
-            return $this->redirect($response, '/student/proposal');
+            return $this->redirect($response, '/student/thesis/register');
         }
 
         $regModel = new ThesisRegistration($this->db);
         if ($regModel->findActiveByStudentId($student['student_id'])) {
             $_SESSION['flash_error'] = 'You are already registered for thesis.';
-            return $this->redirect($response, '/student/proposal');
+            return $this->redirect($response, '/student/thesis');
         }
 
-        $stmt = $this->db->prepare(
-            "SELECT p.program_id FROM programs p
-             JOIN departments d ON d.department_id = p.department_id
-             WHERE d.name = :department AND p.name = :program LIMIT 1"
-        );
-        $stmt->execute(['department' => $student['department'], 'program' => $student['program']]);
-        $programId = $stmt->fetchColumn();
+        $thesisScheduleId = trim((string) ($data['schedule_id'] ?? ''));
 
-        if (!$programId) {
-            $_SESSION['flash_error'] = 'Your program is not yet set up for thesis registration. Contact the registrar.';
-            return $this->redirect($response, '/student/proposal');
+        if ($thesisScheduleId === '') {
+            $_SESSION['flash_error'] = 'Please select a thesis schedule.';
+            return $this->redirect($response, '/student/thesis/register');
         }
 
-        $regModel->create($student['student_id'], $programId);
+        $scheduleCheck = $this->db->prepare("SELECT schedule_id FROM thesis_schedules WHERE schedule_id = :id LIMIT 1");
+        $scheduleCheck->execute(['id' => $thesisScheduleId]);
+        if (!$scheduleCheck->fetchColumn()) {
+            $_SESSION['flash_error'] = 'That schedule no longer exists. Please choose again.';
+            return $this->redirect($response, '/student/thesis/register');
+        }
+
+        $regModel->create($student['student_id'], $thesisScheduleId);
 
         $_SESSION['flash_success'] = 'You are now registered for thesis. Pay the registration fee to proceed.';
-        return $this->redirect($response, '/student/proposal');
+        return $this->redirect($response, '/student/thesis');
     }
 
 

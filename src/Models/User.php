@@ -35,14 +35,13 @@ class User
         return $user ?: null;
     }
 
-    public function findByEmailOrStudentNumber(string $identifier): ?array
+        public function findByEmailOrStudentNumber(string $identifier): ?array
     {
         $stmt = $this->db->prepare(
             "SELECT 
                 u.*,
                 s.student_number,
-                s.program_id,
-                s.enrolled_at
+                s.student_email
              FROM users u
              LEFT JOIN students s ON s.user_id = u.user_id
              WHERE u.email = :identifier

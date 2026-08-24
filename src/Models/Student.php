@@ -25,19 +25,24 @@ class Student
         return $row ?: null;
     }
 
-    public function create(string $userId, array $data): void
+        public function create(string $userId, array $data): void
     {
         $stmt = $this->db->prepare(
-            "INSERT INTO students (user_id, student_number, department, program, enrollment_year)
-             VALUES (:user_id, :student_number, :department, :program, :enrollment_year)"
+            "INSERT INTO students (student_id, user_id, student_number)
+             VALUES (:student_id, :user_id, :student_number)"
         );
-
         $stmt->execute([
-            'user_id'         => $userId,
-            'student_number'  => $data['student_number'],
-            'department'      => $data['department'],
-            'program'         => $data['program'],
-            'enrollment_year' => $data['enrollment_year'],
+            'student_id'     => $this->generateUuid(),
+            'user_id'        => $userId,
+            'student_number' => $data['student_number'],
         ]);
+    }
+
+    private function generateUuid(): string
+    {
+        $data = random_bytes(16);
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 }

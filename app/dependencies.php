@@ -47,6 +47,9 @@ use App\Models\Program;
 use App\Models\AdminUser;
 
 
+use App\Middleware\StudentContextMiddleware;
+
+
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
         LoggerInterface::class => function (ContainerInterface $c) {
@@ -194,6 +197,11 @@ AdminUser::class => function (ContainerInterface $c) {
 
 LecturerDocumentsController::class => function (ContainerInterface $c) {
     return new LecturerDocumentsController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+StudentContextMiddleware::class => function (ContainerInterface $c) {
+    return new StudentContextMiddleware($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

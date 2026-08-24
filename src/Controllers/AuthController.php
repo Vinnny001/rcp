@@ -91,38 +91,26 @@ class AuthController
         return $response->withHeader('Location', $redirect)->withStatus(302);
     }
 
-    public function showRegisterForm(Request $request, Response $response): Response
+        public function showRegisterForm(Request $request, Response $response): Response
     {
-        return $this->view->render($response, 'auth/register.twig', [
-            'departments' => $this->departmentModel->all(),
-            'programs' => $this->programModel->all(),
-        ]);
+        return $this->view->render($response, 'auth/register.twig');
     }
 
-    public function register(Request $request, Response $response): Response
+        public function register(Request $request, Response $response): Response
     {
         $data = $request->getParsedBody();
         $errors = $this->validateRegistration($data);
 
-        $formData = [
-            'departments' => $this->departmentModel->all(),
-            'programs' => $this->programModel->all(),
-        ];
-
         if (!empty($errors)) {
-            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => $errors, 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', ['errors' => $errors, 'old' => $data]);
         }
 
         if ($this->userModel->findByUsername($data['username'])) {
-            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => ['Username already taken.'], 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', ['errors' => ['Username already taken.'], 'old' => $data]);
         }
 
         if ($this->userModel->findByEmail($data['email'])) {
-            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => ['Email already registered.'], 'old' => $data]);
-        }
-
-        if ($this->studentModel->findByStudentNumber($data['student_number'])) {
-            return $this->view->render($response, 'auth/register.twig', $formData + ['errors' => ['Student number already registered.'], 'old' => $data]);
+            return $this->view->render($response, 'auth/register.twig', ['errors' => ['Email already registered.'], 'old' => $data]);
         }
 
         try {
@@ -136,16 +124,13 @@ class AuthController
                     'phone'      => $data['phone'] ?? null,
                 ],
                 [
-                    'student_number'  => $data['student_number'],
-                    'department'      => $data['department'],
-                    'program'         => $data['program'],
-                    'enrollment_year' => $data['enrollment_year'],
+                    'student_number' => trim((string) ($data['student_number'] ?? '')) ?: null,
                 ],
                 $this->studentModel
             );
         } catch (\Throwable $e) {
-            return $this->view->render($response, 'auth/register.twig', $formData + [
-                'errors' => ['Registration failed. Please check your details and try again.'],
+            return $this->view->render($response, 'auth/register.twig', [
+                'errors' => ['Registration failed: ' . $e->getMessage()],
                 'old' => $data,
             ]);
         }
@@ -161,13 +146,14 @@ class AuthController
         if (empty($data['email']) || !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) $errors[] = 'A valid email is required.';
         if (empty($data['password']) || strlen($data['password']) < 8) $errors[] = 'Password must be at least 8 characters.';
         if (($data['password'] ?? '') !== ($data['password_confirm'] ?? '')) $errors[] = 'Passwords do not match.';
-        if (empty($data['student_number'])) $errors[] = 'Student number is required.';
-        if (empty($data['department'])) $errors[] = 'Department is required.';
-        if (empty($data['program'])) $errors[] = 'Program is required.';
-        if (empty($data['enrollment_year']) || (int)$data['enrollment_year'] < 1990 || (int)$data['enrollment_year'] > 2100) $errors[] = 'A valid enrollment year is required.';
-        if (empty($data['consent'])) $errors[] = 'You must consent to validation of your details.';
+        if (empty($data['consent'])) $errors[] = 'You must consent to registration.';
         return $errors;
     }
+
+
+
+
+    
 
     public function logout(Request $request, Response $response): Response
     {

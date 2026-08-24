@@ -98,11 +98,12 @@ return function (App $app) {
 
 
     $app->get('/student/thesis', [StudentThesisController::class, 'show']);
-    $app->post('/student/thesis/register', [StudentThesisController::class, 'register']);
 
 
     $app->post('/student/proposal/document/remove', [StudentProposalController::class, 'removeDocument']);
-
+   
+    $app->get('/student/thesis/register', [StudentThesisController::class, 'showRegisterPicker']);
+    $app->post('/student/thesis/register', [StudentThesisController::class, 'register']);
 
     $app->post('/student/thesis/pay', [StudentThesisController::class, 'pay']);
 
@@ -125,5 +126,6 @@ $app->post('/admin/programs/create', [AdminController::class, 'createProgram']);
 $app->post('/admin/programs/update', [AdminController::class, 'updateProgram']);
 $app->post('/admin/programs/delete', [AdminController::class, 'deleteProgram']);
 
+$app->add($app->getContainer()->get(\App\Middleware\StudentContextMiddleware::class));
 
 };
