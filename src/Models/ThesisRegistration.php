@@ -37,14 +37,14 @@ class ThesisRegistration
         return $row ?: null;
     }
 
-    public function create(string $studentId, string $programId): string
+        public function create(string $studentId, string $thesisScheduleId): string
     {
         $id = $this->generateUuid();
         $stmt = $this->db->prepare(
-            "INSERT INTO student_thesis_registrations (thesis_registration_id, student_id, program_id, status)
-             VALUES (:id, :student_id, :program_id, 'active')"
+            "INSERT INTO student_thesis_registrations (thesis_registration_id, student_id, thesis_schedule_id, status)
+             VALUES (:id, :student_id, :thesis_schedule_id, 'active')"
         );
-        $stmt->execute(['id' => $id, 'student_id' => $studentId, 'program_id' => $programId]);
+        $stmt->execute(['id' => $id, 'student_id' => $studentId, 'thesis_schedule_id' => $thesisScheduleId]);
         return $id;
     }
 
@@ -53,7 +53,7 @@ class ThesisRegistration
      * submission_date). Year 0 = not yet at the first anniversary.
      * Year 1 = first anniversary passed, one review fee owed. Uncapped.
      */
-    private function yearsElapsedSince(string $anchorDate): int
+        private function yearsElapsedSince(string $anchorDate): int
     {
         $anchor = new \DateTimeImmutable($anchorDate);
         $now = new \DateTimeImmutable();
@@ -62,30 +62,44 @@ class ThesisRegistration
     }
 
     /**
-     * Computes everything owed right now:
+     * Computes everything owed right now.
      *
-     *  1. Registration fee — must clear before anything else is owed.
-     *  2. Review fees — only start accruing once the student's thesis
-     *     proposal has reached 'under_review' (or a later status:
-     *     approved/rejected/revision_required). The "clock" for review
-     *     fees starts from the proposal's submission_date (closest
-     *     recorded anchor we have to "went under review"), and one fee
-     *     is owed per full year elapsed since then — e.g. submitted for
-     *     review this year -> Year 1 review fee owed now; still active a
-     *     year later -> Year 2 also owed, and so on.
+     * 1. Registration fee — one-time, via thesis_schedules ->
+     *    thesis_registration_rates. Must clear before review fees are
+     *    evaluated at all.
      *
-     * @return array<int, array{fee_type:string, year:?int, paid:float, required:float, remaining:float, currency:string, due_date:?string}>
+     * 2. Review fees — one per document type under exam_schedule for
+     *    this thesis_schedule. A review fee becomes "due" once
+     *    NOW() >= document_submission_starts_at + due_after_weeks
+     *    (weeks counted from when document submission opens, not from
+     *    registration or any other anchor). Each is tracked against its
+     *    own exam_schedule_id, so two document types due in the same
+     *    year no longer collide.
      */
     public function computeOwed(array $registration): array
     {
-        $rateModel = new ThesisFeeRate($this->db);
+        $scheduleStmt = $this->db->prepare(
+            "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id
+             FROM thesis_schedules ts
+             WHERE ts.schedule_id = :schedule_id LIMIT 1"
+        );
+        $scheduleStmt->execute(['schedule_id' => $registration['thesis_schedule_id']]);
+        $schedule = $scheduleStmt->fetch();
+
+        if (!$schedule) {
+            return [];
+        }
+
         $paymentModel = new ThesisPayment($this->db);
-
         $owed = [];
-        $programId = $registration['program_id'];
 
-        // --- 1. Registration fee (blocks everything else until paid) ---
-        $regRate = $rateModel->findRegistrationRate($programId);
+        // 1. Registration fee
+        $regRateStmt = $this->db->prepare(
+            "SELECT amount, currency, due_date FROM thesis_registration_rates WHERE rate_id = :rate_id LIMIT 1"
+        );
+        $regRateStmt->execute(['rate_id' => $schedule['thesis_registration_rates_id']]);
+        $regRate = $regRateStmt->fetch();
+
         $regPaid = $paymentModel->sumConfirmed($registration['thesis_registration_id'], 'thesis_registration');
         $regRequired = $regRate ? (float) $regRate['amount'] : null;
 
@@ -99,50 +113,65 @@ class ThesisRegistration
                 'currency'  => $regRate['currency'],
                 'due_date'  => $regRate['due_date'],
             ];
-            return $owed; // registration must clear before review fees apply
+            return $owed;
         }
 
         if ($registration['status'] !== 'active') {
             return $owed;
         }
 
-        // --- 2. Review fees (gated on proposal reaching under_review) ---
-        $proposalModel = new Proposal($this->db);
-        $proposal = $proposalModel->findActiveByStudentId($registration['student_id']);
+        // 2. Review fees — per exam_schedule (document type), weeks
+        // counted from document_submission_starts_at.
+        $examSchedules = $this->db->prepare(
+            "SELECT es.exam_schedule_id, es.document_type_id, es.document_submission_starts_at,
+                    drr.amount, drr.currency, drr.due_after_weeks
+             FROM exam_schedule es
+             JOIN document_review_rates drr
+                    ON drr.document_type_id = es.document_type_id
+                   AND drr.program_id = :program_id
+             WHERE es.thesis_schedule_id = :schedule_id
+               AND es.document_submission_starts_at IS NOT NULL"
+        );
+        $examSchedules->execute([
+            'program_id'  => $schedule['program_id'],
+            'schedule_id' => $schedule['schedule_id'],
+        ]);
 
-        $reviewGateStatuses = ['under_review', 'approved', 'rejected', 'revision_required'];
+        $now = new \DateTimeImmutable();
 
-        if (!$proposal || !in_array($proposal['status'], $reviewGateStatuses, true) || !$proposal['submission_date']) {
-            return $owed; // proposal hasn't reached review stage yet — no review fees due
-        }
+        foreach ($examSchedules->fetchAll() as $es) {
+            $startsAt = new \DateTimeImmutable($es['document_submission_starts_at']);
+            $dueAt = $startsAt->modify('+' . (int) $es['due_after_weeks'] . ' weeks');
 
-        $yearsElapsed = $this->yearsElapsedSince($proposal['submission_date']);
-        $currentAcademicYear = (int) date('Y');
-
-        for ($year = 1; $year <= max($yearsElapsed, 1); $year++) {
-            $reviewRate = $rateModel->findReviewFeeRate($programId, $currentAcademicYear);
-            if (!$reviewRate) {
-                continue;
+            if ($now < $dueAt) {
+                continue; // due_after_weeks hasn't elapsed yet
             }
 
-            $paid = $paymentModel->sumConfirmed($registration['thesis_registration_id'], 'thesis_review_fee', $year);
-            $required = (float) $reviewRate['amount'];
+            $year = $this->yearsElapsedSince($registration['registered_at']) ?: 1;
+            $paid = $paymentModel->sumConfirmed(
+                $registration['thesis_registration_id'], 'thesis_review_fee', $es['exam_schedule_id']
+            );
+            $required = (float) $es['amount'];
 
             if ($paid < $required) {
                 $owed[] = [
-                    'fee_type'  => 'thesis_review_fee',
-                    'year'      => $year,
-                    'paid'      => $paid,
-                    'required'  => $required,
-                    'remaining' => $required - $paid,
-                    'currency'  => $reviewRate['currency'],
-                    'due_date'  => $reviewRate['due_date'],
+                    'fee_type'         => 'thesis_review_fee',
+                    'exam_schedule_id' => $es['exam_schedule_id'],
+                    'year'             => $year,
+                    'paid'             => $paid,
+                    'required'         => $required,
+                    'remaining'        => $required - $paid,
+                    'currency'         => $es['currency'],
+                    'due_date'         => $dueAt->format('Y-m-d'),
                 ];
             }
         }
 
         return $owed;
     }
+
+
+
 
     private function generateUuid(): string
     {

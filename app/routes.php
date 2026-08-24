@@ -16,13 +16,15 @@ use App\Controllers\DashboardController;
 use App\Controllers\StudentRequirementsController;
 use App\Controllers\StudentMeetingsController;
 use App\Controllers\StudentExamController;
+use App\Controllers\StudentEnrollmentController;
+use App\Controllers\StudentThesisController;
 
 use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
 use App\Controllers\LecturerMeetingsController;
+use App\Controllers\LecturerDocumentsController;
 
-use App\Controllers\StudentEnrollmentController;
-use App\Controllers\StudentThesisController;
+
 
 use App\Controllers\AdminController;
 
@@ -83,6 +85,9 @@ return function (App $app) {
     $app->get('/lecturer/meetings', [LecturerMeetingsController::class, 'show']);
     $app->post('/lecturer/meetings/schedule', [LecturerMeetingsController::class, 'schedule']);
     $app->post('/lecturer/meetings/grade', [LecturerMeetingsController::class, 'grade']);
+    // Lecturer documents route
+    $app->get('/lecturer/documents', [LecturerDocumentsController::class, 'show']);
+    $app->post('/lecturer/documents/validate', [LecturerDocumentsController::class, 'validateDocument']);
 
 
 
@@ -94,6 +99,9 @@ return function (App $app) {
 
     $app->get('/student/thesis', [StudentThesisController::class, 'show']);
     $app->post('/student/thesis/register', [StudentThesisController::class, 'register']);
+
+
+    $app->post('/student/proposal/document/remove', [StudentProposalController::class, 'removeDocument']);
 
 
     $app->post('/student/thesis/pay', [StudentThesisController::class, 'pay']);

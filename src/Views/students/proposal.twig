@@ -95,7 +95,7 @@
     <div class="rule"></div>
   </div>
   <div class="form-card">
-    <form method="POST" action="/student/proposal">
+    <form method="POST" action="/student/proposal" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <div class="field">
@@ -121,6 +121,32 @@
             </option>
           {% endfor %}
         </select>
+      </div>
+
+      <div class="field">
+        <label>Synopsis PDF (optional)</label>
+        {% if synopsis_doc %}
+          <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">
+            <span class="mono" style="font-size:.82rem;">{{ synopsis_doc.file_name }}</span>
+            <button type="submit" name="document_id" value="{{ synopsis_doc.document_id }}" formaction="/student/proposal/document/remove" formnovalidate
+                    class="btn ghost" style="padding:5px 12px; font-size:.72rem; color: var(--rust);">Remove</button>
+          </div>
+        {% else %}
+          <input type="file" name="synopsis_file" accept=".pdf">
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>Proposal PDF (optional)</label>
+        {% if proposal_doc %}
+          <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">
+            <span class="mono" style="font-size:.82rem;">{{ proposal_doc.file_name }}</span>
+            <button type="submit" name="document_id" value="{{ proposal_doc.document_id }}" formaction="/student/proposal/document/remove" formnovalidate
+                    class="btn ghost" style="padding:5px 12px; font-size:.72rem; color: var(--rust);">Remove</button>
+          </div>
+        {% else %}
+          <input type="file" name="proposal_file" accept=".pdf">
+        {% endif %}
       </div>
 
       <div style="display:flex; gap:12px;">

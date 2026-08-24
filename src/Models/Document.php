@@ -81,4 +81,37 @@ class Document
         ]);
     }
 
+
+
+
+        public function findByProposalAndType(string $proposalId, string $documentType): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT * FROM documents
+             WHERE proposal_id = :proposal_id AND document_type = :document_type
+             ORDER BY uploaded_at DESC
+             LIMIT 1"
+        );
+        $stmt->execute(['proposal_id' => $proposalId, 'document_type' => $documentType]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function findById(string $documentId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM documents WHERE document_id = :id LIMIT 1");
+        $stmt->execute(['id' => $documentId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function delete(string $documentId): void
+    {
+        $stmt = $this->db->prepare("DELETE FROM documents WHERE document_id = :id");
+        $stmt->execute(['id' => $documentId]);
+    }
+
+
+
+
 }

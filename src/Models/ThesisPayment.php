@@ -24,15 +24,27 @@ class ThesisPayment
         return $stmt->fetchAll();
     }
 
-    public function sumConfirmed(string $thesisRegistrationId, string $feeType, ?int $year = null): float
+        /**
+     * Sums confirmed payments for a thesis registration, by fee type.
+     * - thesis_registration: one-time, no further scoping needed.
+     * - thesis_review_fee: pass $examScheduleId to scope the sum to a
+     *   specific document/exam schedule — without it, review-fee
+     *   payments for different document types would be summed together,
+     *   which is wrong now that review fees are per document type.
+     */
+    public function sumConfirmed(string $thesisRegistrationId, string $feeType, ?string $examScheduleId = null): float
     {
-        if ($feeType === 'thesis_review_fee' && $year !== null) {
+        if ($feeType === 'thesis_review_fee' && $examScheduleId !== null) {
             $stmt = $this->db->prepare(
                 "SELECT COALESCE(SUM(amount), 0) FROM thesis_payments
                  WHERE thesis_registration_id = :id AND fee_type = :fee_type
-                   AND thesis_year = :year AND status = 'confirmed'"
+                   AND exam_schedule_id = :exam_schedule_id AND status = 'confirmed'"
             );
-            $stmt->execute(['id' => $thesisRegistrationId, 'fee_type' => $feeType, 'year' => $year]);
+            $stmt->execute([
+                'id'               => $thesisRegistrationId,
+                'fee_type'         => $feeType,
+                'exam_schedule_id' => $examScheduleId,
+            ]);
             return (float) $stmt->fetchColumn();
         }
 
@@ -44,18 +56,19 @@ class ThesisPayment
         return (float) $stmt->fetchColumn();
     }
 
-    public function create(array $data, string $thesisRegistrationId): string
+        public function create(array $data, string $thesisRegistrationId): string
     {
         $id = $this->generateUuid();
         $stmt = $this->db->prepare(
             "INSERT INTO thesis_payments
-                (thesis_payment_id, thesis_registration_id, fee_type, thesis_year, amount, currency, payment_method, reference_number, status, payment_date)
+                (thesis_payment_id, thesis_registration_id, exam_schedule_id, fee_type, thesis_year, amount, currency, payment_method, reference_number, status, payment_date)
              VALUES
-                (:id, :thesis_registration_id, :fee_type, :thesis_year, :amount, :currency, :payment_method, :reference_number, 'pending', :payment_date)"
+                (:id, :thesis_registration_id, :exam_schedule_id, :fee_type, :thesis_year, :amount, :currency, :payment_method, :reference_number, 'pending', :payment_date)"
         );
         $stmt->execute([
             'id'                     => $id,
             'thesis_registration_id' => $thesisRegistrationId,
+            'exam_schedule_id'       => $data['exam_schedule_id'] ?? null,
             'fee_type'               => $data['fee_type'],
             'thesis_year'            => $data['thesis_year'] ?? null,
             'amount'                 => $data['amount'],

@@ -25,6 +25,7 @@ use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
 use App\Models\SupervisionRequest;
 use App\Controllers\LecturerMeetingsController;
+use App\Controllers\LecturerDocumentsController;
 
 
 
@@ -189,6 +190,10 @@ Program::class => function (ContainerInterface $c) {
 
 AdminUser::class => function (ContainerInterface $c) {
     return new AdminUser($c->get(PDO::class));
+},
+
+LecturerDocumentsController::class => function (ContainerInterface $c) {
+    return new LecturerDocumentsController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

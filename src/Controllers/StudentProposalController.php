@@ -11,6 +11,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use App\Models\Lecturer;
 use App\Models\Proposal;
 use App\Models\SupervisionRequest;
+use App\Models\Document;
 
 use PDO;
 
@@ -18,6 +19,10 @@ class StudentProposalController
 {
     private PDO $db;
     private Twig $twig;
+
+    private const UPLOAD_DIR = __DIR__ . '/../../public/uploads/documents';
+    private const ALLOWED_MIME = ['application/pdf'];
+    private const MAX_SIZE_KB = 10240;
 
     public function __construct(PDO $db, Twig $twig)
     {
@@ -53,8 +58,16 @@ class StudentProposalController
 
         $proposalModel = new Proposal($this->db);
         $lecturerModel = new Lecturer($this->db);
+        $documentModel = new Document($this->db);
 
         $proposal = $student ? $proposalModel->findActiveByStudentId($student['student_id']) : null;
+
+        $synopsisDoc = null;
+        $proposalDoc = null;
+        if ($proposal) {
+            $synopsisDoc = $documentModel->findByProposalAndType($proposal['proposal_id'], 'synopsis');
+            $proposalDoc = $documentModel->findByProposalAndType($proposal['proposal_id'], 'proposal');
+        }
 
         $rendered = $this->twig->render($response, 'students/proposal.twig', [
             'active_page'    => 'proposal',
@@ -62,6 +75,8 @@ class StudentProposalController
             'student_number' => $student['student_number'] ?? null,
             'proposal'       => $proposal,
             'supervisors'    => $lecturerModel->listAvailableSupervisors(),
+            'synopsis_doc'   => $synopsisDoc,
+            'proposal_doc'   => $proposalDoc,
             'csrf_token'     => $this->csrfToken(),
             'error'          => $_SESSION['flash_error'] ?? null,
             'success'        => $_SESSION['flash_success'] ?? null,
@@ -91,7 +106,6 @@ class StudentProposalController
             return $this->redirect($response, '/student/proposal');
         }
 
-        // action = 'draft' (save without submitting) or 'submit' (submit for review)
         $action = $data['action'] ?? 'submit';
         $submitting = $action === 'submit';
 
@@ -103,8 +117,6 @@ class StudentProposalController
         if ($title === '' || mb_strlen($title) > 255) {
             $errors[] = 'Please provide a working title (up to 255 characters).';
         }
-        // Drafts can be saved with a shorter/incomplete synopsis; only
-        // enforce the full length requirement when actually submitting.
         if ($synopsis === '' || ($submitting && mb_strlen($synopsis) < 50)) {
             $errors[] = $submitting
                 ? 'Please provide a synopsis of at least 50 characters before submitting.'
@@ -127,10 +139,12 @@ class StudentProposalController
             return $this->redirect($response, '/student/proposal');
         }
 
+        $proposalId = null;
+
         try {
             if ($existing && $existing['status'] === 'draft') {
-                // Editing/advancing an existing draft.
-                $proposalModel->updateDraft($existing['proposal_id'], [
+                $proposalId = $existing['proposal_id'];
+                $proposalModel->updateDraft($proposalId, [
                     'title' => $title,
                     'synopsis' => $synopsis,
                     'proposed_supervisor_id' => $proposedSupervisor ?: null,
@@ -138,14 +152,12 @@ class StudentProposalController
 
                 if ($submitting && $proposedSupervisor !== '') {
                     $requestModel = new SupervisionRequest($this->db);
-                    $requestModel->create($existing['proposal_id'], $student['student_id'], $proposedSupervisor);
+                    $requestModel->create($proposalId, $student['student_id'], $proposedSupervisor);
                 }
             } elseif ($existing) {
-                // Already submitted/approved/under review — nothing to do here.
                 $_SESSION['flash_error'] = 'You already have an active proposal under review.';
                 return $this->redirect($response, '/student/proposal');
             } else {
-                // Brand new proposal.
                 $proposalId = $proposalModel->create($student['student_id'], [
                     'title' => $title,
                     'synopsis' => $synopsis,
@@ -160,12 +172,118 @@ class StudentProposalController
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Submission failed: ' . $e->getMessage();
             return $this->redirect($response, '/student/proposal');
-        } 
+        }
+
+        // Optional PDF uploads, attached to whichever proposal we just saved.
+        if ($proposalId) {
+            $this->handleOptionalUpload($request, $proposalId, 'synopsis_file', 'synopsis');
+            $this->handleOptionalUpload($request, $proposalId, 'proposal_file', 'proposal');
+        }
 
         $_SESSION['flash_success'] = $submitting
             ? 'Your proposal was submitted for review.'
             : 'Draft saved. You can keep editing it until you submit.';
 
+        return $this->redirect($response, '/student/proposal');
+    }
+
+    private function handleOptionalUpload(
+        ServerRequestInterface $request,
+        string $proposalId,
+        string $fieldName,
+        string $documentType
+    ): void {
+        $uploadedFiles = $request->getUploadedFiles();
+        $file = $uploadedFiles[$fieldName] ?? null;
+
+        if (!$file || $file->getError() !== UPLOAD_ERR_OK) {
+            return;
+        }
+
+        $mimeType = $file->getClientMediaType();
+        if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
+            $_SESSION['flash_error'] = ucfirst($documentType) . ' must be a PDF.';
+            return;
+        }
+
+        $sizeKb = (int) ceil($file->getSize() / 1024);
+        if ($sizeKb > self::MAX_SIZE_KB) {
+            $_SESSION['flash_error'] = ucfirst($documentType) . ' exceeds the 10MB limit.';
+            return;
+        }
+
+        if (!is_dir(self::UPLOAD_DIR)) {
+            mkdir(self::UPLOAD_DIR, 0755, true);
+        }
+
+        $storedName = bin2hex(random_bytes(16)) . '.pdf';
+        $destination = self::UPLOAD_DIR . '/' . $storedName;
+
+        $documentModel = new Document($this->db);
+
+        $existingDoc = $documentModel->findByProposalAndType($proposalId, $documentType);
+        if ($existingDoc) {
+            $oldPath = __DIR__ . '/../../public/' . $existingDoc['file_path'];
+            if (is_file($oldPath)) {
+                unlink($oldPath);
+            }
+            $documentModel->delete($existingDoc['document_id']);
+        }
+
+        $file->moveTo($destination);
+
+        $documentModel->create([
+            'proposal_id'   => $proposalId,
+            'uploaded_by'   => $_SESSION['user_id'],
+            'document_type' => $documentType,
+            'file_name'     => $file->getClientFilename(),
+            'file_path'     => 'uploads/documents/' . $storedName,
+            'file_size_kb'  => $sizeKb,
+            'mime_type'     => $mimeType,
+        ]);
+    }
+
+    public function removeDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireStudent()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/student/proposal');
+        }
+
+        $student = $this->getStudentRecord($_SESSION['user_id']);
+        $documentId = $data['document_id'] ?? '';
+
+        if (!$student || !$documentId) {
+            return $this->redirect($response, '/student/proposal');
+        }
+
+        $documentModel = new Document($this->db);
+        $doc = $documentModel->findById($documentId);
+
+        $proposalModel = new Proposal($this->db);
+        $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
+
+        if (
+            !$doc || !$proposal
+            || $doc['proposal_id'] !== $proposal['proposal_id']
+            || $proposal['status'] !== 'draft'
+        ) {
+            $_SESSION['flash_error'] = 'That document cannot be removed.';
+            return $this->redirect($response, '/student/proposal');
+        }
+
+        $path = __DIR__ . '/../../public/' . $doc['file_path'];
+        if (is_file($path)) {
+            unlink($path);
+        }
+        $documentModel->delete($documentId);
+
+        $_SESSION['flash_success'] = 'Document removed.';
         return $this->redirect($response, '/student/proposal');
     }
 

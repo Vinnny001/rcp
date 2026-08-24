@@ -55,7 +55,9 @@ class AuthController
             ]);
         }
 
-        if ($user['role'] !== $selectedRole) {
+        $activeRoles = $this->userModel->activeRoles($user['user_id']);
+
+        if (!in_array($selectedRole, $activeRoles, true)) {
             return $this->view->render($response, 'auth/login.twig', [
                 'error' => 'This account is not registered as a ' . $selectedRole . '.',
                 'old' => ['identifier' => $identifier],
@@ -72,10 +74,14 @@ class AuthController
         $this->userModel->updateLastLogin($user['user_id']);
 
         $_SESSION['user_id'] = $user['user_id'];
-        $_SESSION['role'] = $user['role'];
+        $_SESSION['role'] = $selectedRole; // the hat they chose, not their full role set
         $_SESSION['first_name'] = $user['first_name'];
+        $_SESSION['last_name'] = $user['last_name'];
+        if ($selectedRole === 'student') {
+            $_SESSION['student_number'] = $user['student_number'];
+        }
 
-        $redirect = match ($user['role']) {
+        $redirect = match ($selectedRole) {
             'student'  => '/student/dashboard',
             'lecturer' => '/lecturer/dashboard',
             'admin'    => '/admin/dashboard',
