@@ -79,9 +79,10 @@ class StudentContextMiddleware
 
             $path = $request->getUri()->getPath();
 
-            // Gate 1: incomplete profile blocks everything except the
-            // profile-completion page itself.
-            if (!$profileComplete && $path !== '/student/profile/complete') {
+                        // Gate 1: incomplete profile blocks everything except the
+            // profile-completion page itself, and logout — a student
+            // must always be able to sign out, even mid-onboarding.
+            if (!$profileComplete && $path !== '/student/profile/complete' && $path !== '/logout') {
                 $_SESSION['flash_error'] = 'Please complete your student profile before continuing.';
                 return $this->redirectTo('/student/profile/complete');
             }

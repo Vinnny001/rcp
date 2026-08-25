@@ -7,11 +7,40 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/register.css">
+<style>
+  .profile-topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+  .profile-signout-btn {
+    background: none;
+    border: none;
+    color: var(--slate, #6b6455);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: .72rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 4px 0;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .profile-signout-btn:hover {
+    color: var(--rust, #9c3f2c);
+  }
+</style>
 </head>
 <body>
 
 <div class="login-screen">
   <div class="login-card">
+    <div class="profile-topbar">
+      <form method="POST" action="/logout">
+        <button type="submit" class="profile-signout-btn">Not now — sign out</button>
+      </form>
+    </div>
+
     <div class="login-seal"><span>RC</span></div>
     <h1>Complete your profile</h1>
     <div class="sub">A student number and institutional email are required before you can register for thesis.</div>

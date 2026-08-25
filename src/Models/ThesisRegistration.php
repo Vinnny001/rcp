@@ -76,7 +76,7 @@ class ThesisRegistration
      *    own exam_schedule_id, so two document types due in the same
      *    year no longer collide.
      */
-    public function computeOwed(array $registration): array
+        public function computeOwed(array $registration): array
     {
         $scheduleStmt = $this->db->prepare(
             "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id
@@ -120,7 +120,25 @@ class ThesisRegistration
             return $owed;
         }
 
-                // 2. Review fees — per exam_schedule_documents row (document
+        // Review fees only apply once the student has an assigned
+        // supervisor — no point charging for document review before
+        // anyone is actually in place to review it.
+        $supervisorStmt = $this->db->prepare(
+            "SELECT tp.assigned_supervisor_id
+             FROM thesis_proposals tp
+             WHERE tp.student_id = :student_id
+               AND tp.assigned_supervisor_id IS NOT NULL
+             ORDER BY tp.created_at DESC
+             LIMIT 1"
+        );
+        $supervisorStmt->execute(['student_id' => $registration['student_id']]);
+        $hasSupervisor = (bool) $supervisorStmt->fetchColumn();
+
+        if (!$hasSupervisor) {
+            return $owed;
+        }
+
+        // 2. Review fees — per exam_schedule_documents row (document
         // type), weeks counted from document_submission_starts_at,
         // which now lives on exam_schedule_documents, not exam_schedule.
         $examSchedules = $this->db->prepare(
