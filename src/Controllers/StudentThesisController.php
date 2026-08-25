@@ -58,7 +58,7 @@ class StudentThesisController
         return $response->withHeader('Location', $path)->withStatus(302);
     }
 
-            public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+                public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $this->redirect($response, $redirect);
@@ -98,6 +98,7 @@ class StudentThesisController
         }
 
         $owed = $regModel->computeOwed($registration);
+        $upcoming = $regModel->computeUpcoming($registration);
         $paymentModel = new ThesisPayment($this->db);
         $history = $paymentModel->findByRegistrationId($registration['thesis_registration_id']);
 
@@ -111,6 +112,7 @@ class StudentThesisController
             'not_registered' => false,
             'registration'   => $registration,
             'owed'           => $owed,
+            'upcoming'       => $upcoming,
             'history'        => $history,
             'has_proposal'   => (bool) $proposal,
             'csrf_token'     => $this->csrfToken(),

@@ -104,8 +104,17 @@ class StudentContextMiddleware
         return $handler->handle($request);
     }
 
-    private function isRegistrationGated(string $path): bool
+        private function isRegistrationGated(string $path): bool
     {
+        // Explicit exemptions first — these must never be gated, even
+        // though they'd otherwise match the '/student/thesis/' prefix
+        // below (the register page in particular caused a redirect
+        // loop before this exemption existed: gated -> redirected to
+        // itself -> gated again, forever).
+        if ($path === '/student/thesis' || $path === '/student/thesis/register') {
+            return false;
+        }
+
         foreach (self::REGISTRATION_GATED_PREFIXES as $prefix) {
             if (str_starts_with($path, $prefix)) {
                 return true;

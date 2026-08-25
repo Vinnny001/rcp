@@ -229,4 +229,109 @@ class ThesisRegistration
 
 
 
+        /**
+     * Everything scheduled to become due, informational only — does NOT
+     * filter by whether the due date has passed (unlike computeOwed()).
+     * Lets a student see what's coming before it's actionable. Still
+     * respects the same gates as computeOwed(): registration must be
+     * paid, and review fees only show once a supervisor is assigned —
+     * otherwise this would leak fee amounts for stages the student
+     * hasn't reached yet, which isn't useful, just confusing.
+     */
+    public function computeUpcoming(array $registration): array
+    {
+        $scheduleStmt = $this->db->prepare(
+            "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id
+             FROM thesis_schedules ts
+             WHERE ts.schedule_id = :schedule_id LIMIT 1"
+        );
+        $scheduleStmt->execute(['schedule_id' => $registration['thesis_schedule_id']]);
+        $schedule = $scheduleStmt->fetch();
+
+        if (!$schedule || $registration['status'] !== 'active') {
+            return [];
+        }
+
+        $paymentModel = new ThesisPayment($this->db);
+
+        // Registration must already be paid — otherwise "upcoming" fees
+        // would show before the student has even cleared the first gate.
+        $regRateStmt = $this->db->prepare(
+            "SELECT amount FROM thesis_registration_rates WHERE rate_id = :rate_id LIMIT 1"
+        );
+        $regRateStmt->execute(['rate_id' => $schedule['thesis_registration_rates_id']]);
+        $regRate = $regRateStmt->fetch();
+        $regPaid = $paymentModel->sumConfirmed($registration['thesis_registration_id'], 'thesis_registration');
+        $regRequired = $regRate ? (float) $regRate['amount'] : null;
+
+        if ($regRequired !== null && $regPaid < $regRequired) {
+            return [];
+        }
+
+        // Same supervisor gate as computeOwed().
+        $supervisorStmt = $this->db->prepare(
+            "SELECT tp.assigned_supervisor_id
+             FROM thesis_proposals tp
+             WHERE tp.student_id = :student_id
+               AND tp.assigned_supervisor_id IS NOT NULL
+             ORDER BY tp.created_at DESC
+             LIMIT 1"
+        );
+        $supervisorStmt->execute(['student_id' => $registration['student_id']]);
+        if (!$supervisorStmt->fetchColumn()) {
+            return [];
+        }
+
+        $examSchedules = $this->db->prepare(
+            "SELECT esd.exam_schedule_id, esd.document_type_id, esd.document_submission_starts_at,
+                    drr.amount, drr.currency, drr.due_after_weeks, dt.doc_type_name
+             FROM exam_schedule es
+             JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
+             JOIN document_review_rates drr
+                    ON drr.document_type_id = esd.document_type_id
+                   AND drr.program_id = :program_id
+             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
+             WHERE es.thesis_schedule_id = :schedule_id
+               AND esd.document_submission_starts_at IS NOT NULL"
+        );
+        $examSchedules->execute([
+            'program_id'  => $schedule['program_id'],
+            'schedule_id' => $schedule['schedule_id'],
+        ]);
+
+        $now = new \DateTimeImmutable();
+        $upcoming = [];
+
+        foreach ($examSchedules->fetchAll() as $es) {
+            $startsAt = new \DateTimeImmutable($es['document_submission_starts_at']);
+            $dueAt = $startsAt->modify('+' . (int) $es['due_after_weeks'] . ' weeks');
+
+            // Only show it here if it hasn't become due yet — once due,
+            // it belongs in computeOwed()'s list instead, not duplicated here.
+            if ($now >= $dueAt) {
+                continue;
+            }
+
+            $paid = $paymentModel->sumConfirmed(
+                $registration['thesis_registration_id'], 'thesis_review_fee', $es['exam_schedule_id']
+            );
+            $required = (float) $es['amount'];
+
+            if ($paid < $required) {
+                $upcoming[] = [
+                    'fee_type'         => 'thesis_review_fee',
+                    'doc_type_name'    => $es['doc_type_name'],
+                    'exam_schedule_id' => $es['exam_schedule_id'],
+                    'required'         => $required,
+                    'currency'         => $es['currency'],
+                    'due_date'         => $dueAt->format('Y-m-d'),
+                ];
+            }
+        }
+
+        return $upcoming;
+    }
+
+
+
 }

@@ -93,6 +93,33 @@
     </table>
   {% endif %}
 
+
+    {% if upcoming %}
+    <div class="section-title">Upcoming fees<div class="rule"></div></div>
+    <div class="notice">These aren't due yet — shown so you can plan ahead. You can still pay early if you'd like.</div>
+    <table style="margin-bottom:32px;">
+      <thead><tr><th>Fee</th><th>Amount</th><th>Due</th><th></th></tr></thead>
+      <tbody>
+        {% for item in upcoming %}
+          <tr>
+            <td class="strong">{{ item.doc_type_name }} review fee</td>
+            <td class="mono">{{ item.currency }} {{ item.required|number_format(0) }}</td>
+            <td class="mono">{{ item.due_date|date('d M Y') }}</td>
+            <td>
+              <button type="button" class="btn ghost" style="padding:6px 14px; font-size:.74rem;"
+                onclick="openPayModal('thesis_review_fee', '{{ item.year ?? '' }}', '{{ item.required }}', '{{ item.currency }}', '{{ item.doc_type_name }} review fee')">
+                Pay
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+
+
+
   <div class="section-title">Payment history<div class="rule"></div></div>
   {% if history %}
     <table>
@@ -123,6 +150,9 @@
   {% else %}
     <div class="notice">No thesis payments on record yet.</div>
   {% endif %}
+
+
+  
 
   <!-- ============ MODAL: PAY FEE ============ -->
   <div class="modal-overlay" id="payModal" onclick="closePayModal(event)">
