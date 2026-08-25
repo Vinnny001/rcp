@@ -38,6 +38,43 @@ class Student
         ]);
     }
 
+
+
+        public function isProfileComplete(string $studentId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT student_number, student_email FROM students WHERE student_id = :id LIMIT 1"
+        );
+        $stmt->execute(['id' => $studentId]);
+        $row = $stmt->fetch();
+        return $row && !empty($row['student_number']) && !empty($row['student_email']);
+    }
+
+    public function completeProfile(string $studentId, string $studentNumber, string $studentEmail, ?string $erpRef): void
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE students SET student_number = :student_number, student_email = :student_email, erp_student_ref = :erp_ref
+             WHERE student_id = :id"
+        );
+        $stmt->execute([
+            'student_number' => $studentNumber,
+            'student_email'  => $studentEmail,
+            'erp_ref'        => $erpRef,
+            'id'             => $studentId,
+        ]);
+    }
+
+    public function findByUserId(string $userId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM students WHERE user_id = :user_id LIMIT 1");
+        $stmt->execute(['user_id' => $userId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+
+
+
     private function generateUuid(): string
     {
         $data = random_bytes(16);

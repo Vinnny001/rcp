@@ -27,7 +27,9 @@ use App\Controllers\LecturerDocumentsController;
 
 
 use App\Controllers\AdminController;
+use App\Controllers\StudentProfileController;
 
+use App\Controllers\StudentDocumentsController;
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
@@ -61,8 +63,7 @@ return function (App $app) {
 
     // Student requirements routes
     $app->get('/student/requirements', [StudentRequirementsController::class, 'show']);
-    $app->post('/student/requirements/upload', [StudentRequirementsController::class, 'uploadDocument']);
-    
+    $app->post('/student/requirements/upload', [StudentRequirementsController::class, 'upload']);    
 
     // Student meetings routes
     $app->get('/student/meetings', [StudentMeetingsController::class, 'show']);
@@ -127,5 +128,20 @@ $app->post('/admin/programs/update', [AdminController::class, 'updateProgram']);
 $app->post('/admin/programs/delete', [AdminController::class, 'deleteProgram']);
 
 $app->add($app->getContainer()->get(\App\Middleware\StudentContextMiddleware::class));
+
+
+
+$app->get('/student/profile/complete', [StudentProfileController::class, 'show']);
+$app->post('/student/profile/complete', [StudentProfileController::class, 'update']);
+
+
+$app->post('/student/requirements/submit-draft', [StudentRequirementsController::class, 'submitDraft']);
+
+
+
+$app->get('/student/documents', [StudentDocumentsController::class, 'show']);
+
+
+
 
 };

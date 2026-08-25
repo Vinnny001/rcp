@@ -120,17 +120,19 @@ class ThesisRegistration
             return $owed;
         }
 
-        // 2. Review fees — per exam_schedule (document type), weeks
-        // counted from document_submission_starts_at.
+                // 2. Review fees — per exam_schedule_documents row (document
+        // type), weeks counted from document_submission_starts_at,
+        // which now lives on exam_schedule_documents, not exam_schedule.
         $examSchedules = $this->db->prepare(
-            "SELECT es.exam_schedule_id, es.document_type_id, es.document_submission_starts_at,
+            "SELECT esd.exam_schedule_id, esd.document_type_id, esd.document_submission_starts_at,
                     drr.amount, drr.currency, drr.due_after_weeks
              FROM exam_schedule es
+             JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
              JOIN document_review_rates drr
-                    ON drr.document_type_id = es.document_type_id
+                    ON drr.document_type_id = esd.document_type_id
                    AND drr.program_id = :program_id
              WHERE es.thesis_schedule_id = :schedule_id
-               AND es.document_submission_starts_at IS NOT NULL"
+               AND esd.document_submission_starts_at IS NOT NULL"
         );
         $examSchedules->execute([
             'program_id'  => $schedule['program_id'],

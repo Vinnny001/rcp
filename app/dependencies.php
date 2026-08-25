@@ -48,7 +48,9 @@ use App\Models\AdminUser;
 
 
 use App\Middleware\StudentContextMiddleware;
+use App\Controllers\StudentProfileController;
 
+use App\Controllers\StudentDocumentsController;
 
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
@@ -202,6 +204,16 @@ LecturerDocumentsController::class => function (ContainerInterface $c) {
 
 StudentContextMiddleware::class => function (ContainerInterface $c) {
     return new StudentContextMiddleware($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+StudentProfileController::class => function (ContainerInterface $c) {
+    return new StudentProfileController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+
+StudentDocumentsController::class => function (ContainerInterface $c) {
+    return new StudentDocumentsController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

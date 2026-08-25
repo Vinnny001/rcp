@@ -48,6 +48,19 @@ class StudentProposalController
         return $row ?: null;
     }
 
+    /**
+     * Resolves a document_types.doc_type_id by name (e.g. 'Synopsis',
+     * 'Proposal'). Returns null if that type isn't seeded yet — callers
+     * must handle null gracefully rather than assume it always exists.
+     */
+    private function resolveDocumentTypeId(string $typeName): ?string
+    {
+        $stmt = $this->db->prepare("SELECT doc_type_id FROM document_types WHERE doc_type_name = :name LIMIT 1");
+        $stmt->execute(['name' => $typeName]);
+        $id = $stmt->fetchColumn();
+        return $id ?: null;
+    }
+
     public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
@@ -65,8 +78,14 @@ class StudentProposalController
         $synopsisDoc = null;
         $proposalDoc = null;
         if ($proposal) {
-            $synopsisDoc = $documentModel->findByProposalAndType($proposal['proposal_id'], 'synopsis');
-            $proposalDoc = $documentModel->findByProposalAndType($proposal['proposal_id'], 'proposal');
+            $synopsisTypeId = $this->resolveDocumentTypeId('Synopsis');
+            $proposalTypeId = $this->resolveDocumentTypeId('Proposal');
+            if ($synopsisTypeId) {
+                $synopsisDoc = $documentModel->findByProposalAndType($proposal['proposal_id'], $synopsisTypeId);
+            }
+            if ($proposalTypeId) {
+                $proposalDoc = $documentModel->findByProposalAndType($proposal['proposal_id'], $proposalTypeId);
+            }
         }
 
         $rendered = $this->twig->render($response, 'students/proposal.twig', [
@@ -87,7 +106,7 @@ class StudentProposalController
         return $rendered;
     }
 
-    public function store(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+        public function store(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);
@@ -128,6 +147,20 @@ class StudentProposalController
 
         $proposalModel = new Proposal($this->db);
         $existing = $proposalModel->findActiveByStudentId($student['student_id']);
+
+        if ($submitting) {
+            $regStmt = $this->db->prepare(
+                "SELECT thesis_schedule_id FROM student_thesis_registrations
+                 WHERE student_id = :student_id AND status = 'active' LIMIT 1"
+            );
+            $regStmt->execute(['student_id' => $student['student_id']]);
+            $thesisScheduleId = $regStmt->fetchColumn();
+
+            if (!$thesisScheduleId || !$proposalModel->proposalSchedulingExists($thesisScheduleId)) {
+                $_SESSION['flash_error'] = 'Proposals are not currently being accepted for your thesis schedule.';
+                return $this->redirect($response, '/student/proposal');
+            }
+        }
 
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
@@ -174,10 +207,9 @@ class StudentProposalController
             return $this->redirect($response, '/student/proposal');
         }
 
-        // Optional PDF uploads, attached to whichever proposal we just saved.
         if ($proposalId) {
-            $this->handleOptionalUpload($request, $proposalId, 'synopsis_file', 'synopsis');
-            $this->handleOptionalUpload($request, $proposalId, 'proposal_file', 'proposal');
+            $this->handleOptionalUpload($request, $proposalId, 'synopsis_file', 'Synopsis', !$submitting);
+            $this->handleOptionalUpload($request, $proposalId, 'proposal_file', 'Proposal', !$submitting);
         }
 
         $_SESSION['flash_success'] = $submitting
@@ -187,11 +219,12 @@ class StudentProposalController
         return $this->redirect($response, '/student/proposal');
     }
 
-    private function handleOptionalUpload(
+            private function handleOptionalUpload(
         ServerRequestInterface $request,
         string $proposalId,
         string $fieldName,
-        string $documentType
+        string $documentTypeName,
+        bool $proposalIsDraft
     ): void {
         $uploadedFiles = $request->getUploadedFiles();
         $file = $uploadedFiles[$fieldName] ?? null;
@@ -200,15 +233,21 @@ class StudentProposalController
             return;
         }
 
+        $documentTypeId = $this->resolveDocumentTypeId($documentTypeName);
+        if (!$documentTypeId) {
+            $_SESSION['flash_error'] = "The '{$documentTypeName}' document type is not configured yet.";
+            return;
+        }
+
         $mimeType = $file->getClientMediaType();
         if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
-            $_SESSION['flash_error'] = ucfirst($documentType) . ' must be a PDF.';
+            $_SESSION['flash_error'] = $documentTypeName . ' must be a PDF.';
             return;
         }
 
         $sizeKb = (int) ceil($file->getSize() / 1024);
         if ($sizeKb > self::MAX_SIZE_KB) {
-            $_SESSION['flash_error'] = ucfirst($documentType) . ' exceeds the 10MB limit.';
+            $_SESSION['flash_error'] = $documentTypeName . ' exceeds the 10MB limit.';
             return;
         }
 
@@ -221,7 +260,7 @@ class StudentProposalController
 
         $documentModel = new Document($this->db);
 
-        $existingDoc = $documentModel->findByProposalAndType($proposalId, $documentType);
+        $existingDoc = $documentModel->findByProposalAndType($proposalId, $documentTypeId);
         if ($existingDoc) {
             $oldPath = __DIR__ . '/../../public/' . $existingDoc['file_path'];
             if (is_file($oldPath)) {
@@ -232,18 +271,37 @@ class StudentProposalController
 
         $file->moveTo($destination);
 
-        $documentModel->create([
-            'proposal_id'   => $proposalId,
-            'uploaded_by'   => $_SESSION['user_id'],
-            'document_type' => $documentType,
-            'file_name'     => $file->getClientFilename(),
-            'file_path'     => 'uploads/documents/' . $storedName,
-            'file_size_kb'  => $sizeKb,
-            'mime_type'     => $mimeType,
+                $examScheduleId = null;
+        $stmt = $this->db->prepare(
+            "SELECT esd.exam_schedule_id
+             FROM exam_schedule es
+             JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
+             JOIN student_thesis_registrations str ON str.thesis_schedule_id = es.thesis_schedule_id
+             WHERE str.student_id = (SELECT student_id FROM thesis_proposals WHERE proposal_id = :proposal_id)
+               AND str.status = 'active'
+               AND esd.document_type_id = :document_type_id
+             LIMIT 1"
+        );
+        $stmt->execute(['proposal_id' => $proposalId, 'document_type_id' => $documentTypeId]);
+        $examScheduleId = $stmt->fetchColumn() ?: null;
+
+        $newDocumentId = $documentModel->create([
+            'user_id'          => $_SESSION['user_id'],
+            'uploaded_by'      => $_SESSION['user_id'],
+            'document_type_id' => $documentTypeId,
+            'document_status'  => $proposalIsDraft ? 'draft' : 'submitted',
+            'file_name'        => $file->getClientFilename(),
+            'file_path'        => 'uploads/documents/' . $storedName,
+            'file_size_kb'     => $sizeKb,
+            'mime_type'        => $mimeType,
         ]);
+
+        $documentModel->linkToProposal($newDocumentId, $proposalId, $documentTypeId, $examScheduleId);
     }
 
-    public function removeDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+
+
+        public function removeDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);
@@ -268,10 +326,18 @@ class StudentProposalController
         $proposalModel = new Proposal($this->db);
         $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
 
+        // The link to a proposal now lives on exam_documents, not on the
+        // documents row itself — look it up there instead.
+        $linkStmt = $this->db->prepare(
+            "SELECT proposal_id FROM exam_documents WHERE document_id = :document_id LIMIT 1"
+        );
+        $linkStmt->execute(['document_id' => $documentId]);
+        $linkedProposalId = $linkStmt->fetchColumn();
+
         if (
             !$doc || !$proposal
-            || $doc['proposal_id'] !== $proposal['proposal_id']
-            || $proposal['status'] !== 'draft'
+            || $linkedProposalId !== $proposal['proposal_id']
+            || $doc['document_status'] !== 'draft'
         ) {
             $_SESSION['flash_error'] = 'That document cannot be removed.';
             return $this->redirect($response, '/student/proposal');

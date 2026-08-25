@@ -105,4 +105,28 @@ class Proposal
             'proposal_id'             => $proposalId,
         ]);
     }
+
+
+
+        /**
+     * Whether the given thesis_schedule_id has an exam_schedule entry
+     * for the 'proposal' document type — a proposal can only be
+     * submitted if it will actually be checked/reviewed under some
+     * scheduled exam window, not just accepted into a void.
+     */
+        public function proposalSchedulingExists(string $thesisScheduleId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM exam_schedule es
+             JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
+             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
+             WHERE es.thesis_schedule_id = :thesis_schedule_id
+               AND dt.doc_type_name = 'Proposal'
+             LIMIT 1"
+        );
+        $stmt->execute(['thesis_schedule_id' => $thesisScheduleId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+
 }

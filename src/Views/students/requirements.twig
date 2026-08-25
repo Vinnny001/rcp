@@ -7,9 +7,9 @@
 <div class="page-head">
   <div>
     <h1>Requirements</h1>
-    <div class="sub">Documents and payments needed to move your file forward.</div>
+    <div class="sub">Documents scheduled for review under your thesis timeline.</div>
   </div>
-  <div class="ref">REQ-{{ student_number }}</div>
+  <div class="ref">{{ student_number }}</div>
 </div>
 
 {% if success %}
@@ -19,98 +19,89 @@
   <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
-<div class="section-title">
-  Documents<div class="rule"></div>
-  <button class="btn ghost" style="padding:6px 14px; font-size:.74rem;" onclick="openModal('uploadModal')">Upload document</button>
-</div>
-
-{% if documents %}
-  <table style="margin-bottom:32px;">
-    <thead><tr><th>File</th><th>Type</th><th>Uploaded</th><th>Status</th></tr></thead>
-    <tbody>
-      {% for doc in documents %}
-        <tr>
-          <td class="strong">{{ doc.file_name }}</td>
-          <td class="mono">{{ doc.document_type|replace({'_': ' '})|capitalize }}</td>
-          <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
-          <td>
-            {% if doc.validation_status == 'valid' %}
-              <span class="stamp mini approved">Valid</span>
-            {% elseif doc.validation_status == 'rejected' %}
-              <span class="stamp mini rejected">Rejected</span>
-            {% else %}
-              <span class="stamp mini pending">Pending</span>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% if no_thesis_schedule %}
+  <div class="notice">No thesis schedule found for your registration.</div>
+{% elseif not proposal_submitted %}
+  <div class="notice">You need to submit your thesis proposal before requirement documents can be submitted. <a href="/student/proposal">Go to your proposal</a>.</div>
+{% elseif not requirements %}
+  <div class="notice">No documents are currently scheduled for review.</div>
 {% else %}
-  <div class="notice" style="margin-bottom:32px;">No documents uploaded yet.</div>
-{% endif %}
-
-<div class="section-title">Payments<div class="rule"></div></div>
-
-{% if payments %}
   <table>
-    <thead><tr><th>Type</th><th>Amount</th><th>Method</th><th>Date</th><th>Status</th></tr></thead>
+    <thead><tr><th>Document</th><th>Window</th><th>Status</th><th></th></tr></thead>
     <tbody>
-      {% for p in payments %}
+      {% for item in requirements %}
         <tr>
-          <td>{{ p.payment_type|replace({'_': ' '})|capitalize }}</td>
-          <td class="mono">{{ p.currency }} {{ p.amount|number_format(0) }}</td>
-          <td class="mono">{{ p.payment_method|replace({'_': ' '})|capitalize }}</td>
-          <td class="mono">{{ p.payment_date|date('d M Y') }}</td>
+          <td class="strong">{{ item.doc_type_name }}</td>
+          <td class="mono">
+            {% if item.document_submission_starts_at %}{{ item.document_submission_starts_at|date('d M Y') }}{% else %}—{% endif %}
+            –
+            {% if item.document_submission_deadline %}{{ item.document_submission_deadline|date('d M Y') }}{% else %}—{% endif %}
+          </td>
           <td>
-            {% if p.status == 'confirmed' %}
-              <span class="stamp mini approved">Confirmed</span>
-            {% elseif p.status == 'rejected' %}
-              <span class="stamp mini rejected">Rejected</span>
+            {% if item.submission %}
+              {% if item.submission.document_status == 'draft' %}
+                <span class="stamp mini pending">Draft</span>
+              {% elseif item.submission.validation_status == 'valid' %}
+                <span class="stamp mini approved">Valid</span>
+              {% elseif item.submission.validation_status == 'rejected' %}
+                <span class="stamp mini rejected">Rejected — locked</span>
+              {% else %}
+                <span class="stamp mini pending">Submitted — pending review</span>
+              {% endif %}
+            {% elseif item.past_deadline %}
+              <span class="stamp mini rejected">Deadline passed</span>
+            {% elseif item.not_open_yet %}
+              <span class="stamp mini pending">Not open yet</span>
             {% else %}
-              <span class="stamp mini pending">Pending</span>
+              <span class="stamp mini pending">Not submitted</span>
+            {% endif %}
+          </td>
+                    <td style="white-space:nowrap;">
+            {% if item.submission %}
+              <a href="/{{ item.submission.file_path }}" target="_blank" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">Download</a>
+            {% endif %}
+            {% if item.window_open %}
+              <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem;"
+                onclick="openUploadModal('{{ item.exam_schedule_id }}', '{{ item.document_type_id }}', '{{ item.doc_type_name|escape('js') }}')">
+                {{ item.submission ? 'Replace draft' : 'Upload' }}
+              </button>
+              {% if item.submission %}
+                <form method="POST" action="/student/requirements/submit-draft" style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="document_id" value="{{ item.submission.document_id }}">
+                  <button type="submit" class="btn brass" style="padding:6px 12px; font-size:.72rem;">Submit</button>
+                </form>
+              {% endif %}
             {% endif %}
           </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
-{% else %}
-  <div class="notice">No payment records on file yet.</div>
 {% endif %}
 
-<!-- ============ MODAL: UPLOAD DOCUMENT ============ -->
-<div class="modal-overlay" id="uploadModal" onclick="closeModal(event,'uploadModal')">
+<!-- ============ MODAL: SUBMIT DOCUMENT ============ -->
+<div class="modal-overlay" id="uploadModal" onclick="closeUploadModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
-    <button class="modal-close" onclick="hideModal('uploadModal')">✕ Close</button>
-    <div class="ref">REQ-{{ student_number }} · NEW DOCUMENT</div>
-    <h2>Upload a document</h2>
-    <div class="sub">Accepted format: PDF. Files are checked by the registrar before your record updates.</div>
+    <button type="button" class="modal-close" onclick="hideUploadModal()">✕ Close</button>
+    <div class="ref">{{ student_number }} · SUBMISSION</div>
+    <h2 id="uploadModalTitle">Submit document</h2>
+    <div class="sub">Accepted format: PDF, up to 10MB. Once submitted, this document cannot be changed.</div>
 
     <form method="POST" action="/student/requirements/upload" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="exam_schedule_id" id="uploadExamScheduleId">
+      <input type="hidden" name="document_type_id" id="uploadDocumentTypeId">
 
       <div class="field">
         <label>File</label>
-        <input type="file" name="file" accept=".pdf" required>
-      </div>
-
-      <div class="field">
-        <label>Document type</label>
-        <select name="document_type" required>
-          <option value="synopsis">Synopsis</option>
-          <option value="proposal">Proposal</option>
-          <option value="coursework_cert">Coursework certificate</option>
-          <option value="payment_proof">Payment proof</option>
-          <option value="thesis_draft">Thesis draft</option>
-          <option value="final_thesis">Final thesis</option>
-          <option value="publication">Publication</option>
-        </select>
+        <input type="file" name="document_file" accept="application/pdf" required>
       </div>
 
       <div class="modal-actions">
-        <button type="button" class="btn ghost" onclick="hideModal('uploadModal')">Cancel</button>
-        <button type="submit" class="btn brass">Submit for validation</button>
+        <button type="button" class="btn ghost" onclick="hideUploadModal()">Cancel</button>
+        <button type="submit" name="action" value="draft" class="btn ghost">Save as draft</button>
+        <button type="submit" name="action" value="submit" class="btn brass">Submit</button>
       </div>
     </form>
   </div>
@@ -120,8 +111,17 @@
 
 {% block extra_scripts %}
 <script>
-  function openModal(id){ document.getElementById(id).classList.add('open'); }
-  function hideModal(id){ document.getElementById(id).classList.remove('open'); }
-  function closeModal(e, id){ if(e.target.id===id) hideModal(id); }
+  function openUploadModal(examScheduleId, documentTypeId, label){
+    document.getElementById('uploadExamScheduleId').value = examScheduleId;
+    document.getElementById('uploadDocumentTypeId').value = documentTypeId;
+    document.getElementById('uploadModalTitle').textContent = 'Upload ' + label;
+    document.getElementById('uploadModal').classList.add('open');
+  }
+  function hideUploadModal(){
+    document.getElementById('uploadModal').classList.remove('open');
+  }
+  function closeUploadModal(e){
+    if (e.target.id === 'uploadModal') hideUploadModal();
+  }
 </script>
 {% endblock %}

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Complete your profile — RCP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/register.css">
+</head>
+<body>
+
+<div class="login-screen">
+  <div class="login-card">
+    <div class="login-seal"><span>RC</span></div>
+    <h1>Complete your profile</h1>
+    <div class="sub">A student number and institutional email are required before you can register for thesis.</div>
+
+    {% if error %}
+      <div class="notice">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/student/profile/complete">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label>Student number</label>
+        <input type="text" name="student_number" placeholder="e.g. CS-2026-0512" value="{{ student.student_number|default('') }}" required>
+      </div>
+      <div class="field">
+        <label>Institutional email</label>
+        <input type="email" name="student_email" placeholder="amina.wanjiru@jkuat.ac.ke" value="{{ student.student_email|default('') }}" required>
+      </div>
+      <div class="field">
+        <label>ERP reference (optional)</label>
+        <input type="text" name="erp_student_ref" value="{{ student.erp_student_ref|default('') }}">
+      </div>
+
+      <button type="submit" class="btn brass block">Save and continue</button>
+    </form>
+  </div>
+</div>
+
+</body>
+</html>

@@ -33,15 +33,20 @@
   </header>
 
     <aside class="sidebar">
-        <nav class="tabs">
+            <nav class="tabs">
       <a class="tab {% if active_page == 'overview' %}active{% endif %}" href="/student/dashboard"><span class="num">01</span>Overview</a>
 
-      {% if has_thesis_registration %}
+      {% if not profile_complete %}
+        <a class="tab" href="/student/profile/complete" style="color: var(--rust);">
+          <span class="num">!</span>Complete Your Profile
+        </a>
+      {% elseif has_thesis_registration %}
         <a class="tab {% if active_page == 'proposal' %}active{% endif %}" href="/student/proposal"><span class="num">02</span>Thesis Proposal</a>
         <a class="tab {% if active_page == 'thesis' %}active{% endif %}" href="/student/thesis"><span class="num">03</span>Thesis Fees</a>
-        <a class="tab {% if active_page == 'requirements' %}active{% endif %}" href="/student/requirements"><span class="num">04</span>Requirements</a>
-        <a class="tab {% if active_page == 'meetings' %}active{% endif %}" href="/student/meetings"><span class="num">05</span>Meetings</a>
-        <a class="tab {% if active_page == 'exam' %}active{% endif %}" href="/student/exam"><span class="num">06</span>Exam &amp; Graduation</a>
+                <a class="tab {% if active_page == 'requirements' %}active{% endif %}" href="/student/requirements"><span class="num">04</span>Requirements</a>
+        <a class="tab {% if active_page == 'documents' %}active{% endif %}" href="/student/documents"><span class="num">05</span>My Documents</a>
+        <a class="tab {% if active_page == 'meetings' %}active{% endif %}" href="/student/meetings"><span class="num">06</span>Meetings</a>
+        <a class="tab {% if active_page == 'exam' %}active{% endif %}" href="/student/exam"><span class="num">07</span>Exam &amp; Graduation</a>
       {% else %}
         <a class="tab {% if active_page == 'thesis_register' %}active{% endif %}" href="/student/thesis/register" style="color: var(--brass-deep);">
           <span class="num">!</span>Register for Thesis

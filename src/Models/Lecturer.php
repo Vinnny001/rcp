@@ -22,13 +22,18 @@ class Lecturer
      *
      * @return array<int, array{lecturer_id:string, name:string, department:string}>
      */
-    public function listAvailableSupervisors(): array
+        public function listAvailableSupervisors(): array
     {
         $stmt = $this->db->query(
-            "SELECT l.lecturer_id, l.department,
-                    CONCAT(u.first_name, ' ', u.last_name) AS name
+            "SELECT l.lecturer_id,
+                    CONCAT(u.first_name, ' ', u.last_name) AS name,
+                    COALESCE(d.name, el.department) AS department
              FROM lecturers l
              JOIN users u ON u.user_id = l.user_id
+             LEFT JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+             LEFT JOIN departments d ON d.department_id = il.department_id
+             LEFT JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
+             WHERE l.is_available = 1
              ORDER BY u.first_name, u.last_name"
         );
 
@@ -74,11 +79,11 @@ class Lecturer
     }
 
 
-    public function findActiveSupervisions(string $lecturerId): array
+        public function findActiveSupervisions(string $lecturerId): array
     {
         $stmt = $this->db->prepare(
             "SELECT sa.assignment_id, sa.role, sa.proposal_id, sa.student_id,
-                    s.student_number, s.program, s.user_id AS student_user_id,
+                    s.student_number, s.user_id AS student_user_id,
                     CONCAT(u.first_name, ' ', u.last_name) AS student_name,
                     p.status AS proposal_status
              FROM supervision_assignments sa
@@ -96,10 +101,14 @@ class Lecturer
     public function listAllExcept(string $excludeUserId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT l.lecturer_id, l.user_id, l.department,
+            "SELECT l.lecturer_id, l.user_id,
+                    COALESCE(d.name, el.department) AS department,
                     CONCAT(u.first_name, ' ', u.last_name) AS name
              FROM lecturers l
              JOIN users u ON u.user_id = l.user_id
+             LEFT JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+             LEFT JOIN departments d ON d.department_id = il.department_id
+             LEFT JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
              WHERE l.user_id != :exclude_user_id
              ORDER BY u.first_name, u.last_name"
         );
