@@ -1,0 +1,85 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Audit log</h1>
+    <div class="sub">Every recorded change to core records, newest first. Written by the database itself, not the application.</div>
+  </div>
+  <div class="ref">AUDIT</div>
+</div>
+
+<form method="GET" action="/admin/audit" class="form-card" style="margin-bottom:26px; display:flex; gap:14px; align-items:flex-end;">
+  <div class="field" style="margin:0; flex:1;">
+    <label>Entity</label>
+    <select name="entity_type" onchange="this.form.submit()">
+      <option value="">All entities</option>
+      {% for et in entity_types %}
+        <option value="{{ et }}" {{ selected_entity_type == et ? 'selected' : '' }}>{{ et|replace({'_': ' '})|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field" style="margin:0; flex:1;">
+    <label>Action</label>
+    <select name="action" onchange="this.form.submit()">
+      <option value="">All actions</option>
+      {% for a in actions %}
+        <option value="{{ a }}" {{ selected_action == a ? 'selected' : '' }}>{{ a|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+
+{% if logs %}
+  <table>
+    <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Changes</th></tr></thead>
+    <tbody>
+      {% for log in logs %}
+        <tr>
+          <td class="mono">{{ log.created_at|date('d M Y H:i') }}</td>
+          <td>{{ log.actor_name is not empty ? log.actor_name : 'System' }}</td>
+          <td>
+            {% if log.action == 'INSERT' %}
+              <span class="stamp mini approved">Insert</span>
+            {% elseif log.action == 'UPDATE' %}
+              <span class="stamp mini pending">Update</span>
+            {% elseif log.action == 'DELETE' %}
+              <span class="stamp mini rejected">Delete</span>
+            {% else %}
+              <span class="stamp mini pending">{{ log.action }}</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ log.entity_type|replace({'_': ' '})|capitalize }}</td>
+          <td>
+            {% if log.old_values or log.new_values %}
+              <button type="button" class="btn ghost" style="padding:4px 10px; font-size:.68rem;" onclick="toggleDiff('{{ log.log_id }}')">View</button>
+              <div id="diff-{{ log.log_id }}" style="display:none; margin-top:8px; font-family:'IBM Plex Mono',monospace; font-size:.72rem; line-height:1.6; max-width:480px; overflow-x:auto;">
+                {% if log.old_values %}<div><strong>Before:</strong> {{ log.old_values }}</div>{% endif %}
+                {% if log.new_values %}<div><strong>After:</strong> {{ log.new_values }}</div>{% endif %}
+              </div>
+            {% else %}
+              <span class="meta" style="margin:0;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="meta" style="margin-top:14px;">Showing the most recent {{ logs|length }} entr{{ logs|length != 1 ? 'ies' : 'y' }}.</div>
+{% else %}
+  <div class="notice">No audit entries match this filter.</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function toggleDiff(id){
+    const el = document.getElementById('diff-' + id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  }
+</script>
+{% endblock %}

@@ -40,10 +40,10 @@ class StudentMeetingsController
     }
 
     /**
-     * Strips location, virtual_link, and attendee names from any meeting
-     * the student is not an invited attendee of. attendee_count stays —
-     * the student can see how many people are involved, just not who,
-     * and not where/how to join.
+     * Strips location, virtual_link, attendee names, and resources from
+     * any meeting the student is not an invited attendee of.
+     * attendee_count stays — the student can see how many people are
+     * involved, just not who, and not where/how to join or what's shared.
      */
     private function stripUninvitedDetails(array $meetings): array
     {
@@ -52,8 +52,26 @@ class StudentMeetingsController
                 $m['location'] = null;
                 $m['virtual_link'] = null;
                 $m['other_attendees'] = null;
+                $m['resources'] = [];
             }
             return $m;
+        }, $meetings);
+    }
+
+    /**
+     * Resources — the shared, non-reviewable materials on a meeting —
+     * are visible to every invited attendee, students included. Fetched
+     * per meeting rather than joined, same N+1-at-small-scale pattern
+     * used on the lecturer meetings page.
+     *
+     * @param array<int, array<string, mixed>> $meetings
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachResources(array $meetings, Meeting $meetingModel): array
+    {
+        return array_map(function (array $meeting) use ($meetingModel) {
+            $meeting['resources'] = $meetingModel->findResources($meeting['meeting_id']);
+            return $meeting;
         }, $meetings);
     }
 
@@ -74,8 +92,8 @@ class StudentMeetingsController
             'active_page'    => 'meetings',
             'first_name'     => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
-            'upcoming'       => $this->stripUninvitedDetails($upcoming),
-            'past'           => $this->stripUninvitedDetails($past),
+            'upcoming'       => $this->stripUninvitedDetails($this->attachResources($upcoming, $meetingModel)),
+            'past'           => $this->stripUninvitedDetails($this->attachResources($past, $meetingModel)),
         ]);
     }
 }

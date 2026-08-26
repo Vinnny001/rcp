@@ -1,4 +1,5 @@
 {% extends 'layouts/lecturer.twig' %}
+{% import 'partials/_resources_macro.twig' as resources_macro %}
 
 {% block title %}Meetings & Grading{% endblock %}
 
@@ -73,6 +74,8 @@
           </div>
         {% endif %}
 
+        {{ resources_macro.resources_block(m.resources) }}
+
         <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
           {% if m.status != 'cancelled' and m.my_role in ['examiner', 'chairperson', 'supervisor'] and (m.exam_schedule_id or m.document_count > 0) %}
             <a href="/lecturer/meetings/{{ m.meeting_id }}/review" class="btn brass" style="padding:6px 12px; font-size:.72rem;">Give review</a>
@@ -122,6 +125,8 @@
           </button>
         </div>
       {% endif %}
+
+      {{ resources_macro.resources_block(m.resources) }}
     </div>
   {% endfor %}
 {% endif %}
@@ -219,6 +224,35 @@
         <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addInvite('gen')">Invite</button>
         <div id="genInviteList" style="margin-top:10px;"></div>
       </div>
+
+      <details class="field" style="border:1px solid var(--paper-line); border-radius:var(--radius); padding:14px; background:#fbf8f1; margin-top:24px;">
+        <summary style="cursor:pointer; font-size:.86rem; font-weight:600; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif;">
+          Resources (optional) — documents or links every attendee can view, not scored
+        </summary>
+        <div style="margin-top:14px;">
+          <div class="meta" style="margin:0 0 6px;">This student's documents</div>
+          <div id="genResourceStudentDocs" style="margin-bottom:14px;"><div class="meta">Select a student first.</div></div>
+
+          {% if my_documents %}
+            <div class="meta" style="margin:0 0 6px;">My uploaded documents</div>
+            <div style="margin-bottom:14px;">
+              {% for doc in my_documents %}
+                <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:.82rem; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif;">
+                  <input type="checkbox" name="resource_documents[]" value="{{ doc.document_id }}" style="width:auto;">
+                  <span>{{ doc.doc_type_name }} — {{ doc.file_name }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="meta" style="margin:0 0 6px;">Add a link</div>
+          <input type="text" id="genResourceLinkUrl" placeholder="https://...">
+          <input type="text" id="genResourceLinkLabel" placeholder="Label (e.g. Grading sheet)" style="margin-top:8px;">
+          <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addResourceLink('gen')">Add link</button>
+          <div id="genResourceLinkList" style="margin-top:10px;"></div>
+        </div>
+      </details>
+
       <div class="modal-actions">
         <button type="button" class="btn ghost" onclick="hideModal('scheduleModal')">Cancel</button>
         <button type="submit" class="btn brass">Schedule meeting</button>
@@ -290,6 +324,34 @@
         <label for="examMeetingAiNotes" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">Enable AI meeting notes</label>
       </div>
 
+      <details class="field" style="border:1px solid var(--paper-line); border-radius:var(--radius); padding:14px; background:#fbf8f1; margin-top:8px;">
+        <summary style="cursor:pointer; font-size:.86rem; font-weight:600; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif;">
+          Resources (optional) — documents or links every attendee can view, not scored
+        </summary>
+        <div style="margin-top:14px;">
+          <div class="meta" style="margin:0 0 6px;">This student's documents</div>
+          <div id="examResourceStudentDocs" style="margin-bottom:14px;"><div class="meta">—</div></div>
+
+          {% if my_documents %}
+            <div class="meta" style="margin:0 0 6px;">My uploaded documents</div>
+            <div style="margin-bottom:14px;">
+              {% for doc in my_documents %}
+                <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:.82rem; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif;">
+                  <input type="checkbox" name="resource_documents[]" value="{{ doc.document_id }}" style="width:auto;">
+                  <span>{{ doc.doc_type_name }} — {{ doc.file_name }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="meta" style="margin:0 0 6px;">Add a link</div>
+          <input type="text" id="examResourceLinkUrl" placeholder="https://...">
+          <input type="text" id="examResourceLinkLabel" placeholder="Label (e.g. Grading sheet)" style="margin-top:8px;">
+          <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addResourceLink('exam')">Add link</button>
+          <div id="examResourceLinkList" style="margin-top:10px;"></div>
+        </div>
+      </details>
+
       <div class="modal-actions">
         <button type="button" class="btn ghost" onclick="hideModal('examMeetingModal')">Cancel</button>
         <button type="submit" class="btn brass">Schedule meeting</button>
@@ -351,6 +413,7 @@
   ];
 
   const invites = { gen: [], exam: [] };
+  const resourceLinks = { gen: [], exam: [] };
 
   function toggleModeFields(prefix, mode){
     const locField = document.getElementById(prefix === 'gen' ? 'locationField' : 'examLocationField');
@@ -446,15 +509,22 @@
       renderInvites('gen');
     }
 
-    renderGeneralDocuments(studentUserId);
+    renderDocumentChecklist('genDocumentList', 'review_documents[]', studentUserId, 'Select a student first.');
+    renderDocumentChecklist('genResourceStudentDocs', 'resource_documents[]', studentUserId, 'Select a student first.');
   }
 
-  function renderGeneralDocuments(studentUserId){
-    const container = document.getElementById('genDocumentList');
+  /**
+   * Renders a student's documents as a checkbox list into a container —
+   * used for both the "documents for review" picker and the "resources"
+   * picker, which draw from the same document set but write into
+   * different form fields (review_documents[] vs resource_documents[]).
+   */
+  function renderDocumentChecklist(containerId, fieldName, studentUserId, emptyMessage){
+    const container = document.getElementById(containerId);
     container.innerHTML = '';
 
     if (!studentUserId) {
-      container.innerHTML = '<div class="meta">Select a student first.</div>';
+      container.innerHTML = '<div class="meta">' + emptyMessage + '</div>';
       return;
     }
 
@@ -471,7 +541,7 @@
 
       const box = document.createElement('input');
       box.type = 'checkbox';
-      box.name = 'review_documents[]';
+      box.name = fieldName;
       box.value = d.id;
       box.style.width = 'auto';
 
@@ -481,6 +551,58 @@
       row.appendChild(box);
       row.appendChild(text);
       container.appendChild(row);
+    });
+  }
+
+  function addResourceLink(prefix){
+    const urlInput = document.getElementById(prefix + 'ResourceLinkUrl');
+    const labelInput = document.getElementById(prefix + 'ResourceLinkLabel');
+    const url = urlInput.value.trim();
+    const label = labelInput.value.trim();
+
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) {
+      alert('Links must start with http:// or https://');
+      return;
+    }
+
+    resourceLinks[prefix].push({ url, label });
+    renderResourceLinks(prefix);
+    urlInput.value = '';
+    labelInput.value = '';
+  }
+
+  function removeResourceLink(prefix, index){
+    resourceLinks[prefix].splice(index, 1);
+    renderResourceLinks(prefix);
+  }
+
+  function renderResourceLinks(prefix){
+    const container = document.getElementById(prefix + 'ResourceLinkList');
+    container.innerHTML = '';
+
+    resourceLinks[prefix].forEach((link, index) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:.82rem;';
+      const span = document.createElement('span');
+      span.textContent = link.label ? (link.label + ' — ' + link.url) : link.url;
+      row.appendChild(span);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Remove';
+      btn.className = 'btn ghost';
+      btn.style.cssText = 'padding:3px 10px; font-size:.68rem;';
+      btn.onclick = () => removeResourceLink(prefix, index);
+      row.appendChild(btn);
+      container.appendChild(row);
+
+      const hidUrl = document.createElement('input');
+      hidUrl.type = 'hidden'; hidUrl.name = 'resource_links[]'; hidUrl.value = link.url;
+      const hidLabel = document.createElement('input');
+      hidLabel.type = 'hidden'; hidLabel.name = 'resource_link_labels[]'; hidLabel.value = link.label;
+      container.appendChild(hidUrl);
+      container.appendChild(hidLabel);
     });
   }
 
@@ -543,6 +665,12 @@
     });
 
     document.getElementById('examTypeHint').textContent = '(' + examType + ' exam — only ' + (examType === 'hybrid' ? 'any' : examType) + ' lecturers shown)';
+
+    resourceLinks.exam = [];
+    document.getElementById('examResourceLinkList').innerHTML = '';
+    document.getElementById('examResourceLinkUrl').value = '';
+    document.getElementById('examResourceLinkLabel').value = '';
+    renderDocumentChecklist('examResourceStudentDocs', 'resource_documents[]', studentUserId, 'No student on record for this window.');
 
     document.getElementById('examMeetingModal').classList.add('open');
   }

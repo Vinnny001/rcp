@@ -75,6 +75,39 @@
       <div class="meta">{{ student ? student.name ~ ' has not uploaded any documents yet.' : 'No student is linked to this meeting.' }}</div>
     {% endif %}
 
+    <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Resources<div class="rule"></div></div>
+    <div class="meta" style="margin:0 0 8px;">Documents or links every attendee can view — not scored.</div>
+
+    {% if student_documents %}
+      <div class="meta" style="margin:0 0 6px;">{{ student.name }}'s documents</div>
+      {% for doc in student_documents %}
+        <label class="field" style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">
+          <input type="checkbox" name="resource_documents[]" value="{{ doc.document_id }}" style="width:auto;"
+                 {{ doc.document_id in attached_resource_document_ids ? 'checked' : '' }}>
+          <span>{{ doc.doc_type_name }} — {{ doc.file_name }}</span>
+        </label>
+      {% endfor %}
+    {% endif %}
+
+    {% if my_documents %}
+      <div class="meta" style="margin:10px 0 6px;">My uploaded documents</div>
+      {% for doc in my_documents %}
+        <label class="field" style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">
+          <input type="checkbox" name="resource_documents[]" value="{{ doc.document_id }}" style="width:auto;"
+                 {{ doc.document_id in attached_resource_document_ids ? 'checked' : '' }}>
+          <span>{{ doc.doc_type_name }} — {{ doc.file_name }}</span>
+        </label>
+      {% endfor %}
+    {% endif %}
+
+    <div class="field" style="margin-top:10px;">
+      <label>Links</label>
+      <input type="text" id="editResourceLinkUrl" placeholder="https://...">
+      <input type="text" id="editResourceLinkLabel" placeholder="Label (e.g. Grading sheet)" style="margin-top:8px;">
+      <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addResourceLink('edit')">Add link</button>
+      <div id="editResourceLinkList" style="margin-top:10px;"></div>
+    </div>
+
     <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Attendees<div class="rule"></div></div>
 
     {% for att in attendees %}
@@ -158,6 +191,67 @@
 
 {% block extra_scripts %}
 <script>
+  // Seeded from the meeting's existing links, so editing keeps them
+  // unless explicitly removed — addResourceLink/renderResourceLinks
+  // below mirror the scheduler modals' pattern in lecturers/meetings.twig.
+  const resourceLinks = { edit: [
+    {% for link in attached_resource_links %}{ url: "{{ link.url|escape('js') }}", label: "{{ link.label|default('')|escape('js') }}" },{% endfor %}
+  ] };
+
+  function addResourceLink(prefix){
+    const urlInput = document.getElementById(prefix + 'ResourceLinkUrl');
+    const labelInput = document.getElementById(prefix + 'ResourceLinkLabel');
+    const url = urlInput.value.trim();
+    const label = labelInput.value.trim();
+
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) {
+      alert('Links must start with http:// or https://');
+      return;
+    }
+
+    resourceLinks[prefix].push({ url, label });
+    renderResourceLinks(prefix);
+    urlInput.value = '';
+    labelInput.value = '';
+  }
+
+  function removeResourceLink(prefix, index){
+    resourceLinks[prefix].splice(index, 1);
+    renderResourceLinks(prefix);
+  }
+
+  function renderResourceLinks(prefix){
+    const container = document.getElementById(prefix + 'ResourceLinkList');
+    container.innerHTML = '';
+
+    resourceLinks[prefix].forEach((link, index) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:.82rem;';
+      const span = document.createElement('span');
+      span.textContent = link.label ? (link.label + ' — ' + link.url) : link.url;
+      row.appendChild(span);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Remove';
+      btn.className = 'btn ghost';
+      btn.style.cssText = 'padding:3px 10px; font-size:.68rem;';
+      btn.onclick = () => removeResourceLink(prefix, index);
+      row.appendChild(btn);
+      container.appendChild(row);
+
+      const hidUrl = document.createElement('input');
+      hidUrl.type = 'hidden'; hidUrl.name = 'resource_links[]'; hidUrl.value = link.url;
+      const hidLabel = document.createElement('input');
+      hidLabel.type = 'hidden'; hidLabel.name = 'resource_link_labels[]'; hidLabel.value = link.label;
+      container.appendChild(hidUrl);
+      container.appendChild(hidLabel);
+    });
+  }
+
+  renderResourceLinks('edit');
+
   function pickEditMode(btn){
     btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');

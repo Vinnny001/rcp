@@ -61,7 +61,7 @@ class ThesisSchedule
     public function ratesByProgram(): array
     {
         $registration = $this->db->query(
-            "SELECT rate_id, program_id, amount, currency, due_date
+            "SELECT rate_id, program_id, amount, currency, due_after_weeks, description
              FROM thesis_registration_rates ORDER BY updated_at DESC"
         )->fetchAll();
 

@@ -1,0 +1,210 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Fees & Rates{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Fees &amp; rates</h1>
+    <div class="sub">Registration, review, and per-document fee rates, by program.</div>
+  </div>
+  <div class="ref">FEE-RATES</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Thesis registration fee<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Charged once, per program, when a student registers for thesis.</div>
+
+<div class="form-card" style="margin-bottom:22px;">
+  <form method="POST" action="/admin/fee-rates/registration/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Program</label>
+        <select name="program_id" required>
+          <option value="">-- Select --</option>
+          {% for p in programs %}<option value="{{ p.program_id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Amount</label><input type="number" name="amount" min="0" step="0.01" required></div>
+      <div class="field"><label>Currency</label><input type="text" name="currency" value="KES" maxlength="3"></div>
+      <div class="field"><label>Due (weeks after registration)</label><input type="number" name="due_after_weeks" min="0"></div>
+    </div>
+    <div class="field"><label>Description</label><input type="text" name="description" placeholder="e.g. Initial rate"></div>
+    <button type="submit" class="btn brass">Add rate</button>
+  </form>
+</div>
+
+{% if registration_rates %}
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>Program</th><th>Amount</th><th>Due</th><th>Description</th><th></th></tr></thead>
+    <tbody>
+      {% for r in registration_rates %}
+        <tr>
+          <td colspan="5">
+            <form method="POST" action="/admin/fee-rates/registration/update" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="rate_id" value="{{ r.rate_id }}">
+              <select name="program_id" style="max-width:200px;">
+                {% for p in programs %}<option value="{{ p.program_id }}" {{ p.program_id == r.program_id ? 'selected' : '' }}>{{ p.name }}</option>{% endfor %}
+              </select>
+              <input type="number" name="amount" value="{{ r.amount }}" min="0" step="0.01" style="max-width:110px;">
+              <input type="text" name="currency" value="{{ r.currency }}" maxlength="3" style="max-width:70px;">
+              <input type="number" name="due_after_weeks" value="{{ r.due_after_weeks }}" min="0" style="max-width:90px;" placeholder="weeks">
+              <input type="text" name="description" value="{{ r.description }}" style="max-width:200px;" placeholder="Description">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="5" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/fee-rates/registration/delete" onsubmit="return confirm('Delete this rate? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="rate_id" value="{{ r.rate_id }}">
+              <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice" style="margin-bottom:32px;">No registration rates yet.</div>
+{% endif %}
+
+<div class="section-title">Thesis review fee<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Charged annually, per program, once a supervisor is assigned.</div>
+
+<div class="form-card" style="margin-bottom:22px;">
+  <form method="POST" action="/admin/fee-rates/review/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Program</label>
+        <select name="program_id" required>
+          <option value="">-- Select --</option>
+          {% for p in programs %}<option value="{{ p.program_id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Academic year</label><input type="number" name="academic_year" min="2000" max="2100" required></div>
+      <div class="field"><label>Amount</label><input type="number" name="amount" min="0" step="0.01" required></div>
+      <div class="field"><label>Currency</label><input type="text" name="currency" value="KES" maxlength="3"></div>
+      <div class="field"><label>Due date</label><input type="date" name="due_date"></div>
+    </div>
+    <button type="submit" class="btn brass">Add rate</button>
+  </form>
+</div>
+
+{% if review_fee_rates %}
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>Program</th><th>Year</th><th>Amount</th><th>Due</th><th></th></tr></thead>
+    <tbody>
+      {% for r in review_fee_rates %}
+        <tr>
+          <td colspan="5">
+            <form method="POST" action="/admin/fee-rates/review/update" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="rate_id" value="{{ r.rate_id }}">
+              <select name="program_id" style="max-width:200px;">
+                {% for p in programs %}<option value="{{ p.program_id }}" {{ p.program_id == r.program_id ? 'selected' : '' }}>{{ p.name }}</option>{% endfor %}
+              </select>
+              <input type="number" name="academic_year" value="{{ r.academic_year }}" style="max-width:90px;">
+              <input type="number" name="amount" value="{{ r.amount }}" min="0" step="0.01" style="max-width:110px;">
+              <input type="text" name="currency" value="{{ r.currency }}" maxlength="3" style="max-width:70px;">
+              <input type="date" name="due_date" value="{{ r.due_date }}" style="max-width:150px;">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="5" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/fee-rates/review/delete" onsubmit="return confirm('Delete this rate? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="rate_id" value="{{ r.rate_id }}">
+              <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice" style="margin-bottom:32px;">No review fee rates yet.</div>
+{% endif %}
+
+<div class="section-title">Document review fee<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Charged per document type reviewed under an exam window, once its submission window has been open for the given number of weeks.</div>
+
+<div class="form-card" style="margin-bottom:22px;">
+  <form method="POST" action="/admin/fee-rates/documents/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Program</label>
+        <select name="program_id" required>
+          <option value="">-- Select --</option>
+          {% for p in programs %}<option value="{{ p.program_id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Document type</label>
+        <select name="document_type_id" required>
+          <option value="">-- Select --</option>
+          {% for dt in document_types %}<option value="{{ dt.doc_type_id }}">{{ dt.doc_type_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label>Amount</label><input type="number" name="amount" min="0" step="0.01" required></div>
+      <div class="field"><label>Currency</label><input type="text" name="currency" value="KES" maxlength="3"></div>
+      <div class="field"><label>Due (weeks after submission opens)</label><input type="number" name="due_after_weeks" min="0"></div>
+    </div>
+    <button type="submit" class="btn brass">Add rate</button>
+  </form>
+</div>
+
+{% if document_review_rates %}
+  <table>
+    <thead><tr><th>Program</th><th>Document type</th><th>Amount</th><th>Due</th><th></th></tr></thead>
+    <tbody>
+      {% for r in document_review_rates %}
+        <tr>
+          <td colspan="5">
+            <form method="POST" action="/admin/fee-rates/documents/update" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="rate_id" value="{{ r.rate_id }}">
+              <select name="program_id" style="max-width:180px;">
+                {% for p in programs %}<option value="{{ p.program_id }}" {{ p.program_id == r.program_id ? 'selected' : '' }}>{{ p.name }}</option>{% endfor %}
+              </select>
+              <select name="document_type_id" style="max-width:180px;">
+                {% for dt in document_types %}<option value="{{ dt.doc_type_id }}" {{ dt.doc_type_id == r.document_type_id ? 'selected' : '' }}>{{ dt.doc_type_name }}</option>{% endfor %}
+              </select>
+              <input type="number" name="amount" value="{{ r.amount }}" min="0" step="0.01" style="max-width:110px;">
+              <input type="text" name="currency" value="{{ r.currency }}" maxlength="3" style="max-width:70px;">
+              <input type="number" name="due_after_weeks" value="{{ r.due_after_weeks }}" min="0" style="max-width:90px;" placeholder="weeks">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="5" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/fee-rates/documents/delete" onsubmit="return confirm('Delete this rate? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="rate_id" value="{{ r.rate_id }}">
+              <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No document review rates yet.</div>
+{% endif %}
+
+{% endblock %}

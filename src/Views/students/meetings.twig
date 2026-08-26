@@ -1,4 +1,5 @@
 {% extends 'layouts/student.twig' %}
+{% import 'partials/_resources_macro.twig' as resources_macro %}
 
 {% block title %}Meetings{% endblock %}
 
@@ -23,7 +24,7 @@
           {{ m.scheduled_at|date('D, j M Y') }} · {{ m.scheduled_at|date('g:i A') }}
           {% if m.is_invited %}
             · {{ m.mode|capitalize }}
-            {% if m.mode in ['virtual', 'hybrid'] and m.virtual_link %} — {{ m.virtual_link }}{% endif %}
+            {% if m.mode in ['virtual', 'hybrid'] and m.virtual_link %} — <a href="{{ m.virtual_link }}" target="_blank">{{ m.virtual_link }}</a>{% endif %}
             {% if m.mode in ['physical', 'hybrid'] and m.location %} — {{ m.location }}{% endif %}
           {% endif %}
         </div>
@@ -50,6 +51,8 @@
         {% else %}
           <span class="stamp mini pending">Scheduled</span>
         {% endif %}
+
+        {% if m.is_invited %}{{ resources_macro.resources_block(m.resources) }}{% endif %}
       </div>
     {% endfor %}
   </div>
@@ -92,6 +95,8 @@
       {% elseif m.is_invited and m.my_attendance_status == 'absent' %}
         <span class="stamp mini rejected">You were marked absent</span>
       {% endif %}
+
+      {% if m.is_invited %}{{ resources_macro.resources_block(m.resources) }}{% endif %}
     </div>
   {% endfor %}
 {% else %}

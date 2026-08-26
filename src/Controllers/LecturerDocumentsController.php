@@ -18,6 +18,16 @@ class LecturerDocumentsController
 
     private const VALID_DOC_STATUSES = ['valid', 'rejected'];
 
+    private const UPLOAD_DIR = __DIR__ . '/../../public/uploads/documents';
+    private const ALLOWED_MIME = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    private const MAX_SIZE_KB = 10240;
+
     public function __construct(PDO $db, Twig $twig)
     {
         $this->db = $db;
@@ -130,5 +140,98 @@ class LecturerDocumentsController
         }
 
         return $this->redirect($response, '/lecturer/documents');
+    }
+
+    /**
+     * The lecturer's own document library — resources they've uploaded
+     * themselves (grading sheets, templates, references), distinct from
+     * the students' documents this controller otherwise reviews. These
+     * are what "resources" pulls from when scheduling or editing a
+     * meeting, alongside a student's own documents.
+     */
+    public function myDocuments(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $documentModel = new Document($this->db);
+
+        return $this->twig->render($response, 'lecturers/my_documents.twig', [
+            'active_page'    => 'l-my-documents',
+            'first_name'     => $_SESSION['first_name'] ?? '',
+            'documents'      => $documentModel->findByOwner($_SESSION['user_id']),
+            'document_types' => $this->db->query("SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name")->fetchAll(),
+            'csrf_token'     => $this->csrfToken(),
+            'error'          => $_SESSION['flash_error'] ?? null,
+            'success'        => $_SESSION['flash_success'] ?? null,
+        ]);
+    }
+
+    public function uploadMyDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/lecturer/my-documents');
+        }
+
+        $documentTypeId = trim((string) ($data['document_type_id'] ?? ''));
+        if ($documentTypeId === '') {
+            $_SESSION['flash_error'] = 'Please choose a document type.';
+            return $this->redirect($response, '/lecturer/my-documents');
+        }
+
+        $uploadedFiles = $request->getUploadedFiles();
+        $file = $uploadedFiles['document_file'] ?? null;
+
+        if (!$file || $file->getError() !== UPLOAD_ERR_OK) {
+            $_SESSION['flash_error'] = 'Please choose a file to upload.';
+            return $this->redirect($response, '/lecturer/my-documents');
+        }
+
+        $mimeType = $file->getClientMediaType();
+        if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
+            $_SESSION['flash_error'] = 'Only PDF, Word, or Excel files are accepted.';
+            return $this->redirect($response, '/lecturer/my-documents');
+        }
+
+        $sizeKb = (int) ceil($file->getSize() / 1024);
+        if ($sizeKb > self::MAX_SIZE_KB) {
+            $_SESSION['flash_error'] = 'File exceeds the 10MB limit.';
+            return $this->redirect($response, '/lecturer/my-documents');
+        }
+
+        if (!is_dir(self::UPLOAD_DIR)) {
+            mkdir(self::UPLOAD_DIR, 0755, true);
+        }
+
+        $originalName = $file->getClientFilename() ?: 'document';
+        $extension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION)) ?: 'bin';
+        $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+        $destination = self::UPLOAD_DIR . '/' . $storedName;
+        $file->moveTo($destination);
+
+        $documentModel = new Document($this->db);
+
+        // A lecturer's own resource isn't part of any review pipeline —
+        // 'final' marks it as already settled, never awaiting validation.
+        $documentModel->create([
+            'user_id'          => $_SESSION['user_id'],
+            'uploaded_by'      => $_SESSION['user_id'],
+            'document_type_id' => $documentTypeId,
+            'document_status'  => 'final',
+            'file_name'        => $originalName,
+            'file_path'        => 'uploads/documents/' . $storedName,
+            'file_size_kb'     => $sizeKb,
+            'mime_type'        => $mimeType,
+        ]);
+
+        $_SESSION['flash_success'] = 'Document uploaded.';
+        return $this->redirect($response, '/lecturer/my-documents');
     }
 }

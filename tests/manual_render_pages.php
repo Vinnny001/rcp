@@ -138,6 +138,7 @@ $admin = userFor($pdo, 'admin');
 
 echo "\n--- lecturer pages ---\n";
 $lecturerMeetings = visit('/lecturer/meetings', 'lecturer', $lecturer);
+visit('/lecturer/my-documents', 'lecturer', $lecturer);
 
 $meetingId = $pdo->query(
     "SELECT m.meeting_id FROM meetings m
@@ -265,6 +266,8 @@ visit('/admin/users', 'admin', $admin);
 visit('/admin/programs', 'admin', $admin);
 visit('/admin/thesis-schedules', 'admin', $admin);
 visit('/admin/exam-schedules', 'admin', $admin);
+visit('/admin/audit', 'admin', $admin);
+visit('/admin/fee-rates', 'admin', $admin);
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

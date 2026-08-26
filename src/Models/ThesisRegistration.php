@@ -93,9 +93,11 @@ class ThesisRegistration
         $paymentModel = new ThesisPayment($this->db);
         $owed = [];
 
-        // 1. Registration fee
+        // 1. Registration fee — due_after_weeks counts from
+        // registered_at, the moment the fee becomes payable, the same
+        // anchor pattern review fees use with document_submission_starts_at.
         $regRateStmt = $this->db->prepare(
-            "SELECT amount, currency, due_date FROM thesis_registration_rates WHERE rate_id = :rate_id LIMIT 1"
+            "SELECT amount, currency, due_after_weeks FROM thesis_registration_rates WHERE rate_id = :rate_id LIMIT 1"
         );
         $regRateStmt->execute(['rate_id' => $schedule['thesis_registration_rates_id']]);
         $regRate = $regRateStmt->fetch();
@@ -111,7 +113,7 @@ class ThesisRegistration
                 'required'  => $regRequired,
                 'remaining' => $regRequired - $regPaid,
                 'currency'  => $regRate['currency'],
-                'due_date'  => $regRate['due_date'],
+                'due_date'  => $this->dueDateFromWeeks($registration['registered_at'], $regRate['due_after_weeks']),
             ];
             return $owed;
         }
@@ -193,6 +195,21 @@ class ThesisRegistration
 
 
 
+    /**
+     * due_after_weeks is null-safe: a rate with no due_after_weeks set
+     * has no deadline, matching the old due_date-can-be-null behaviour.
+     */
+    private function dueDateFromWeeks(string $anchorDate, ?int $dueAfterWeeks): ?string
+    {
+        if ($dueAfterWeeks === null) {
+            return null;
+        }
+
+        return (new \DateTimeImmutable($anchorDate))
+            ->modify('+' . $dueAfterWeeks . ' weeks')
+            ->format('Y-m-d');
+    }
+
     private function generateUuid(): string
     {
         $data = random_bytes(16);
@@ -257,7 +274,7 @@ class ThesisRegistration
         // Registration must already be paid — otherwise "upcoming" fees
         // would show before the student has even cleared the first gate.
         $regRateStmt = $this->db->prepare(
-            "SELECT amount FROM thesis_registration_rates WHERE rate_id = :rate_id LIMIT 1"
+            "SELECT amount, due_after_weeks FROM thesis_registration_rates WHERE rate_id = :rate_id LIMIT 1"
         );
         $regRateStmt->execute(['rate_id' => $schedule['thesis_registration_rates_id']]);
         $regRate = $regRateStmt->fetch();

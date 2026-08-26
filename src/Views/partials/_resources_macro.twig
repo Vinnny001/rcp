@@ -1,0 +1,28 @@
+{#
+  Read-only resources list for a meeting — visible to every attendee,
+  lecturer or student, regardless of their role in the meeting.
+  Collapsed by default via <details>, matching the admin pages' pattern.
+#}
+{% macro resources_block(resources) %}
+  {% if resources %}
+    <details style="margin-top:12px;">
+      <summary style="cursor:pointer; font-size:.78rem; font-weight:600;">
+        Resources ({{ resources|length }})
+      </summary>
+      <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+        {% for r in resources %}
+          <div style="font-size:.82rem; display:flex; align-items:center; gap:8px;">
+            {% if r.resource_type == 'document' %}
+              <span>&#128196;</span>
+              <a href="/{{ r.file_path }}" target="_blank">{{ r.file_name }}</a>
+              {% if r.doc_type_name %}<span class="meta" style="margin:0;">— {{ r.doc_type_name }}</span>{% endif %}
+            {% else %}
+              <span>&#128279;</span>
+              <a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.label ?: r.url }}</a>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </details>
+  {% endif %}
+{% endmacro %}

@@ -1,4 +1,5 @@
 {% extends 'layouts/lecturer.twig' %}
+{% import 'partials/_resources_macro.twig' as resources_macro %}
 
 {% block title %}Meeting Review{% endblock %}
 
@@ -14,6 +15,8 @@
 
 {% if success %}<div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>{% endif %}
 {% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
+
+{{ resources_macro.resources_block(resources) }}
 
 {% if secure_code %}
   <div class="notice" style="border-left-color: var(--brass-deep); background:#faf6ec;">
@@ -35,6 +38,16 @@
     {% if has_exam_documents %}
       <div class="section-title">Exam window documents<div class="rule"></div></div>
 
+      {% if not can_score_exam_documents %}
+        <div class="notice" style="margin-bottom:18px;">
+          {% if window_exam_type == 'external' and my_role == 'supervisor' %}
+            This is an external exam. Supervisors are treated as internal and cannot review external exams — these documents are shown here for reference only.
+          {% else %}
+            You are attending as {{ my_role }}, so these documents are shown here for reference only.
+          {% endif %}
+        </div>
+      {% endif %}
+
       {% for doc in documents %}
         <div class="form-card" style="margin-bottom:18px;">
           <h3 style="margin-bottom:4px;">{{ doc.doc_type_name }}</h3>
@@ -49,7 +62,7 @@
           {% if doc.graded_at %}
             <div class="meta">Your score: <strong>{{ doc.score_percentage }}</strong></div>
             {% if doc.remarks %}<p style="font-size:.85rem; color:#39332a; margin-top:6px;">{{ doc.remarks }}</p>{% endif %}
-          {% else %}
+          {% elseif can_score_exam_documents %}
             <input type="hidden" name="exam_document_id[]" value="{{ doc.exam_document_id }}">
             <div class="field">
               <label>Score (0–100)</label>

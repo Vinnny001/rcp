@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Models\Document;
 use App\Models\DocumentReviewScore;
 use App\Models\Lecturer;
 use App\Models\Meeting;
@@ -43,6 +44,78 @@ class LecturerMeetingsController
     {
         $this->db = $db;
         $this->twig = $twig;
+    }
+
+    /**
+     * EXAM_REVIEW_ROLES narrowed for the meeting at hand. Supervisors
+     * are treated as internal by role — whatever their own lecturer
+     * classification says — so an external exam window strips
+     * 'supervisor' out of the allowed reviewers entirely. A general
+     * meeting (no exam window) and internal/hybrid windows are
+     * unaffected.
+     *
+     * @return array<int, string>
+     */
+    private function examReviewRolesFor(?string $windowExamType): array
+    {
+        if ($windowExamType === 'external') {
+            return array_values(array_diff(self::EXAM_REVIEW_ROLES, ['supervisor']));
+        }
+        return self::EXAM_REVIEW_ROLES;
+    }
+
+    /**
+     * Document ids a supervisor may share as a meeting resource: either
+     * the meeting's own student's documents, or the supervisor's own
+     * uploads from their My Documents library. Anything else — a
+     * document belonging to some other student, say — is silently
+     * dropped rather than trusted from the request.
+     *
+     * @param array<int, string> $candidateIds
+     * @return array<int, string>
+     */
+    private function validResourceDocumentIds(array $candidateIds, ?string $studentUserId): array
+    {
+        $documentModel = new Document($this->db);
+
+        $ownedIds = array_column($documentModel->findByOwner($_SESSION['user_id']), 'document_id');
+        if ($studentUserId) {
+            $ownedIds = array_merge($ownedIds, array_column($documentModel->findByOwner($studentUserId), 'document_id'));
+        }
+
+        return array_values(array_intersect($candidateIds, $ownedIds));
+    }
+
+    /**
+     * Parses parallel resource_links[]/resource_link_labels[] arrays
+     * into [{url, label}, ...], keeping only well-formed http(s) URLs —
+     * a javascript: or data: URL never reaches the database, since this
+     * value is later rendered as a plain href.
+     *
+     * @return array<int, array{url: string, label: ?string}>
+     */
+    private function parseResourceLinks(array $data): array
+    {
+        $urls = (array) ($data['resource_links'] ?? []);
+        $labels = (array) ($data['resource_link_labels'] ?? []);
+        $links = [];
+
+        foreach ($urls as $i => $url) {
+            $url = trim((string) $url);
+            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+            if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
+                continue;
+            }
+
+            $links[] = [
+                'url'   => $url,
+                'label' => trim((string) ($labels[$i] ?? '')) ?: null,
+            ];
+        }
+
+        return $links;
     }
 
     private function requireLecturer(): ?string
@@ -122,14 +195,17 @@ class LecturerMeetingsController
         $success = $_SESSION['flash_success'] ?? null;
         unset($_SESSION['flash_error'], $_SESSION['flash_success']);
 
+        $documentModel = new Document($this->db);
+
         return $this->twig->render($response, 'lecturers/meetings.twig', [
             'active_page'           => 'l-meetings',
             'first_name'            => $_SESSION['first_name'] ?? '',
             'staff_number'          => $lecturer['staff_number'] ?? null,
-            'upcoming'              => $this->applySecureCodeVisibility($meetingModel->findUpcomingForUser($userId), $meetingModel),
-            'past'                  => $this->applySecureCodeVisibility($meetingModel->findPastForUser($userId), $meetingModel),
+            'upcoming'              => $this->attachResources($this->applySecureCodeVisibility($meetingModel->findUpcomingForUser($userId), $meetingModel), $meetingModel),
+            'past'                  => $this->attachResources($this->applySecureCodeVisibility($meetingModel->findPastForUser($userId), $meetingModel), $meetingModel),
             'students'              => $lecturerModel->findActiveSupervisions($lecturer['lecturer_id']),
             'supervisee_documents'  => $lecturerModel->findSuperviseeDocuments($lecturer['lecturer_id']),
+            'my_documents'          => $documentModel->findByOwner($userId),
             'other_lecturers'       => $lecturerModel->listAllExcept($userId, $superviseeLecturers),
             'internal_lecturers'    => $lecturerModel->listInternalLecturersExcept($userId, $superviseeLecturers),
             'external_lecturers'    => $lecturerModel->listExternalLecturersExcept($userId, $superviseeLecturers),
@@ -139,6 +215,18 @@ class LecturerMeetingsController
             'error'                 => $error,
             'success'               => $success,
         ]);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $meetings
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachResources(array $meetings, Meeting $meetingModel): array
+    {
+        return array_map(function (array $meeting) use ($meetingModel) {
+            $meeting['resources'] = $meetingModel->findResources($meeting['meeting_id']);
+            return $meeting;
+        }, $meetings);
     }
 
     public function schedule(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
@@ -183,6 +271,8 @@ class LecturerMeetingsController
         $attendeeUserIds = array_values(array_filter((array) ($data['attendee_lecturers'] ?? [])));
         $attendeeRoles = array_values((array) ($data['attendee_roles'] ?? []));
         $documentIds = array_values(array_filter((array) ($data['review_documents'] ?? [])));
+        $resourceDocumentIds = array_values(array_filter((array) ($data['resource_documents'] ?? [])));
+        $resourceLinks = $this->parseResourceLinks($data);
 
         $errors = [];
         if (!$studentByProposal) {
@@ -220,7 +310,9 @@ class LecturerMeetingsController
             }
         }
 
-        // Only the selected student's own documents may be attached.
+        // Only the selected student's own documents may be attached for
+        // review — a resource, further below, may additionally be the
+        // supervisor's own upload, since resources are never scored.
         if ($documentIds && $studentUserId) {
             $ownedIds = array_column($lecturerModel->findDocumentsForStudentUser($studentUserId), 'document_id');
             if (array_diff($documentIds, $ownedIds)) {
@@ -232,6 +324,8 @@ class LecturerMeetingsController
             $_SESSION['flash_error'] = implode(' ', $errors);
             return $this->redirect($response, '/lecturer/meetings');
         }
+
+        $resourceDocumentIds = $this->validResourceDocumentIds($resourceDocumentIds, $studentUserId);
 
         $meetingModel = new Meeting($this->db);
         $scheduledAt = $date . ' ' . $time . ':00';
@@ -264,6 +358,13 @@ class LecturerMeetingsController
 
             foreach ($documentIds as $documentId) {
                 $meetingModel->attachDocument($meetingId, $documentId, $_SESSION['user_id']);
+            }
+
+            foreach ($resourceDocumentIds as $documentId) {
+                $meetingModel->attachResourceDocument($meetingId, $documentId, $_SESSION['user_id']);
+            }
+            foreach ($resourceLinks as $link) {
+                $meetingModel->attachResourceLink($meetingId, $link['url'], $link['label'], $_SESSION['user_id']);
             }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Could not schedule the meeting: ' . $e->getMessage();
@@ -402,6 +503,17 @@ class LecturerMeetingsController
             }
         }
 
+        $resourceDocumentIds = $this->validResourceDocumentIds(
+            array_values(array_filter((array) ($data['resource_documents'] ?? []))),
+            $match['student_user_id'] ?? null
+        );
+        foreach ($resourceDocumentIds as $documentId) {
+            $meetingModel->attachResourceDocument($meetingId, $documentId, $_SESSION['user_id']);
+        }
+        foreach ($this->parseResourceLinks($data) as $link) {
+            $meetingModel->attachResourceLink($meetingId, $link['url'], $link['label'], $_SESSION['user_id']);
+        }
+
         $_SESSION['flash_success'] = 'Meeting scheduled within the exam window. Your attendance code is shown on the meeting card.';
         return $this->redirect($response, '/lecturer/meetings');
     }
@@ -490,6 +602,9 @@ class LecturerMeetingsController
             $meetingDocuments[] = $doc;
         }
 
+        $windowExamType = $meetingModel->windowExamType($meetingId);
+        $canScoreExamDocuments = in_array($myRole, $this->examReviewRolesFor($windowExamType), true);
+
         // Mint the code for everyone who opens this page, not just the
         // supervisor: an examiner reaching a pre-secure-code meeting
         // before the supervisor ever opened it would otherwise face a
@@ -511,6 +626,9 @@ class LecturerMeetingsController
             'documents'         => $scoreModel->findByMeeting($meetingId, $_SESSION['user_id']),
             'meeting_documents' => $meetingDocuments,
             'can_score_documents' => in_array($myRole, self::DOCUMENT_REVIEW_ROLES, true),
+            'can_score_exam_documents' => $canScoreExamDocuments,
+            'window_exam_type'  => $windowExamType,
+            'resources'         => $meetingModel->findResources($meetingId),
             'secure_code'       => $secureCode,
             'csrf_token'        => $this->csrfToken(),
             'error'             => $error,
@@ -551,7 +669,10 @@ class LecturerMeetingsController
         $recorded = 0;
         $skipped = 0;
 
-        $this->recordExamDocumentScores($data, $recorded, $skipped);
+        $windowExamType = $meetingModel->windowExamType($meetingId);
+        $canScoreExamDocuments = in_array($myRole, $this->examReviewRolesFor($windowExamType), true);
+
+        $this->recordExamDocumentScores($data, $canScoreExamDocuments, $recorded, $skipped);
         $this->recordMeetingDocumentScores($meetingId, $myRole, $meetingModel, $data, $recorded, $skipped);
 
         if ($recorded && $skipped) {
@@ -570,9 +691,16 @@ class LecturerMeetingsController
     /**
      * Scores for documents submitted against a formal exam window,
      * which land in examination_scores keyed by exam_document.
+     * $allowed carries the external-exam-type-blocks-supervisor rule —
+     * refused up front rather than trusted to the caller having already
+     * filtered exam_document_id[], since this is the actual write path.
      */
-    private function recordExamDocumentScores(array $data, int &$recorded, int &$skipped): void
+    private function recordExamDocumentScores(array $data, bool $allowed, int &$recorded, int &$skipped): void
     {
+        if (!$allowed) {
+            return;
+        }
+
         $scoreModel = new \App\Models\ExaminationScore($this->db);
         $examDocIds = (array) ($data['exam_document_id'] ?? []);
         $scores = (array) ($data['score'] ?? []);
@@ -682,6 +810,16 @@ class LecturerMeetingsController
 
         $attachedIds = array_column($meetingModel->findDocuments($meetingId), 'document_id');
 
+        $resources = $meetingModel->findResources($meetingId);
+        $attachedResourceDocumentIds = array_column(
+            array_filter($resources, fn($r) => $r['resource_type'] === 'document'),
+            'document_id'
+        );
+        $attachedResourceLinks = array_values(array_filter($resources, fn($r) => $r['resource_type'] === 'link'));
+
+        $documentModel = new Document($this->db);
+        $myDocuments = $documentModel->findByOwner($_SESSION['user_id']);
+
         $error = $_SESSION['flash_error'] ?? null;
         unset($_SESSION['flash_error']);
 
@@ -698,6 +836,9 @@ class LecturerMeetingsController
             'student_included' => $studentCurrentlyIncluded,
             'student_documents' => $student ? $lecturerModel->findDocumentsForStudentUser($student['user_id']) : [],
             'attached_document_ids' => $attachedIds,
+            'my_documents'     => $myDocuments,
+            'attached_resource_document_ids' => $attachedResourceDocumentIds,
+            'attached_resource_links'        => $attachedResourceLinks,
             'secure_code'      => $secureCode,
             'csrf_token'       => $this->csrfToken(),
             'error'            => $error,
@@ -782,6 +923,15 @@ class LecturerMeetingsController
             $documentIds = [];
         }
         $meetingModel->syncDocuments($meetingId, $documentIds, $_SESSION['user_id']);
+
+        // Resources may be the student's documents OR the supervisor's
+        // own uploads OR links — synced wholesale, same as review documents.
+        $resourceDocumentIds = $this->validResourceDocumentIds(
+            array_values(array_filter((array) ($data['resource_documents'] ?? []))),
+            $studentUserId
+        );
+        $resourceLinks = $this->parseResourceLinks($data);
+        $meetingModel->syncResources($meetingId, $resourceDocumentIds, $resourceLinks, $_SESSION['user_id']);
 
         $_SESSION['flash_success'] = 'Meeting updated.';
         return $this->redirect($response, '/lecturer/meetings');

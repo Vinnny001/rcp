@@ -92,6 +92,8 @@ return function (App $app) {
     // Lecturer documents route
     $app->get('/lecturer/documents', [LecturerDocumentsController::class, 'show']);
     $app->post('/lecturer/documents/validate', [LecturerDocumentsController::class, 'validateDocument']);
+    $app->get('/lecturer/my-documents', [LecturerDocumentsController::class, 'myDocuments']);
+    $app->post('/lecturer/my-documents/upload', [LecturerDocumentsController::class, 'uploadMyDocument']);
 
 
 
@@ -172,6 +174,21 @@ $app->post('/admin/exam-schedules/update', [AdminController::class, 'updateExamS
 $app->post('/admin/exam-schedules/delete', [AdminController::class, 'deleteExamSchedule']);
 $app->post('/admin/exam-schedules/documents/add', [AdminController::class, 'addExamScheduleDocument']);
 $app->post('/admin/exam-schedules/documents/remove', [AdminController::class, 'removeExamScheduleDocument']);
+
+// Admin: fees & rates
+$app->get('/admin/fee-rates', [AdminController::class, 'feeRates']);
+$app->post('/admin/fee-rates/registration/create', [AdminController::class, 'createRegistrationRate']);
+$app->post('/admin/fee-rates/registration/update', [AdminController::class, 'updateRegistrationRate']);
+$app->post('/admin/fee-rates/registration/delete', [AdminController::class, 'deleteRegistrationRate']);
+$app->post('/admin/fee-rates/review/create', [AdminController::class, 'createReviewFeeRate']);
+$app->post('/admin/fee-rates/review/update', [AdminController::class, 'updateReviewFeeRate']);
+$app->post('/admin/fee-rates/review/delete', [AdminController::class, 'deleteReviewFeeRate']);
+$app->post('/admin/fee-rates/documents/create', [AdminController::class, 'createDocumentReviewRate']);
+$app->post('/admin/fee-rates/documents/update', [AdminController::class, 'updateDocumentReviewRate']);
+$app->post('/admin/fee-rates/documents/delete', [AdminController::class, 'deleteDocumentReviewRate']);
+
+// Admin: audit log
+$app->get('/admin/audit', [AdminController::class, 'auditLog']);
 
 
 

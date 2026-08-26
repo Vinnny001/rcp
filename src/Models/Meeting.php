@@ -33,6 +33,7 @@ class Meeting
                     ma_self.role_in_meeting     AS my_role,
                     ma_self.attendance_status   AS my_attendance_status,
                     p.title                     AS proposal_title,
+                    es.exam_type                AS window_exam_type,
                     (SELECT COUNT(*) FROM meeting_documents md WHERE md.meeting_id = m.meeting_id) AS document_count,
                     GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name, ' (', ma_other.role_in_meeting, ')')
                                  SEPARATOR ', ') AS other_attendees
@@ -42,6 +43,8 @@ class Meeting
                     AND ma_self.user_id = :user_id
              LEFT JOIN thesis_proposals p
                     ON p.proposal_id = m.proposal_id
+             LEFT JOIN exam_schedule es
+                    ON es.exam_schedule_id = m.exam_schedule_id
              LEFT JOIN meeting_attendees ma_other
                     ON ma_other.meeting_id = m.meeting_id
                    AND ma_other.user_id != :user_id2
@@ -63,6 +66,7 @@ class Meeting
                     ma_self.role_in_meeting     AS my_role,
                     ma_self.attendance_status   AS my_attendance_status,
                     p.title                     AS proposal_title,
+                    es.exam_type                AS window_exam_type,
                     (SELECT COUNT(*) FROM meeting_documents md WHERE md.meeting_id = m.meeting_id) AS document_count,
                     GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name, ' (', ma_other.role_in_meeting, ')')
                                  SEPARATOR ', ') AS other_attendees
@@ -72,6 +76,8 @@ class Meeting
                     AND ma_self.user_id = :user_id
              LEFT JOIN thesis_proposals p
                     ON p.proposal_id = m.proposal_id
+             LEFT JOIN exam_schedule es
+                    ON es.exam_schedule_id = m.exam_schedule_id
              LEFT JOIN meeting_attendees ma_other
                     ON ma_other.meeting_id = m.meeting_id
                    AND ma_other.user_id != :user_id2
@@ -325,6 +331,26 @@ class Meeting
         return $row ?: null;
     }
 
+    /**
+     * The exam_type of the exam window this meeting belongs to, or null
+     * for a general meeting with no exam_schedule_id at all. Used to
+     * enforce that supervisors — treated as internal by role, regardless
+     * of their own internal/external lecturer classification — cannot
+     * review documents under an external exam window.
+     */
+    public function windowExamType(string $meetingId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT es.exam_type
+             FROM meetings m
+             LEFT JOIN exam_schedule es ON es.exam_schedule_id = m.exam_schedule_id
+             WHERE m.meeting_id = :meeting_id LIMIT 1"
+        );
+        $stmt->execute(['meeting_id' => $meetingId]);
+        $type = $stmt->fetchColumn();
+        return $type ?: null;
+    }
+
     public function isAttendee(string $meetingId, string $userId): ?string
     {
         $stmt = $this->db->prepare(
@@ -499,7 +525,123 @@ class Meeting
         }
     }
 
+    /**
+     * Shares a document as a plain resource — visible to every attendee,
+     * never scored. Distinct from attachDocument(), which is for review
+     * copies that flow into document_review_scores.
+     */
+    public function attachResourceDocument(string $meetingId, string $documentId, string $addedByUserId): void
+    {
+        $stmt = $this->db->prepare(
+            "INSERT INTO meeting_resources (resource_id, meeting_id, resource_type, document_id, added_by)
+             VALUES (:id, :meeting_id, 'document', :document_id, :added_by)"
+        );
+        $stmt->execute([
+            'id'          => $this->generateUuid(),
+            'meeting_id'  => $meetingId,
+            'document_id' => $documentId,
+            'added_by'    => $addedByUserId,
+        ]);
+    }
 
+    /**
+     * Shares an external link as a resource — a recording, a reading, a
+     * grading sheet hosted elsewhere. $label is what attendees see; the
+     * URL itself is never displayed unlabelled.
+     */
+    public function attachResourceLink(string $meetingId, string $url, ?string $label, string $addedByUserId): void
+    {
+        $stmt = $this->db->prepare(
+            "INSERT INTO meeting_resources (resource_id, meeting_id, resource_type, url, label, added_by)
+             VALUES (:id, :meeting_id, 'link', :url, :label, :added_by)"
+        );
+        $stmt->execute([
+            'id'         => $this->generateUuid(),
+            'meeting_id' => $meetingId,
+            'url'        => $url,
+            'label'      => $label,
+            'added_by'   => $addedByUserId,
+        ]);
+    }
 
+    public function removeResource(string $meetingId, string $resourceId): void
+    {
+        $stmt = $this->db->prepare(
+            "DELETE FROM meeting_resources WHERE meeting_id = :meeting_id AND resource_id = :resource_id"
+        );
+        $stmt->execute(['meeting_id' => $meetingId, 'resource_id' => $resourceId]);
+    }
 
+    /**
+     * Every resource on a meeting, documents and links together, newest
+     * first. Visible to every attendee regardless of role — resources
+     * carry no scoring, so there is no reviewer-only gate to apply here.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function findResources(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT mr.resource_id, mr.resource_type, mr.url, mr.label, mr.added_at,
+                    mr.added_by, CONCAT(u.first_name, ' ', u.last_name) AS added_by_name,
+                    d.document_id, d.file_name, d.file_path, dt.doc_type_name
+             FROM meeting_resources mr
+             JOIN users u ON u.user_id = mr.added_by
+             LEFT JOIN documents d ON d.document_id = mr.document_id
+             LEFT JOIN document_types dt ON dt.doc_type_id = d.document_type_id
+             WHERE mr.meeting_id = :meeting_id
+             ORDER BY mr.added_at DESC"
+        );
+        $stmt->execute(['meeting_id' => $meetingId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Replaces a meeting's document-backed resources with exactly
+     * $documentIds, and its link resources with exactly $links (each
+     * ['url' => ..., 'label' => ...]) — the edit form's "resources" set
+     * is resubmitted wholesale on every save, same pattern as
+     * syncDocuments(). Existing links are matched by URL, so an
+     * unmodified link survives the sync rather than being dropped and
+     * re-added with a new resource_id and added_at.
+     *
+     * @param array<int, string> $documentIds
+     * @param array<int, array{url: string, label: ?string}> $links
+     */
+    public function syncResources(string $meetingId, array $documentIds, array $links, string $addedByUserId): void
+    {
+        $existing = $this->findResources($meetingId);
+
+        $currentDocumentIds = array_column(
+            array_filter($existing, fn($r) => $r['resource_type'] === 'document'),
+            'document_id'
+        );
+        foreach (array_diff($currentDocumentIds, $documentIds) as $staleDocId) {
+            foreach ($existing as $r) {
+                if ($r['resource_type'] === 'document' && $r['document_id'] === $staleDocId) {
+                    $this->removeResource($meetingId, $r['resource_id']);
+                }
+            }
+        }
+        foreach (array_diff($documentIds, $currentDocumentIds) as $freshDocId) {
+            $this->attachResourceDocument($meetingId, $freshDocId, $addedByUserId);
+        }
+
+        $currentUrls = array_column(
+            array_filter($existing, fn($r) => $r['resource_type'] === 'link'),
+            'url'
+        );
+        $newUrls = array_column($links, 'url');
+
+        foreach ($existing as $r) {
+            if ($r['resource_type'] === 'link' && !in_array($r['url'], $newUrls, true)) {
+                $this->removeResource($meetingId, $r['resource_id']);
+            }
+        }
+        foreach ($links as $link) {
+            if (!in_array($link['url'], $currentUrls, true)) {
+                $this->attachResourceLink($meetingId, $link['url'], $link['label'] ?: null, $addedByUserId);
+            }
+        }
+    }
 }

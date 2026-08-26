@@ -2,6 +2,19 @@
 
 {% block title %}Thesis Schedules{% endblock %}
 
+{% block extra_head %}
+<style>
+  details.form-card > summary{
+    cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  details.form-card > summary::-webkit-details-marker{ display:none; }
+  details.form-card > summary .chevron{ transition:transform .15s ease; font-size:.7rem; color:var(--slate); flex-shrink:0; }
+  details.form-card[open] > summary .chevron{ transform:rotate(90deg); }
+  details.form-card > summary .meta{ margin:0; }
+  details.form-card > .details-body{ margin-top:18px; }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <div class="page-head">
@@ -52,7 +65,7 @@
           <option value="">-- None --</option>
           {% for rate in registration_rates %}
             <option value="{{ rate.rate_id }}" data-program="{{ rate.program_id }}">
-              {{ rate.currency }} {{ rate.amount }}{% if rate.due_date %} — due {{ rate.due_date|date('d M Y') }}{% endif %}
+              {{ rate.currency }} {{ rate.amount }}{% if rate.due_after_weeks %} — due {{ rate.due_after_weeks }} week{{ rate.due_after_weeks != 1 ? 's' : '' }} after registration{% endif %}{% if rate.description %} · {{ rate.description }}{% endif %}
             </option>
           {% endfor %}
         </select>
@@ -80,13 +93,17 @@
 
 {% if schedules %}
   {% for s in schedules %}
-    <div class="form-card" style="margin-bottom:18px;">
-      <div class="meta" style="margin-bottom:14px;">
-        {{ s.program_name }}{% if s.department_name %} · {{ s.department_name }}{% endif %}
-        · {{ s.registration_count }} registration{{ s.registration_count != 1 ? 's' : '' }}
-        · {{ s.exam_schedule_count }} exam window{{ s.exam_schedule_count != 1 ? 's' : '' }}
-      </div>
+    <details class="form-card" style="margin-bottom:18px;">
+      <summary>
+        <span class="meta">
+          <strong style="color:var(--ink-text); font-weight:600;">{{ s.program_name }}</strong>{% if s.department_name %} · {{ s.department_name }}{% endif %}
+          · {{ s.registration_count }} registration{{ s.registration_count != 1 ? 's' : '' }}
+          · {{ s.exam_schedule_count }} exam window{{ s.exam_schedule_count != 1 ? 's' : '' }}
+        </span>
+        <span class="chevron">&#9656;</span>
+      </summary>
 
+      <div class="details-body">
       <form method="POST" action="/admin/thesis-schedules/update">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="schedule_id" value="{{ s.schedule_id }}">
@@ -121,7 +138,7 @@
               {% for rate in registration_rates %}
                 <option value="{{ rate.rate_id }}" data-program="{{ rate.program_id }}"
                         {{ rate.rate_id == s.thesis_registration_rates_id ? 'selected' : '' }}>
-                  {{ rate.currency }} {{ rate.amount }}{% if rate.due_date %} — due {{ rate.due_date|date('d M Y') }}{% endif %}
+                  {{ rate.currency }} {{ rate.amount }}{% if rate.due_after_weeks %} — due {{ rate.due_after_weeks }} week{{ rate.due_after_weeks != 1 ? 's' : '' }} after registration{% endif %}{% if rate.description %} · {{ rate.description }}{% endif %}
                 </option>
               {% endfor %}
             </select>
@@ -149,7 +166,8 @@
         <input type="hidden" name="schedule_id" value="{{ s.schedule_id }}">
         <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.7rem; color: var(--rust);">Delete</button>
       </form>
-    </div>
+      </div>
+    </details>
   {% endfor %}
 {% else %}
   <div class="notice">No thesis schedules yet. Students cannot register for a thesis until one exists for their program.</div>

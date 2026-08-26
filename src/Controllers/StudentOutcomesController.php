@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Models\DocumentReviewScore;
 use App\Models\Examination;
+use App\Models\ExaminationScore;
 use App\Models\GradingPolicy;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -81,6 +82,7 @@ class StudentOutcomesController
 
         $examModel = new Examination($this->db);
         $reviewModel = new DocumentReviewScore($this->db);
+        $examScoreModel = new ExaminationScore($this->db);
 
         // A student can have more than one proposal over time, so exam
         // outcomes are grouped under the proposal they belong to rather
@@ -97,12 +99,25 @@ class StudentOutcomesController
             }
         }
 
+        // Two sources feed the same "document review" outcome list:
+        // documents scored via a formal exam window (examination_scores,
+        // keyed through exam_documents) and documents scored inside a
+        // general meeting (document_review_scores, keyed directly on the
+        // document). Both are banded and shaped identically, so they're
+        // merged into one list rather than shown as separate sections —
+        // a student doesn't care which table produced the verdict.
+        $documentOutcomes = array_merge(
+            $examScoreModel->findOutcomesForStudent($userId),
+            $reviewModel->findOutcomesForStudent($userId)
+        );
+        usort($documentOutcomes, fn($a, $b) => strcmp((string) $b['last_reviewed_at'], (string) $a['last_reviewed_at']));
+
         return $this->twig->render($response, 'students/outcomes.twig', [
             'active_page'      => 'outcomes',
             'first_name'       => $_SESSION['first_name'] ?? '',
             'student_number'   => $student['student_number'] ?? null,
             'exam_outcomes'    => $examOutcomes,
-            'document_outcomes' => $reviewModel->findOutcomesForStudent($userId),
+            'document_outcomes' => $documentOutcomes,
             'exam_scale'       => GradingPolicy::examScale(),
             'document_scale'   => GradingPolicy::documentScale(),
         ]);

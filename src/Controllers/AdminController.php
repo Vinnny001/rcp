@@ -143,6 +143,309 @@ class AdminController
         return $response->withHeader('Location', '/admin/users')->withStatus(302);
     }
 
+    // ---------- Fees & rates ----------
+
+    public function feeRates(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $thesisFeeModel = new \App\Models\ThesisFeeRate($this->db);
+        $docRateModel = new \App\Models\DocumentReviewRate($this->db);
+
+        return $this->twig->render($response, 'admins/fee_rates.twig', [
+            'active_page'          => 'fee-rates',
+            'first_name'           => $_SESSION['first_name'] ?? '',
+            'programs'             => (new \App\Models\Program($this->db))->all(),
+            'document_types'       => $this->db->query("SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name")->fetchAll(),
+            'registration_rates'   => $thesisFeeModel->allRegistrationRates(),
+            'review_fee_rates'     => $thesisFeeModel->allReviewFeeRates(),
+            'document_review_rates' => $docRateModel->all(),
+            'csrf_token'           => $this->csrfToken(),
+            'error'                => $this->takeFlash('flash_error'),
+            'success'              => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function createRegistrationRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        if ($error = $this->validateRate($data, ['program_id', 'amount'])) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\ThesisFeeRate($this->db))->createRegistrationRate($data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Registration fee rate added.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not add the rate: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function updateRegistrationRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        $rateId = (string) ($data['rate_id'] ?? '');
+        $error = $rateId === '' ? 'Please choose a rate to update.' : $this->validateRate($data, ['program_id', 'amount']);
+
+        if ($error) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\ThesisFeeRate($this->db))->updateRegistrationRate($rateId, $data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Registration fee rate updated.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not update the rate: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function deleteRegistrationRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\ThesisFeeRate($this->db))->deleteRegistrationRate((string) ($data['rate_id'] ?? ''));
+            $_SESSION['flash_success'] = 'Registration fee rate deleted.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not delete: this rate is in use by a thesis schedule.';
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function createReviewFeeRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        if ($error = $this->validateRate($data, ['program_id', 'amount', 'academic_year'])) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\ThesisFeeRate($this->db))->createReviewFeeRate($data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Review fee rate added.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not add the rate: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function updateReviewFeeRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        $rateId = (string) ($data['rate_id'] ?? '');
+        $error = $rateId === '' ? 'Please choose a rate to update.' : $this->validateRate($data, ['program_id', 'amount', 'academic_year']);
+
+        if ($error) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\ThesisFeeRate($this->db))->updateReviewFeeRate($rateId, $data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Review fee rate updated.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not update the rate: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function deleteReviewFeeRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\ThesisFeeRate($this->db))->deleteReviewFeeRate((string) ($data['rate_id'] ?? ''));
+            $_SESSION['flash_success'] = 'Review fee rate deleted.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not delete: this rate is in use by a thesis schedule.';
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function createDocumentReviewRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        if (empty($data['program_id']) || empty($data['document_type_id']) || $this->validateRate($data, ['amount'])) {
+            $_SESSION['flash_error'] = 'Please choose a program, a document type, and a valid amount.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\DocumentReviewRate($this->db))->create($data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Document review rate added.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not add the rate: a rate for that program and document type may already exist.';
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function updateDocumentReviewRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        $rateId = (string) ($data['rate_id'] ?? '');
+
+        if ($rateId === '' || empty($data['program_id']) || empty($data['document_type_id']) || $this->validateRate($data, ['amount'])) {
+            $_SESSION['flash_error'] = 'Please choose a program, a document type, and a valid amount.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\DocumentReviewRate($this->db))->update($rateId, $data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Document review rate updated.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not update the rate: a rate for that program and document type may already exist.';
+        }
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    public function deleteDocumentReviewRate(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+        }
+
+        (new \App\Models\DocumentReviewRate($this->db))->delete((string) ($data['rate_id'] ?? ''));
+        $_SESSION['flash_success'] = 'Document review rate deleted.';
+
+        return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
+    }
+
+    /**
+     * @param array<int, string> $required
+     * @return string|null an error message, or null if the data is fine
+     */
+    private function validateRate(array $data, array $required): ?string
+    {
+        foreach ($required as $field) {
+            if ($field === 'amount') {
+                if (!is_numeric($data['amount'] ?? null) || (float) $data['amount'] < 0) {
+                    return 'Please provide a valid, non-negative amount.';
+                }
+                continue;
+            }
+            if (empty($data[$field])) {
+                return 'Please fill in every required field.';
+            }
+        }
+
+        return null;
+    }
+
+    // ---------- Audit log ----------
+
+    public function auditLog(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $params = $request->getQueryParams();
+        $entityType = $params['entity_type'] ?? '';
+        $action = $params['action'] ?? '';
+
+        $auditModel = new \App\Models\AuditLog($this->db);
+
+        return $this->twig->render($response, 'admins/audit.twig', [
+            'active_page'   => 'audit',
+            'first_name'    => $_SESSION['first_name'] ?? '',
+            'logs'          => $auditModel->recent(['entity_type' => $entityType ?: null, 'action' => $action ?: null]),
+            'entity_types'  => $auditModel->distinctEntityTypes(),
+            'actions'       => $auditModel->distinctActions(),
+            'selected_entity_type' => $entityType,
+            'selected_action'      => $action,
+        ]);
+    }
+
     /**
      * Reads a flash message and clears it, so it shows once.
      */

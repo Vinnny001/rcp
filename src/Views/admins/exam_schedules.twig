@@ -2,6 +2,19 @@
 
 {% block title %}Exam Schedules{% endblock %}
 
+{% block extra_head %}
+<style>
+  details.form-card > summary{
+    cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  details.form-card > summary::-webkit-details-marker{ display:none; }
+  details.form-card > summary .chevron{ transition:transform .15s ease; font-size:.7rem; color:var(--slate); flex-shrink:0; }
+  details.form-card[open] > summary .chevron{ transform:rotate(90deg); }
+  details.form-card > summary .meta{ margin:0; }
+  details.form-card > .details-body{ margin-top:18px; }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <div class="page-head">
@@ -79,13 +92,17 @@
 
 {% if exam_schedules %}
   {% for es in exam_schedules %}
-    <div class="form-card" style="margin-bottom:18px;">
-      <div class="meta" style="margin-bottom:14px;">
-        {{ es.program_name }} · {{ es.exam_type|capitalize }}
-        · {{ es.meeting_count }} meeting{{ es.meeting_count != 1 ? 's' : '' }} scheduled
-        · {{ es.document_slot_count }} required document{{ es.document_slot_count != 1 ? 's' : '' }}
-      </div>
+    <details class="form-card" style="margin-bottom:18px;">
+      <summary>
+        <span class="meta">
+          <strong style="color:var(--ink-text); font-weight:600;">{{ es.program_name }}</strong> · {{ es.exam_type|capitalize }}
+          · {{ es.meeting_count }} meeting{{ es.meeting_count != 1 ? 's' : '' }} scheduled
+          · {{ es.document_slot_count }} required document{{ es.document_slot_count != 1 ? 's' : '' }}
+        </span>
+        <span class="chevron">&#9656;</span>
+      </summary>
 
+      <div class="details-body">
       <form method="POST" action="/admin/exam-schedules/update">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="exam_schedule_id" value="{{ es.exam_schedule_id }}">
@@ -188,7 +205,8 @@
         <input type="hidden" name="exam_schedule_id" value="{{ es.exam_schedule_id }}">
         <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.7rem; color: var(--rust);">Delete exam schedule</button>
       </form>
-    </div>
+      </div>
+    </details>
   {% endfor %}
 {% else %}
   <div class="notice">No exam schedules yet.</div>
