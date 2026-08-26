@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\DocumentReviewScore;
-use App\Models\Examination;
 use App\Models\ExaminationScore;
 use App\Models\GradingPolicy;
 use Psr\Http\Message\ResponseInterface;
@@ -80,16 +79,23 @@ class StudentOutcomesController
             return $response->withHeader('Location', '/login')->withStatus(302);
         }
 
-        $examModel = new Examination($this->db);
         $reviewModel = new DocumentReviewScore($this->db);
         $examScoreModel = new ExaminationScore($this->db);
 
         // A student can have more than one proposal over time, so exam
         // outcomes are grouped under the proposal they belong to rather
-        // than flattened into one list.
+        // than flattened into one list. Sourced from examination_scores
+        // (via exam_documents/exam_schedule) — whether a formal exam
+        // window was passed, not whether any one document in it is
+        // individually valid.
+        $examOutcomesByProposal = [];
+        foreach ($examScoreModel->findExamOutcomesForStudent($userId) as $outcome) {
+            $examOutcomesByProposal[$outcome['proposal_id']][] = $outcome;
+        }
+
         $examOutcomes = [];
         foreach ($this->proposalsFor($student['student_id']) as $proposal) {
-            $examinations = $examModel->findStudentSafeByProposalId($proposal['proposal_id']);
+            $examinations = $examOutcomesByProposal[$proposal['proposal_id']] ?? [];
 
             if ($examinations) {
                 $examOutcomes[] = [
@@ -99,17 +105,11 @@ class StudentOutcomesController
             }
         }
 
-        // Two sources feed the same "document review" outcome list:
-        // documents scored via a formal exam window (examination_scores,
-        // keyed through exam_documents) and documents scored inside a
-        // general meeting (document_review_scores, keyed directly on the
-        // document). Both are banded and shaped identically, so they're
-        // merged into one list rather than shown as separate sections —
-        // a student doesn't care which table produced the verdict.
-        $documentOutcomes = array_merge(
-            $examScoreModel->findOutcomesForStudent($userId),
-            $reviewModel->findOutcomesForStudent($userId)
-        );
+        // Documents scored inside a general meeting (document_review_scores,
+        // keyed directly on the document) — used to judge whether a
+        // document is individually valid, distinct from the exam-window
+        // outcome above.
+        $documentOutcomes = $reviewModel->findOutcomesForStudent($userId);
         usort($documentOutcomes, fn($a, $b) => strcmp((string) $b['last_reviewed_at'], (string) $a['last_reviewed_at']));
 
         return $this->twig->render($response, 'students/outcomes.twig', [

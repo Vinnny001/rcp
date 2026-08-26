@@ -31,28 +31,15 @@
             <h3>{{ exam.exam_type|capitalize }} examination</h3>
             <div class="meta">{{ exam.exam_date ? exam.exam_date|date('d M Y') : 'Date to be confirmed' }}</div>
 
-            {% if exam.outcome %}
-              <span class="stamp mini {{ exam.stamp_class }}">{{ exam.outcome_label }}</span>
-            {% elseif exam.pending_graders > 0 %}
-              <span class="stamp mini pending">
-                Awaiting {{ exam.pending_graders }} examiner{{ exam.pending_graders != 1 ? 's' : '' }}
-              </span>
-            {% else %}
-              <span class="stamp mini pending">Awaiting grading</span>
-            {% endif %}
+            <span class="stamp mini {{ exam.stamp_class }}">{{ exam.outcome_label }}</span>
 
-            {% if exam.graders %}
-              <div class="meta" style="margin-top:10px;">
-                Examiners:
-                {% for g in exam.graders %}
-                  {{ g.name }} ({{ g.examiner_type }}){% if not loop.last %}, {% endif %}
-                {% endfor %}
-              </div>
-            {% endif %}
+            <div class="meta" style="margin-top:10px;">
+              {{ exam.reviewer_count }} examiner{{ exam.reviewer_count != 1 ? 's' : '' }}
+            </div>
 
-            {% if exam.examiner_comments %}
-              <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ exam.examiner_comments }}</p>
-            {% endif %}
+            {% for comment in exam.comments %}
+              <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ comment }}</p>
+            {% endfor %}
           </div>
         {% endfor %}
       </div>
