@@ -79,7 +79,7 @@ class Lecturer
     }
 
 
-        public function findActiveSupervisions(string $lecturerId): array
+            public function findActiveSupervisions(string $lecturerId): array
     {
         $stmt = $this->db->prepare(
             "SELECT sa.assignment_id, sa.role, sa.proposal_id, sa.student_id,
@@ -114,6 +114,103 @@ class Lecturer
         );
         $stmt->execute(['exclude_user_id' => $excludeUserId]);
         return $stmt->fetchAll();
+    }
+
+
+        /**
+     * Exam schedules relevant to this lecturer's active supervisees —
+     * one row per (student, exam_schedule) pair, only upcoming ones
+     * (ends_at in the future or null). Used both to show the lecturer
+     * what's coming up, and to constrain meeting creation to a valid
+     * window (must happen before ends_at).
+     */
+            public function findUpcomingExamSchedulesForSupervisees(string $lecturerId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT es.exam_schedule_id, es.thesis_schedule_id, es.starts_at, es.ends_at,
+                    es.exam_type, es.exam_schedule_description,
+                    sa.student_id, sa.proposal_id,
+                    s.student_number, s.user_id AS student_user_id,
+                    CONCAT(u.first_name, ' ', u.last_name) AS student_name
+             FROM supervision_assignments sa
+             JOIN students s ON s.student_id = sa.student_id
+             JOIN users u ON u.user_id = s.user_id
+             JOIN student_thesis_registrations str
+                    ON str.student_id = sa.student_id AND str.status = 'active'
+             JOIN exam_schedule es ON es.thesis_schedule_id = str.thesis_schedule_id
+             WHERE sa.supervisor_id = :lecturer_id
+               AND sa.is_active = 1
+               AND (es.ends_at IS NULL OR es.ends_at >= NOW())
+               AND NOT EXISTS (
+                   SELECT 1 FROM meetings m2
+                   WHERE m2.exam_schedule_id = es.exam_schedule_id
+                     AND m2.proposal_id = sa.proposal_id
+                     AND m2.status != 'cancelled'
+               )
+             ORDER BY es.ends_at ASC"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function listInternalLecturersExcept(string $excludeUserId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT l.lecturer_id, l.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name,
+                    d.name AS affiliation
+             FROM lecturers l
+             JOIN users u ON u.user_id = l.user_id
+             JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+             LEFT JOIN departments d ON d.department_id = il.department_id
+             WHERE l.user_id != :exclude
+             ORDER BY u.first_name, u.last_name"
+        );
+        $stmt->execute(['exclude' => $excludeUserId]);
+        return $stmt->fetchAll();
+    }
+
+    public function listExternalLecturersExcept(string $excludeUserId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT l.lecturer_id, l.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name,
+                    el.institution AS affiliation
+             FROM lecturers l
+             JOIN users u ON u.user_id = l.user_id
+             JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
+             WHERE l.user_id != :exclude
+             ORDER BY u.first_name, u.last_name"
+        );
+        $stmt->execute(['exclude' => $excludeUserId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * 'internal', 'external', or null if the user isn't in either table
+     * (or isn't a lecturer at all) — used to enforce exam_type-based
+     * invite restrictions server-side, not just in the UI.
+     */
+    public function getTypeByUserId(string $userId): ?string
+    {
+        $stmt = $this->db->prepare("SELECT lecturer_id FROM lecturers WHERE user_id = :user_id LIMIT 1");
+        $stmt->execute(['user_id' => $userId]);
+        $lecturerId = $stmt->fetchColumn();
+        if (!$lecturerId) {
+            return null;
+        }
+
+        $stmt = $this->db->prepare("SELECT 1 FROM internal_lecturers WHERE lecturer_id = :id LIMIT 1");
+        $stmt->execute(['id' => $lecturerId]);
+        if ($stmt->fetchColumn()) {
+            return 'internal';
+        }
+
+        $stmt = $this->db->prepare("SELECT 1 FROM external_lecturers WHERE lecturer_id = :id LIMIT 1");
+        $stmt->execute(['id' => $lecturerId]);
+        if ($stmt->fetchColumn()) {
+            return 'external';
+        }
+
+        return null;
     }
 
 

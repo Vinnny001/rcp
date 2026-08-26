@@ -1,0 +1,56 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Meeting Review{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ meeting.meeting_type|replace({'_': ' '})|capitalize }} review</h1>
+    <div class="sub">{{ meeting.scheduled_at|date('D, j M Y') }} · {{ meeting.scheduled_at|date('g:i A') }} · You are the {{ my_role }}</div>
+  </div>
+  <a href="/lecturer/meetings" class="btn ghost">Back to meetings</a>
+</div>
+
+{% if success %}<div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>{% endif %}
+{% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
+
+{% if not documents %}
+  <div class="notice">No documents were submitted for review under this meeting's exam window.</div>
+{% else %}
+  <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/review">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        {% for doc in documents %}
+      <div class="form-card" style="margin-bottom:18px;">
+        <h3 style="margin-bottom:4px;">{{ doc.doc_type_name }}</h3>
+        <div class="meta" style="margin-bottom:14px;">
+          {{ doc.file_name }}
+          <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View document</a>
+          {% if doc.graded_at %}
+            <span class="stamp mini approved" style="margin-left:8px;">Scored {{ doc.graded_at|date('d M Y') }} — locked</span>
+          {% endif %}
+        </div>
+
+        {% if doc.graded_at %}
+          <div class="meta">Your score: <strong>{{ doc.score_percentage }}</strong></div>
+          {% if doc.remarks %}<p style="font-size:.85rem; color:#39332a; margin-top:6px;">{{ doc.remarks }}</p>{% endif %}
+        {% else %}
+          <input type="hidden" name="exam_document_id[]" value="{{ doc.exam_document_id }}">
+          <div class="field">
+            <label>Score (0–100)</label>
+            <input type="number" name="score[]" min="0" max="100" step="0.01" placeholder="e.g. 78">
+          </div>
+          <div class="field">
+            <label>Remarks / feedback</label>
+            <textarea name="remarks[]" rows="3" placeholder="Comments on this document..."></textarea>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <button type="submit" class="btn brass">Submit review</button>
+  </form>
+{% endif %}
+
+{% endblock %}

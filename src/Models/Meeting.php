@@ -191,4 +191,116 @@ class Meeting
         return $stmt->fetchAll();
     }
 
+
+        /**
+     * Same as create(), but additionally validates the meeting's
+     * scheduled_at falls before the given exam_schedule's ends_at —
+     * a meeting tied to an exam window can't be booked after that
+     * window has already closed. Returns null (and creates nothing)
+     * if the constraint is violated.
+     */
+    public function createForExamSchedule(string $proposalId, string $examScheduleId, array $data, string $createdByUserId): ?string
+    {
+        $stmt = $this->db->prepare("SELECT ends_at FROM exam_schedule WHERE exam_schedule_id = :id LIMIT 1");
+        $stmt->execute(['id' => $examScheduleId]);
+        $endsAt = $stmt->fetchColumn();
+
+        if ($endsAt && strtotime($data['scheduled_at']) > strtotime($endsAt)) {
+            return null;
+        }
+
+        $meetingId = $this->generateUuid();
+
+        $insert = $this->db->prepare(
+            "INSERT INTO meetings
+                (meeting_id, proposal_id, exam_schedule_id, meeting_type, scheduled_at, location, virtual_link, mode, status, ai_notes_enabled, created_by)
+             VALUES
+                (:meeting_id, :proposal_id, :exam_schedule_id, :meeting_type, :scheduled_at, :location, :virtual_link, :mode, 'scheduled', :ai_notes_enabled, :created_by)"
+        );
+        $insert->execute([
+            'meeting_id'       => $meetingId,
+            'proposal_id'      => $proposalId,
+            'exam_schedule_id' => $examScheduleId,
+            'meeting_type'     => $data['meeting_type'],
+            'scheduled_at'     => $data['scheduled_at'],
+            'location'         => $data['location'] ?: null,
+            'virtual_link'     => $data['virtual_link'] ?: null,
+            'mode'             => $data['mode'],
+            'ai_notes_enabled' => $data['ai_notes_enabled'] ? 1 : 0,
+            'created_by'       => $createdByUserId,
+        ]);
+
+        return $meetingId;
+    }
+
+
+
+
+        public function findById(string $meetingId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM meetings WHERE meeting_id = :id LIMIT 1");
+        $stmt->execute(['id' => $meetingId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    public function isAttendee(string $meetingId, string $userId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT role_in_meeting FROM meeting_attendees WHERE meeting_id = :meeting_id AND user_id = :user_id LIMIT 1"
+        );
+        $stmt->execute(['meeting_id' => $meetingId, 'user_id' => $userId]);
+        $role = $stmt->fetchColumn();
+        return $role ?: null;
+    }
+
+    /**
+     * Only editable while status is still 'scheduled' — once in progress
+     * or completed, details are locked.
+     */
+    public function update(string $meetingId, array $data): bool
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE meetings SET meeting_type = :meeting_type, scheduled_at = :scheduled_at,
+                    mode = :mode, location = :location, virtual_link = :virtual_link
+             WHERE meeting_id = :meeting_id AND status = 'scheduled'"
+        );
+        $stmt->execute([
+            'meeting_type' => $data['meeting_type'],
+            'scheduled_at' => $data['scheduled_at'],
+            'mode'         => $data['mode'],
+            'location'     => $data['location'] ?: null,
+            'virtual_link' => $data['virtual_link'] ?: null,
+            'meeting_id'   => $meetingId,
+        ]);
+        return $stmt->rowCount() > 0;
+    }
+
+
+
+        public function findAttendees(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT ma.attendee_id, ma.user_id, ma.role_in_meeting, ma.attendance_status,
+                    CONCAT(u.first_name, ' ', u.last_name) AS name
+             FROM meeting_attendees ma
+             JOIN users u ON u.user_id = ma.user_id
+             WHERE ma.meeting_id = :meeting_id
+             ORDER BY ma.role_in_meeting"
+        );
+        $stmt->execute(['meeting_id' => $meetingId]);
+        return $stmt->fetchAll();
+    }
+
+    public function removeAttendee(string $meetingId, string $userId): void
+    {
+        $stmt = $this->db->prepare(
+            "DELETE FROM meeting_attendees WHERE meeting_id = :meeting_id AND user_id = :user_id"
+        );
+        $stmt->execute(['meeting_id' => $meetingId, 'user_id' => $userId]);
+    }
+
+
+
+
 }

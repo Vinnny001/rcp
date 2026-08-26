@@ -1,0 +1,145 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Edit Meeting{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Edit meeting</h1>
+    <div class="sub">Only editable while the meeting is still scheduled — not yet started or completed.</div>
+  </div>
+  <a href="/lecturer/meetings" class="btn ghost">Back to meetings</a>
+</div>
+
+{% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
+
+<div class="form-card">
+  <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/edit">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label>Meeting type</label>
+      <select name="meeting_type" required>
+        <option value="approval_board" {{ meeting.meeting_type == 'approval_board' ? 'selected' : '' }}>Approval board</option>
+        <option value="supervisory" {{ meeting.meeting_type == 'supervisory' ? 'selected' : '' }}>Supervisory check-in</option>
+        <option value="concept_presentation" {{ meeting.meeting_type == 'concept_presentation' ? 'selected' : '' }}>Concept presentation</option>
+        <option value="viva" {{ meeting.meeting_type == 'viva' ? 'selected' : '' }}>Viva</option>
+      </select>
+    </div>
+
+    <div class="field-row">
+      <div class="field"><label>Date</label><input type="date" name="date" value="{{ meeting.scheduled_at|date('Y-m-d') }}" required></div>
+      <div class="field"><label>Time</label><input type="time" name="time" value="{{ meeting.scheduled_at|date('H:i') }}" required></div>
+    </div>
+
+    <label>Mode</label>
+    <div class="mode-pick">
+      <button type="button" class="{{ meeting.mode == 'physical' ? 'active' : '' }}" data-mode="physical" onclick="pickEditMode(this)">Physical</button>
+      <button type="button" class="{{ meeting.mode == 'virtual' ? 'active' : '' }}" data-mode="virtual" onclick="pickEditMode(this)">Virtual</button>
+      <button type="button" class="{{ meeting.mode == 'hybrid' ? 'active' : '' }}" data-mode="hybrid" onclick="pickEditMode(this)">Hybrid</button>
+    </div>
+    <input type="hidden" name="mode" id="editModeInput" value="{{ meeting.mode }}">
+
+    <div class="field" id="editLocationField" style="display:{{ meeting.mode == 'virtual' ? 'none' : 'block' }};">
+      <label>Location</label>
+      <input type="text" name="location" value="{{ meeting.location }}">
+    </div>
+    <div class="field" id="editVirtualLinkField" style="display:{{ meeting.mode == 'physical' ? 'none' : 'block' }};">
+      <label>Virtual link</label>
+      <input type="text" name="virtual_link" value="{{ meeting.virtual_link }}">
+    </div>
+
+    <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Attendees<div class="rule"></div></div>
+
+    {% for att in attendees %}
+      <div class="field" style="display:flex; align-items:center; gap:8px;">
+        {% if att.role_in_meeting != 'supervisor' %}
+          <input type="checkbox" name="keep_attendees[]" value="{{ att.user_id }}" checked style="width:auto;" id="keep-{{ att.attendee_id }}">
+          <label for="keep-{{ att.attendee_id }}" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">
+            {{ att.name }} ({{ att.role_in_meeting }}) — uncheck to remove
+          </label>
+        {% else %}
+          <span class="meta" style="margin:0;">{{ att.name }} (organizer — cannot be removed)</span>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="field" style="margin-top:14px;">
+      <label>Invite a new attendee</label>
+
+
+          {% if student and not student_included %}
+      <div class="field" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" name="new_attendees[]" value="{{ student.user_id }}" style="width:auto;" id="reinviteStudent">
+        <input type="hidden" name="new_attendee_roles[]" value="student">
+        <label for="reinviteStudent" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">
+          Include {{ student.name }} (student) again
+        </label>
+      </div>
+    {% endif %}
+
+
+
+
+      <select id="newAttendeeSelect">
+      
+        <option value="">Select a lecturer</option>
+        {% for l in other_lecturers %}<option value="{{ l.user_id }}">{{ l.name }} — {{ l.department }}</option>{% endfor %}
+      </select>
+      <select id="newAttendeeRole" style="margin-top:8px;">
+        <option value="examiner">Examiner</option>
+        <option value="chairperson">Chairperson</option>
+        <option value="observer">Observer</option>
+      </select>
+      <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addNewAttendee()">Add</button>
+      <div id="newAttendeeList" style="margin-top:10px;"></div>
+    </div>
+
+
+
+
+    <button type="submit" class="btn brass">Save changes</button>
+  </form>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function pickEditMode(btn){
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('editModeInput').value = btn.dataset.mode;
+    document.getElementById('editLocationField').style.display = (btn.dataset.mode === 'virtual') ? 'none' : 'block';
+    document.getElementById('editVirtualLinkField').style.display = (btn.dataset.mode === 'physical') ? 'none' : 'block';
+  }
+
+  function addNewAttendee(){
+    const select = document.getElementById('newAttendeeSelect');
+    const roleSelect = document.getElementById('newAttendeeRole');
+    const userId = select.value;
+    const name = select.options[select.selectedIndex]?.text;
+    const role = roleSelect.value;
+    if (!userId) return;
+
+    const container = document.getElementById('newAttendeeList');
+    const row = document.createElement('div');
+    row.style.cssText = 'font-size:.82rem; padding:4px 0;';
+    row.textContent = name + ' — ' + role;
+
+    const hidUser = document.createElement('input');
+    hidUser.type = 'hidden'; hidUser.name = 'new_attendees[]'; hidUser.value = userId;
+    const hidRole = document.createElement('input');
+    hidRole.type = 'hidden'; hidRole.name = 'new_attendee_roles[]'; hidRole.value = role;
+
+    container.appendChild(row);
+    container.appendChild(hidUser);
+    container.appendChild(hidRole);
+
+    select.querySelector('option[value="' + userId + '"]')?.remove();
+    select.value = '';
+  }
+</script>
+{% endblock %}
+

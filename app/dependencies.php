@@ -217,6 +217,12 @@ StudentDocumentsController::class => function (ContainerInterface $c) {
 },
 
 
+ExaminationScore::class => function (ContainerInterface $c) {
+    return new ExaminationScore($c->get(PDO::class));
+},
+
+
+
 
     ]);
 };

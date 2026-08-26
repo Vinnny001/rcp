@@ -141,7 +141,13 @@ $app->post('/student/requirements/submit-draft', [StudentRequirementsController:
 
 $app->get('/student/documents', [StudentDocumentsController::class, 'show']);
 
+$app->post('/lecturer/meetings/schedule-for-exam', [LecturerMeetingsController::class, 'scheduleForExam']);
 
+
+$app->get('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 'review']);
+$app->post('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 'submitReview']);
+$app->get('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'editForm']);
+$app->post('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'updateMeeting']);
 
 
 };
