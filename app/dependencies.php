@@ -51,6 +51,9 @@ use App\Middleware\StudentContextMiddleware;
 use App\Controllers\StudentProfileController;
 
 use App\Controllers\StudentDocumentsController;
+use App\Controllers\LecturerThesesController;
+use App\Controllers\ExaminationScore;
+
 
 return function (ContainerBuilder $containerBuilder) {
     $containerBuilder->addDefinitions([
@@ -219,6 +222,11 @@ StudentDocumentsController::class => function (ContainerInterface $c) {
 
 ExaminationScore::class => function (ContainerInterface $c) {
     return new ExaminationScore($c->get(PDO::class));
+},
+
+
+LecturerThesesController::class => function (ContainerInterface $c) {
+    return new LecturerThesesController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

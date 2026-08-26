@@ -30,6 +30,8 @@ use App\Controllers\AdminController;
 use App\Controllers\StudentProfileController;
 
 use App\Controllers\StudentDocumentsController;
+use App\Controllers\LecturerThesesController;
+
 
 return function (App $app) {
     $app->options('/{routes:.*}', function (Request $request, Response $response) {
@@ -148,6 +150,13 @@ $app->get('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 
 $app->post('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 'submitReview']);
 $app->get('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'editForm']);
 $app->post('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'updateMeeting']);
+
+
+
+$app->get('/lecturer/theses', [LecturerThesesController::class, 'show']);
+$app->get('/lecturer/theses/{id}', [LecturerThesesController::class, 'detail']);
+
+
 
 
 };

@@ -214,5 +214,68 @@ class Lecturer
     }
 
 
+
+    
+        /**
+     * Full thesis record for every student this lecturer supervises
+     * (active supervision_assignments only), joined with exam results,
+     * final document status, and graduation standing.
+     */
+        public function findTheses(string $lecturerId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT
+                tp.proposal_id            AS thesis_id,
+                tp.title,
+                tp.status                 AS proposal_status,
+                sa.role,
+                s.student_id,
+                s.student_number,
+                pr.name                   AS program,
+                CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                ei.overall_grade          AS internal_exam_score,
+                ei.exam_date              AS internal_exam_date,
+                ee.overall_grade          AS external_exam_score,
+                ee.exam_date              AS external_exam_date,
+                doc.file_name             AS final_document_name,
+                doc.validation_status     AS final_document_status,
+                gl.graduation_id          AS graduation_id,
+                gl.graduate_school_approved AS graduation_approved
+             FROM supervision_assignments sa
+             JOIN thesis_proposals tp ON tp.proposal_id = sa.proposal_id
+             JOIN students s ON s.student_id = sa.student_id
+             JOIN users u ON u.user_id = s.user_id
+             LEFT JOIN student_thesis_registrations str
+                    ON str.student_id = s.student_id AND str.status = 'active'
+             LEFT JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+             LEFT JOIN programs pr ON pr.program_id = ts.program_id
+             LEFT JOIN examinations ei ON ei.proposal_id = tp.proposal_id AND ei.exam_type = 'internal'
+             LEFT JOIN examinations ee ON ee.proposal_id = tp.proposal_id AND ee.exam_type = 'external'
+             LEFT JOIN documents doc
+                    ON doc.user_id = u.user_id
+                   AND doc.document_type_id = (
+                       SELECT doc_type_id FROM document_types WHERE doc_type_name = 'PLACEHOLDER' LIMIT 1
+                   )
+             LEFT JOIN graduation_list gl ON gl.student_id = s.student_id
+             WHERE sa.supervisor_id = :lecturer_id AND sa.is_active = 1
+             ORDER BY tp.created_at DESC"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        return $stmt->fetchAll();
+    }
+
+    public function findThesisDetail(string $lecturerId, string $proposalId): ?array
+    {
+        $theses = $this->findTheses($lecturerId);
+        foreach ($theses as $t) {
+            if ($t['thesis_id'] === $proposalId) {
+                return $t;
+            }
+        }
+        return null;
+    }
+
+
+
     
 }
