@@ -33,6 +33,7 @@ class StudentContextMiddleware
         '/student/requirements',
         '/student/meetings',
         '/student/exam',
+        '/student/outcomes',
     ];
 
     public function __construct(PDO $db, Twig $twig)

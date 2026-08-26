@@ -52,7 +52,16 @@ use App\Controllers\StudentProfileController;
 
 use App\Controllers\StudentDocumentsController;
 use App\Controllers\LecturerThesesController;
-use App\Controllers\ExaminationScore;
+use App\Controllers\AdminController;
+use App\Controllers\StudentOutcomesController;
+
+// ExaminationScore is a model, not a controller — the old
+// App\Controllers import here pointed at a class that doesn't exist.
+use App\Models\ExaminationScore;
+use App\Models\DocumentReviewScore;
+use App\Models\Role;
+use App\Models\ThesisSchedule;
+use App\Models\ExamSchedule;
 
 
 return function (ContainerBuilder $containerBuilder) {
@@ -222,6 +231,30 @@ StudentDocumentsController::class => function (ContainerInterface $c) {
 
 ExaminationScore::class => function (ContainerInterface $c) {
     return new ExaminationScore($c->get(PDO::class));
+},
+
+DocumentReviewScore::class => function (ContainerInterface $c) {
+    return new DocumentReviewScore($c->get(PDO::class));
+},
+
+Role::class => function (ContainerInterface $c) {
+    return new Role($c->get(PDO::class));
+},
+
+ThesisSchedule::class => function (ContainerInterface $c) {
+    return new ThesisSchedule($c->get(PDO::class));
+},
+
+ExamSchedule::class => function (ContainerInterface $c) {
+    return new ExamSchedule($c->get(PDO::class));
+},
+
+AdminController::class => function (ContainerInterface $c) {
+    return new AdminController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+StudentOutcomesController::class => function (ContainerInterface $c) {
+    return new StudentOutcomesController($c->get(PDO::class), $c->get(Twig::class));
 },
 
 

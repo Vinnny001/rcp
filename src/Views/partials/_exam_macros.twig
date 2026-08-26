@@ -1,3 +1,11 @@
+{#
+  Student-facing examination card.
+
+  Deliberately shows no numbers: no overall_grade, no grade_letter, and
+  no per-examiner score. A student sees the outcome band and the
+  examiners' written comments only — the marks behind that decision stay
+  in the lecturer and admin areas.
+#}
 {% macro exam_card(title, exam, proposal_approved) %}
   <div class="card">
     <h3>{{ title }}</h3>
@@ -5,13 +13,11 @@
       <div class="meta">{{ exam.exam_date ? exam.exam_date|date('d M Y') : 'Date to be confirmed' }}</div>
 
       {% if exam.outcome %}
-        {% if exam.outcome in ['pass', 'distinction'] %}
-          <span class="stamp mini approved">{{ exam.outcome|capitalize }}{% if exam.grade_letter %} — {{ exam.grade_letter }}{% endif %}</span>
-        {% elseif exam.outcome == 'resubmit' %}
-          <span class="stamp mini pending">Resubmit</span>
-        {% else %}
-          <span class="stamp mini rejected">Fail</span>
-        {% endif %}
+        <span class="stamp mini {{ exam.stamp_class|default('pending') }}">{{ exam.outcome_label|default(exam.outcome|capitalize) }}</span>
+      {% elseif exam.pending_graders is defined and exam.pending_graders > 0 %}
+        <span class="stamp mini pending">
+          Awaiting {{ exam.pending_graders }} examiner{{ exam.pending_graders != 1 ? 's' : '' }}
+        </span>
       {% else %}
         <span class="stamp mini pending">Awaiting grading</span>
       {% endif %}
@@ -20,7 +26,7 @@
         <div class="meta" style="margin-top:10px;">
           Examiners:
           {% for g in exam.graders %}
-            {{ g.first_name }} {{ g.last_name }} ({{ g.examiner_type }}){% if g.score is not null %} — {{ g.score }}{% endif %}{% if not loop.last %}, {% endif %}
+            {{ g.name }} ({{ g.examiner_type }}){% if not loop.last %}, {% endif %}
           {% endfor %}
         </div>
       {% endif %}

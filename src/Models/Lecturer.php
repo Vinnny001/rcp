@@ -98,21 +98,125 @@ class Lecturer
         return $stmt->fetchAll();
     }
 
-    public function listAllExcept(string $excludeUserId): array
+    /**
+     * Builds a `NOT IN (...)` fragment plus its bound parameters for a
+     * variable-length list of user ids. Returns an empty fragment when
+     * the list is empty, so callers can interpolate unconditionally.
+     *
+     * @param array<int, string> $userIds
+     * @return array{0:string, 1:array<string, string>}
+     */
+    private function exclusionClause(array $userIds, string $prefix): array
     {
+        $userIds = array_values(array_unique(array_filter($userIds)));
+
+        if (!$userIds) {
+            return ['', []];
+        }
+
+        $placeholders = [];
+        $params = [];
+
+        foreach ($userIds as $i => $userId) {
+            $placeholders[] = ':' . $prefix . $i;
+            $params[$prefix . $i] = $userId;
+        }
+
+        return [' AND l.user_id NOT IN (' . implode(', ', $placeholders) . ')', $params];
+    }
+
+    /**
+     * Lecturers available to invite as attendees.
+     *
+     * $alsoExclude carries the meeting's own student: a supervised
+     * student may hold a lecturer account too, and they must not turn
+     * up in the "other attendees" list — they attend as the student,
+     * through the include-student checkbox, or not at all.
+     *
+     * @param array<int, string> $alsoExclude user ids to leave out
+     */
+    public function listAllExcept(string $excludeUserId, array $alsoExclude = []): array
+    {
+        [$clause, $params] = $this->exclusionClause($alsoExclude, 'ex');
+
         $stmt = $this->db->prepare(
             "SELECT l.lecturer_id, l.user_id,
                     COALESCE(d.name, el.department) AS department,
+                    COALESCE(d.name, el.institution) AS affiliation,
                     CONCAT(u.first_name, ' ', u.last_name) AS name
              FROM lecturers l
              JOIN users u ON u.user_id = l.user_id
              LEFT JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
              LEFT JOIN departments d ON d.department_id = il.department_id
              LEFT JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
-             WHERE l.user_id != :exclude_user_id
+             WHERE l.user_id != :exclude_user_id" . $clause . "
              ORDER BY u.first_name, u.last_name"
         );
-        $stmt->execute(['exclude_user_id' => $excludeUserId]);
+        $stmt->execute(['exclude_user_id' => $excludeUserId] + $params);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Every user id that is a student supervised by this lecturer AND
+     * also holds a lecturer account. These are the accounts that would
+     * otherwise show up in an invite dropdown as a colleague while
+     * being the subject of the meeting.
+     *
+     * @return array<int, string>
+     */
+    public function findSuperviseeUserIdsWhoAreLecturers(string $lecturerId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT s.user_id
+             FROM supervision_assignments sa
+             JOIN students s ON s.student_id = sa.student_id
+             JOIN lecturers l ON l.user_id = s.user_id
+             WHERE sa.supervisor_id = :lecturer_id AND sa.is_active = 1"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
+     * Documents belonging to this lecturer's active supervisees, so the
+     * general (non-exam) meeting scheduler can offer a document to
+     * review. Keyed by student for client-side filtering once a student
+     * is picked.
+     */
+    public function findSuperviseeDocuments(string $lecturerId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT d.document_id, d.file_name, d.document_status, d.uploaded_at,
+                    dt.doc_type_name,
+                    s.user_id AS student_user_id,
+                    sa.proposal_id
+             FROM supervision_assignments sa
+             JOIN students s ON s.student_id = sa.student_id
+             JOIN documents d ON d.user_id = s.user_id
+             JOIN document_types dt ON dt.doc_type_id = d.document_type_id
+             WHERE sa.supervisor_id = :lecturer_id
+               AND sa.is_active = 1
+             ORDER BY d.uploaded_at DESC"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Documents belonging to one specific student, for the meeting edit
+     * form where the student is already known.
+     */
+    public function findDocumentsForStudentUser(string $studentUserId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT d.document_id, d.file_name, d.document_status, d.uploaded_at,
+                    dt.doc_type_name
+             FROM documents d
+             JOIN document_types dt ON dt.doc_type_id = d.document_type_id
+             WHERE d.user_id = :user_id
+             ORDER BY d.uploaded_at DESC"
+        );
+        $stmt->execute(['user_id' => $studentUserId]);
         return $stmt->fetchAll();
     }
 
@@ -153,8 +257,13 @@ class Lecturer
         return $stmt->fetchAll();
     }
 
-    public function listInternalLecturersExcept(string $excludeUserId): array
+    /**
+     * @param array<int, string> $alsoExclude see listAllExcept()
+     */
+    public function listInternalLecturersExcept(string $excludeUserId, array $alsoExclude = []): array
     {
+        [$clause, $params] = $this->exclusionClause($alsoExclude, 'ex');
+
         $stmt = $this->db->prepare(
             "SELECT l.lecturer_id, l.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name,
                     d.name AS affiliation
@@ -162,25 +271,30 @@ class Lecturer
              JOIN users u ON u.user_id = l.user_id
              JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
              LEFT JOIN departments d ON d.department_id = il.department_id
-             WHERE l.user_id != :exclude
+             WHERE l.user_id != :exclude" . $clause . "
              ORDER BY u.first_name, u.last_name"
         );
-        $stmt->execute(['exclude' => $excludeUserId]);
+        $stmt->execute(['exclude' => $excludeUserId] + $params);
         return $stmt->fetchAll();
     }
 
-    public function listExternalLecturersExcept(string $excludeUserId): array
+    /**
+     * @param array<int, string> $alsoExclude see listAllExcept()
+     */
+    public function listExternalLecturersExcept(string $excludeUserId, array $alsoExclude = []): array
     {
+        [$clause, $params] = $this->exclusionClause($alsoExclude, 'ex');
+
         $stmt = $this->db->prepare(
             "SELECT l.lecturer_id, l.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name,
                     el.institution AS affiliation
              FROM lecturers l
              JOIN users u ON u.user_id = l.user_id
              JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
-             WHERE l.user_id != :exclude
+             WHERE l.user_id != :exclude" . $clause . "
              ORDER BY u.first_name, u.last_name"
         );
-        $stmt->execute(['exclude' => $excludeUserId]);
+        $stmt->execute(['exclude' => $excludeUserId] + $params);
         return $stmt->fetchAll();
     }
 

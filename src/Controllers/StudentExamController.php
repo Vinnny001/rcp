@@ -76,14 +76,12 @@ class StudentExamController
         $examModel = new Examination($this->db);
         $gradModel = new Graduation($this->db);
 
-        $examinations = [];
-        if ($proposal) {
-            $examinations = $examModel->findByProposalId($proposal['proposal_id']);
-            foreach ($examinations as &$exam) {
-                $exam['graders'] = $examModel->findGradersByExaminationId($exam['examination_id']);
-            }
-            unset($exam);
-        }
+        // findStudentSafeByProposalId, not findByProposalId — the latter
+        // carries overall_grade, grade_letter and every examiner's raw
+        // score, none of which a student may see.
+        $examinations = $proposal
+            ? $examModel->findStudentSafeByProposalId($proposal['proposal_id'])
+            : [];
 
         return $this->twig->render($response, 'students/exam.twig', [
             'active_page'    => 'exam',

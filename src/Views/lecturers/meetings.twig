@@ -29,7 +29,7 @@
         </div>
         {% if ew.exam_schedule_description %}<div class="meta">{{ ew.exam_schedule_description }}</div>{% endif %}
         <button type="button" class="btn brass" style="padding:6px 14px; font-size:.74rem; margin-top:10px;"
-          onclick="openExamMeetingModal('{{ ew.exam_schedule_id }}', '{{ ew.proposal_id }}', '{{ ew.student_name|escape('js') }}', '{{ ew.ends_at }}', '{{ ew.exam_type }}')">
+          onclick="openExamMeetingModal('{{ ew.exam_schedule_id }}', '{{ ew.proposal_id }}', '{{ ew.student_name|escape('js') }}', '{{ ew.ends_at }}', '{{ ew.exam_type }}', '{{ ew.student_user_id }}')">
           Schedule meeting
         </button>
       </div>
@@ -55,14 +55,34 @@
           {% if m.mode in ['physical', 'hybrid'] and m.location %} — {{ m.location }}{% endif %}
         </div>
         {% if m.other_attendees %}<div class="meta">With {{ m.other_attendees }}</div>{% endif %}
-        <span class="stamp mini pending">{{ m.status == 'in_progress' ? 'In progress' : 'Scheduled' }}</span>
-        <div style="margin-top:10px; display:flex; gap:8px;">
-          {% if m.my_role in ['examiner', 'chairperson', 'supervisor'] and m.exam_schedule_id %}
+
+        {% if m.status == 'cancelled' %}
+          <span class="stamp mini rejected">Cancelled</span>
+          {% if m.status_description %}
+            <p style="font-size:.85rem; line-height:1.6; color:var(--rust); margin-top:8px;">Reason: {{ m.status_description }}</p>
+          {% endif %}
+        {% else %}
+          <span class="stamp mini pending">{{ m.status == 'in_progress' ? 'In progress' : 'Scheduled' }}</span>
+        {% endif %}
+
+        {% if m.secure_code and m.status != 'cancelled' %}
+          <div class="notice" style="margin-top:12px; border-left-color: var(--brass-deep); background:#faf6ec;">
+            <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.09em; color:var(--slate);">Attendance code — yours only</div>
+            <div class="mono" style="font-size:1.3rem; letter-spacing:.22em; font-weight:600;">{{ m.secure_code }}</div>
+            <div class="meta" style="margin:4px 0 0;">Read this out during the meeting. Attendees must enter it to submit a review.</div>
+          </div>
+        {% endif %}
+
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+          {% if m.status != 'cancelled' and m.my_role in ['examiner', 'chairperson', 'supervisor'] and (m.exam_schedule_id or m.document_count > 0) %}
             <a href="/lecturer/meetings/{{ m.meeting_id }}/review" class="btn brass" style="padding:6px 12px; font-size:.72rem;">Give review</a>
           {% endif %}
-          {% if m.created_by == first_name %}{# placeholder, see note below #}{% endif %}
-          {% if m.my_role == 'supervisor' %}
+          {% if m.my_role == 'supervisor' and m.status != 'cancelled' %}
             <a href="/lecturer/meetings/{{ m.meeting_id }}/edit" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">Edit</a>
+            <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem; color:var(--rust); border-color:var(--rust);"
+              onclick="openStatusModal('{{ m.meeting_id }}', '{{ m.meeting_type|replace({'_': ' '})|capitalize|escape('js') }}', '{{ m.scheduled_at|date('j M Y, g:i A')|escape('js') }}')">
+              Cancel / change status
+            </button>
           {% endif %}
         </div>
       </div>
@@ -83,7 +103,25 @@
         {% if m.other_attendees %} · With {{ m.other_attendees }}{% endif %}
       </div>
       {% if m.ai_summary %}<p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:10px;">{{ m.ai_summary }}</p>{% endif %}
-      {% if m.status == 'cancelled' %}<span class="stamp mini rejected">Cancelled</span>{% endif %}
+
+      {% if m.status == 'cancelled' %}
+        <span class="stamp mini rejected">Cancelled</span>
+        {% if m.status_description %}
+          <p style="font-size:.85rem; line-height:1.6; color:var(--rust); margin-top:8px;">Reason: {{ m.status_description }}</p>
+        {% endif %}
+      {% elseif m.status == 'completed' %}
+        <span class="stamp mini approved">Completed</span>
+        {% if m.status_description %}
+          <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:8px;">{{ m.status_description }}</p>
+        {% endif %}
+      {% elseif m.my_role == 'supervisor' %}
+        <div style="margin-top:10px;">
+          <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem;"
+            onclick="openStatusModal('{{ m.meeting_id }}', '{{ m.meeting_type|replace({'_': ' '})|capitalize|escape('js') }}', '{{ m.scheduled_at|date('j M Y, g:i A')|escape('js') }}')">
+            Change status
+          </button>
+        </div>
+      {% endif %}
     </div>
   {% endfor %}
 {% endif %}
@@ -119,10 +157,12 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="field">
         <label>Student</label>
-        <select name="proposal_id" required>
+        <select name="proposal_id" id="genStudentSelect" required onchange="onGeneralStudentChange()">
           <option value="">Select a student</option>
           {% for s in students %}
-            {% if s.proposal_id %}<option value="{{ s.proposal_id }}">{{ s.student_name }} — {{ s.student_number }}</option>{% endif %}
+            {% if s.proposal_id %}
+              <option value="{{ s.proposal_id }}" data-user-id="{{ s.student_user_id }}">{{ s.student_name }} — {{ s.student_number }}</option>
+            {% endif %}
           {% endfor %}
         </select>
       </div>
@@ -156,11 +196,19 @@
         <input type="checkbox" name="ai_notes_enabled" checked style="width:auto;" id="aiNotes">
         <label for="aiNotes" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">Enable AI meeting notes</label>
       </div>
+      <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Documents for review<div class="rule"></div></div>
+      <div class="field">
+        <div class="meta" style="margin:0 0 8px;">Optional. Tick any of this student's documents the meeting should review — invited examiners and you can then score and comment on them.</div>
+        <div id="genDocumentList">
+          <div class="meta">Select a student first.</div>
+        </div>
+      </div>
+
       <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Other attendees<div class="rule"></div></div>
       <div class="field">
         <select id="genInviteSelect">
           <option value="">Select a lecturer</option>
-          {% for l in other_lecturers %}<option value="{{ l.user_id }}" data-name="{{ l.name|escape('html_attr') }}">{{ l.name }} — {{ l.affiliation }}</option>{% endfor %}
+          {% for l in other_lecturers %}<option value="{{ l.user_id }}" data-name="{{ l.name|escape('html_attr') }}">{{ l.name }}{% if l.affiliation %} — {{ l.affiliation }}{% endif %}</option>{% endfor %}
         </select>
         <select id="genInviteRole" style="margin-top:8px;">
           <option value="examiner">Examiner</option>
@@ -250,6 +298,41 @@
   </div>
 </div>
 
+<!-- MODAL: CANCEL / CHANGE STATUS -->
+<div class="modal-overlay" id="statusModal" onclick="closeModal(event,'statusModal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <button type="button" class="modal-close" onclick="hideModal('statusModal')">✕ Close</button>
+    <div class="ref">MEETING STATUS</div>
+    <h2 id="statusModalTitle">Change meeting status</h2>
+    <div class="sub" id="statusModalWhen"></div>
+
+    <form method="POST" id="statusForm" action="">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+      <div class="field">
+        <label>New status</label>
+        <select name="status" id="statusSelect" onchange="onStatusChange()" required>
+          <option value="cancelled">Cancelled</option>
+          <option value="in_progress">In progress</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label id="statusReasonLabel">Reason for cancelling</label>
+        <textarea name="status_description" id="statusReason" rows="4"
+                  placeholder="e.g. The external examiner is unavailable — a new date will follow."></textarea>
+        <div class="meta" id="statusReasonHint" style="margin-top:6px;">Required. The student sees this on their meetings page.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="hideModal('statusModal')">Never mind</button>
+        <button type="submit" class="btn brass">Save status</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
@@ -259,6 +342,12 @@
   ];
   const externalLecturers = [
     {% for l in external_lecturers %}{ id: "{{ l.user_id }}", name: "{{ l.name|escape('js') }}", affiliation: "{{ l.affiliation|default('')|escape('js') }}" },{% endfor %}
+  ];
+
+  // Every supervisee document, tagged with whose it is, so the picker
+  // can be rebuilt for whichever student is selected.
+  const superviseeDocuments = [
+    {% for d in supervisee_documents %}{ id: "{{ d.document_id }}", studentUserId: "{{ d.student_user_id }}", name: "{{ d.file_name|escape('js') }}", type: "{{ d.doc_type_name|escape('js') }}", status: "{{ d.document_status|escape('js') }}" },{% endfor %}
   ];
 
   const invites = { gen: [], exam: [] };
@@ -329,7 +418,94 @@
     });
   }
 
-  function openExamMeetingModal(examScheduleId, proposalId, studentName, endsAt, examType){
+  function selectedGeneralStudentUserId(){
+    const select = document.getElementById('genStudentSelect');
+    return select.options[select.selectedIndex]?.dataset.userId || '';
+  }
+
+  /**
+   * A supervised student may hold a lecturer account of their own. When
+   * that student is the subject of the meeting they must not also be
+   * offered as an attendee, so their option is pulled out of the invite
+   * dropdown (and restored when a different student is picked).
+   */
+  function onGeneralStudentChange(){
+    const studentUserId = selectedGeneralStudentUserId();
+    const select = document.getElementById('genInviteSelect');
+
+    Array.from(select.options).forEach(opt => {
+      if (!opt.value) return;
+      const isSubject = opt.value === studentUserId;
+      opt.hidden = isSubject;
+      opt.disabled = isSubject;
+    });
+
+    // Drop them from any invites already staged before the switch.
+    if (studentUserId && invites.gen.some(i => i.id === studentUserId)) {
+      invites.gen = invites.gen.filter(i => i.id !== studentUserId);
+      renderInvites('gen');
+    }
+
+    renderGeneralDocuments(studentUserId);
+  }
+
+  function renderGeneralDocuments(studentUserId){
+    const container = document.getElementById('genDocumentList');
+    container.innerHTML = '';
+
+    if (!studentUserId) {
+      container.innerHTML = '<div class="meta">Select a student first.</div>';
+      return;
+    }
+
+    const docs = superviseeDocuments.filter(d => d.studentUserId === studentUserId);
+
+    if (!docs.length) {
+      container.innerHTML = '<div class="meta">This student has not uploaded any documents yet.</div>';
+      return;
+    }
+
+    docs.forEach(d => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:5px 0; font-size:.82rem; text-transform:none; letter-spacing:0; font-family:\'IBM Plex Sans\',sans-serif;';
+
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.name = 'review_documents[]';
+      box.value = d.id;
+      box.style.width = 'auto';
+
+      const text = document.createElement('span');
+      text.textContent = d.type + ' — ' + d.name + ' (' + d.status.replace('_', ' ') + ')';
+
+      row.appendChild(box);
+      row.appendChild(text);
+      container.appendChild(row);
+    });
+  }
+
+  function openStatusModal(meetingId, meetingType, when){
+    document.getElementById('statusForm').action = '/lecturer/meetings/' + meetingId + '/status';
+    document.getElementById('statusModalTitle').textContent = meetingType;
+    document.getElementById('statusModalWhen').textContent = when;
+    document.getElementById('statusSelect').value = 'cancelled';
+    document.getElementById('statusReason').value = '';
+    onStatusChange();
+    document.getElementById('statusModal').classList.add('open');
+  }
+
+  function onStatusChange(){
+    const cancelling = document.getElementById('statusSelect').value === 'cancelled';
+    const reason = document.getElementById('statusReason');
+
+    reason.required = cancelling;
+    document.getElementById('statusReasonLabel').textContent = cancelling ? 'Reason for cancelling' : 'Note (optional)';
+    document.getElementById('statusReasonHint').textContent = cancelling
+      ? 'Required. The student sees this on their meetings page.'
+      : 'Optional. Recorded against the meeting.';
+  }
+
+  function openExamMeetingModal(examScheduleId, proposalId, studentName, endsAt, examType, studentUserId){
     document.getElementById('examMeetingScheduleId').value = examScheduleId;
     document.getElementById('examMeetingProposalId').value = proposalId;
     document.getElementById('examMeetingModalTitle').textContent = 'Schedule meeting — ' + studentName;
@@ -355,7 +531,10 @@
     else if (examType === 'external') pool = externalLecturers;
     else pool = internalLecturers.concat(externalLecturers);
 
-    pool.forEach(l => {
+    // Same rule as the general scheduler: the student under examination
+    // never appears as an invitable lecturer, even where they hold a
+    // lecturer account and would otherwise be in the pool.
+    pool.filter(l => l.id !== studentUserId).forEach(l => {
       const opt = document.createElement('option');
       opt.value = l.id;
       opt.dataset.name = l.name;

@@ -31,6 +31,7 @@ use App\Controllers\StudentProfileController;
 
 use App\Controllers\StudentDocumentsController;
 use App\Controllers\LecturerThesesController;
+use App\Controllers\StudentOutcomesController;
 
 
 return function (App $app) {
@@ -150,6 +151,27 @@ $app->get('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 
 $app->post('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 'submitReview']);
 $app->get('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'editForm']);
 $app->post('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'updateMeeting']);
+$app->post('/lecturer/meetings/{id}/status', [LecturerMeetingsController::class, 'changeStatus']);
+
+// Student results — banded exam and document review outcomes
+$app->get('/student/outcomes', [StudentOutcomesController::class, 'show']);
+
+// Admin: user roles
+$app->post('/admin/users/role', [AdminController::class, 'updateUserRole']);
+
+// Admin: thesis schedules
+$app->get('/admin/thesis-schedules', [AdminController::class, 'thesisSchedules']);
+$app->post('/admin/thesis-schedules/create', [AdminController::class, 'createThesisSchedule']);
+$app->post('/admin/thesis-schedules/update', [AdminController::class, 'updateThesisSchedule']);
+$app->post('/admin/thesis-schedules/delete', [AdminController::class, 'deleteThesisSchedule']);
+
+// Admin: exam schedules and their required documents
+$app->get('/admin/exam-schedules', [AdminController::class, 'examSchedules']);
+$app->post('/admin/exam-schedules/create', [AdminController::class, 'createExamSchedule']);
+$app->post('/admin/exam-schedules/update', [AdminController::class, 'updateExamSchedule']);
+$app->post('/admin/exam-schedules/delete', [AdminController::class, 'deleteExamSchedule']);
+$app->post('/admin/exam-schedules/documents/add', [AdminController::class, 'addExamScheduleDocument']);
+$app->post('/admin/exam-schedules/documents/remove', [AdminController::class, 'removeExamScheduleDocument']);
 
 
 

@@ -74,24 +74,46 @@ class AdminStats
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * students no longer carries department or program columns — a
+     * student's program is reached through their active thesis
+     * registration's schedule, and the department through that
+     * program. Both breakdowns below follow that path.
+     *
+     * Students with no active thesis registration have no programme
+     * yet and so fall outside these counts.
+     */
+    private const STUDENT_PROGRAM_JOIN =
+        "JOIN student_thesis_registrations str ON str.student_id = s.student_id AND str.status = 'active'
+         JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+         JOIN programs pr ON pr.program_id = ts.program_id";
+
     public function byDepartment(): array
     {
         $stmt = $this->db->query(
             "SELECT
-                s.department,
+                d.name AS department,
                 COUNT(DISTINCT s.student_id) AS active_students,
                 COUNT(DISTINCT CASE WHEN tp.status IN ('submitted','under_review') THEN tp.proposal_id END) AS open_proposals,
-                COALESCE(AVG(sub.active_count), 0) AS avg_supervisor_load
+                COALESCE((
+                    SELECT AVG(load_per_lecturer.active_count)
+                    FROM (
+                        SELECT COUNT(sa2.assignment_id) AS active_count
+                        FROM lecturers l
+                        JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+                        LEFT JOIN supervision_assignments sa2
+                               ON sa2.supervisor_id = l.lecturer_id AND sa2.is_active = TRUE
+                        WHERE il.department_id = d.department_id
+                        GROUP BY l.lecturer_id
+                    ) AS load_per_lecturer
+                ), 0) AS avg_supervisor_load
              FROM students s
+             " . self::STUDENT_PROGRAM_JOIN . "
+             JOIN departments d ON d.department_id = pr.department_id
              LEFT JOIN thesis_proposals tp ON tp.student_id = s.student_id
-             LEFT JOIN (
-                SELECT l.lecturer_id, l.department, COUNT(sa.assignment_id) AS active_count
-                FROM lecturers l
-                LEFT JOIN supervision_assignments sa ON sa.supervisor_id = l.lecturer_id AND sa.is_active = TRUE
-                GROUP BY l.lecturer_id, l.department
-             ) sub ON sub.department = s.department
              WHERE s.current_status = 'active'
-             GROUP BY s.department"
+             GROUP BY d.department_id, d.name
+             ORDER BY d.name"
         );
         return $stmt->fetchAll();
     }
@@ -99,45 +121,19 @@ class AdminStats
 
     public function byProgram(): array
     {
-        $studentCounts = [];
         $stmt = $this->db->query(
-            "SELECT program, COUNT(*) AS cnt
-             FROM students
-             WHERE current_status = 'active'
-             GROUP BY program"
-        );
-        foreach ($stmt->fetchAll() as $row) {
-            $studentCounts[$row['program']] = (int) $row['cnt'];
-        }
-
-        $proposalCounts = [];
-        $stmt = $this->db->query(
-            "SELECT s.program, COUNT(tp.proposal_id) AS cnt
+            "SELECT
+                pr.name AS program,
+                COUNT(DISTINCT s.student_id) AS active_students,
+                COUNT(DISTINCT CASE WHEN tp.status IN ('submitted','under_review') THEN tp.proposal_id END) AS open_proposals
              FROM students s
-             JOIN thesis_proposals tp ON tp.student_id = s.student_id
-             WHERE tp.status IN ('submitted', 'under_review')
-             GROUP BY s.program"
+             " . self::STUDENT_PROGRAM_JOIN . "
+             LEFT JOIN thesis_proposals tp ON tp.student_id = s.student_id
+             WHERE s.current_status = 'active'
+             GROUP BY pr.program_id, pr.name
+             ORDER BY pr.name"
         );
-        foreach ($stmt->fetchAll() as $row) {
-            $proposalCounts[$row['program']] = (int) $row['cnt'];
-        }
-
-        $programs = array_unique(array_merge(
-            array_keys($studentCounts),
-            array_keys($proposalCounts)
-        ));
-        sort($programs);
-
-        $result = [];
-        foreach ($programs as $program) {
-            $result[] = [
-                'program'          => $program,
-                'active_students'  => $studentCounts[$program] ?? 0,
-                'open_proposals'   => $proposalCounts[$program] ?? 0,
-            ];
-        }
-
-        return $result;
+        return $stmt->fetchAll();
     }
 
 

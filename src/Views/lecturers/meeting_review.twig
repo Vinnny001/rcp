@@ -15,41 +15,108 @@
 {% if success %}<div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>{% endif %}
 {% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
 
-{% if not documents %}
-  <div class="notice">No documents were submitted for review under this meeting's exam window.</div>
+{% if secure_code %}
+  <div class="notice" style="border-left-color: var(--brass-deep); background:#faf6ec;">
+    <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.09em; color:var(--slate);">Attendance code — supervisor only</div>
+    <div class="mono" style="font-size:1.5rem; letter-spacing:.24em; font-weight:600;">{{ secure_code }}</div>
+    <div class="meta" style="margin:6px 0 0;">Read this out to everyone present. Reviewers must enter it below before their scores are accepted, which is what ties a score to someone who was actually in the meeting.</div>
+  </div>
+{% endif %}
+
+{% set has_exam_documents = documents is not empty %}
+{% set has_meeting_documents = meeting_documents is not empty %}
+
+{% if not has_exam_documents and not has_meeting_documents %}
+  <div class="notice">No documents have been attached to this meeting for review.</div>
 {% else %}
   <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/review">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        {% for doc in documents %}
-      <div class="form-card" style="margin-bottom:18px;">
-        <h3 style="margin-bottom:4px;">{{ doc.doc_type_name }}</h3>
-        <div class="meta" style="margin-bottom:14px;">
-          {{ doc.file_name }}
-          <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View document</a>
+    {% if has_exam_documents %}
+      <div class="section-title">Exam window documents<div class="rule"></div></div>
+
+      {% for doc in documents %}
+        <div class="form-card" style="margin-bottom:18px;">
+          <h3 style="margin-bottom:4px;">{{ doc.doc_type_name }}</h3>
+          <div class="meta" style="margin-bottom:14px;">
+            {{ doc.file_name }}
+            <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View document</a>
+            {% if doc.graded_at %}
+              <span class="stamp mini approved" style="margin-left:8px;">Scored {{ doc.graded_at|date('d M Y') }} — locked</span>
+            {% endif %}
+          </div>
+
           {% if doc.graded_at %}
-            <span class="stamp mini approved" style="margin-left:8px;">Scored {{ doc.graded_at|date('d M Y') }} — locked</span>
+            <div class="meta">Your score: <strong>{{ doc.score_percentage }}</strong></div>
+            {% if doc.remarks %}<p style="font-size:.85rem; color:#39332a; margin-top:6px;">{{ doc.remarks }}</p>{% endif %}
+          {% else %}
+            <input type="hidden" name="exam_document_id[]" value="{{ doc.exam_document_id }}">
+            <div class="field">
+              <label>Score (0–100)</label>
+              <input type="number" name="score[]" min="0" max="100" step="0.01" placeholder="e.g. 78">
+            </div>
+            <div class="field">
+              <label>Remarks / feedback</label>
+              <textarea name="remarks[]" rows="3" placeholder="Comments on this document..."></textarea>
+            </div>
           {% endif %}
         </div>
+      {% endfor %}
+    {% endif %}
 
-        {% if doc.graded_at %}
-          <div class="meta">Your score: <strong>{{ doc.score_percentage }}</strong></div>
-          {% if doc.remarks %}<p style="font-size:.85rem; color:#39332a; margin-top:6px;">{{ doc.remarks }}</p>{% endif %}
-        {% else %}
-          <input type="hidden" name="exam_document_id[]" value="{{ doc.exam_document_id }}">
-          <div class="field">
-            <label>Score (0–100)</label>
-            <input type="number" name="score[]" min="0" max="100" step="0.01" placeholder="e.g. 78">
+    {% if has_meeting_documents %}
+      <div class="section-title">Documents attached to this meeting<div class="rule"></div></div>
+
+      {% if not can_score_documents %}
+        <div class="notice" style="margin-bottom:18px;">
+          These documents can only be scored by an invited examiner or the supervisor. You are attending as {{ my_role }}, so they are shown here for reference only.
+        </div>
+      {% endif %}
+
+      {% for doc in meeting_documents %}
+        <div class="form-card" style="margin-bottom:18px;">
+          <h3 style="margin-bottom:4px;">{{ doc.doc_type_name }}</h3>
+          <div class="meta" style="margin-bottom:14px;">
+            {{ doc.file_name }}
+            <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View document</a>
+            {% if doc.my_review %}
+              <span class="stamp mini approved" style="margin-left:8px;">Reviewed {{ doc.my_review.reviewed_at|date('d M Y') }} — locked</span>
+            {% endif %}
           </div>
-          <div class="field">
-            <label>Remarks / feedback</label>
-            <textarea name="remarks[]" rows="3" placeholder="Comments on this document..."></textarea>
-          </div>
-        {% endif %}
+
+          {% if doc.my_review %}
+            <div class="meta">Your score: <strong>{{ doc.my_review.score_percentage }}</strong></div>
+            {% if doc.my_review.comment %}
+              <p style="font-size:.85rem; color:#39332a; margin-top:6px;">{{ doc.my_review.comment }}</p>
+            {% endif %}
+          {% elseif can_score_documents %}
+            <input type="hidden" name="review_document_id[]" value="{{ doc.document_id }}">
+            <div class="field">
+              <label>Score (0–100)</label>
+              <input type="number" name="review_score[]" min="0" max="100" step="0.01" placeholder="e.g. 78">
+            </div>
+            <div class="field">
+              <label>Comment</label>
+              <textarea name="review_comment[]" rows="3" placeholder="Comments on this document..."></textarea>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="form-card">
+      <div class="field">
+        <label>Attendance code</label>
+        <input type="text" name="secure_code" maxlength="7" required autocomplete="off"
+               placeholder="7-character code"
+               style="text-transform:uppercase; letter-spacing:.18em; font-family:'IBM Plex Mono',monospace;">
+        <div class="meta" style="margin-top:6px;">
+          The supervisor gives this out during the meeting. Scores are only recorded once it matches.
+        </div>
       </div>
-    {% endfor %}
 
-    <button type="submit" class="btn brass">Submit review</button>
+      <button type="submit" class="btn brass">Submit review</button>
+    </div>
   </form>
 {% endif %}
 

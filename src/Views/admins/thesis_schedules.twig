@@ -1,0 +1,189 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Thesis Schedules{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Thesis schedules</h1>
+    <div class="sub">The registration window students enrol against, per program, and the fee rates that apply to it.</div>
+  </div>
+  <div class="ref">THS-SCHEDULES</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Add a thesis schedule<div class="rule"></div></div>
+<div class="form-card" style="margin-bottom:32px;">
+  <form method="POST" action="/admin/thesis-schedules/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label>Program</label>
+      <select name="program_id" class="rate-program" required onchange="filterRates(this)">
+        <option value="">-- Select --</option>
+        {% for prog in programs %}
+          <option value="{{ prog.program_id }}">{{ prog.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Enrollment opens</label>
+        <input type="datetime-local" name="enrollment_start_date">
+      </div>
+      <div class="field">
+        <label>Enrollment closes</label>
+        <input type="datetime-local" name="enrollment_end_date">
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Registration fee rate</label>
+        <select name="thesis_registration_rates_id" class="rate-registration">
+          <option value="">-- None --</option>
+          {% for rate in registration_rates %}
+            <option value="{{ rate.rate_id }}" data-program="{{ rate.program_id }}">
+              {{ rate.currency }} {{ rate.amount }}{% if rate.due_date %} — due {{ rate.due_date|date('d M Y') }}{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Review fee rate</label>
+        <select name="thesis_review_rates_id" class="rate-review">
+          <option value="">-- None --</option>
+          {% for rate in review_rates %}
+            <option value="{{ rate.rate_id }}" data-program="{{ rate.program_id }}">
+              {{ rate.academic_year }} — {{ rate.currency }} {{ rate.amount }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="meta" style="margin-bottom:14px;">Fee rates are program-scoped — pick the program first and the lists narrow to rates that belong to it.</div>
+
+    <button type="submit" class="btn brass">Add thesis schedule</button>
+  </form>
+</div>
+
+<div class="section-title">All thesis schedules<div class="rule"></div></div>
+
+{% if schedules %}
+  {% for s in schedules %}
+    <div class="form-card" style="margin-bottom:18px;">
+      <div class="meta" style="margin-bottom:14px;">
+        {{ s.program_name }}{% if s.department_name %} · {{ s.department_name }}{% endif %}
+        · {{ s.registration_count }} registration{{ s.registration_count != 1 ? 's' : '' }}
+        · {{ s.exam_schedule_count }} exam window{{ s.exam_schedule_count != 1 ? 's' : '' }}
+      </div>
+
+      <form method="POST" action="/admin/thesis-schedules/update">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="schedule_id" value="{{ s.schedule_id }}">
+
+        <div class="field">
+          <label>Program</label>
+          <select name="program_id" class="rate-program" required onchange="filterRates(this)">
+            {% for prog in programs %}
+              <option value="{{ prog.program_id }}" {{ prog.program_id == s.program_id ? 'selected' : '' }}>{{ prog.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Enrollment opens</label>
+            <input type="datetime-local" name="enrollment_start_date"
+                   value="{{ s.enrollment_start_date ? s.enrollment_start_date|date('Y-m-d\\TH:i') : '' }}">
+          </div>
+          <div class="field">
+            <label>Enrollment closes</label>
+            <input type="datetime-local" name="enrollment_end_date"
+                   value="{{ s.enrollment_end_date ? s.enrollment_end_date|date('Y-m-d\\TH:i') : '' }}">
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Registration fee rate</label>
+            <select name="thesis_registration_rates_id" class="rate-registration">
+              <option value="">-- None --</option>
+              {% for rate in registration_rates %}
+                <option value="{{ rate.rate_id }}" data-program="{{ rate.program_id }}"
+                        {{ rate.rate_id == s.thesis_registration_rates_id ? 'selected' : '' }}>
+                  {{ rate.currency }} {{ rate.amount }}{% if rate.due_date %} — due {{ rate.due_date|date('d M Y') }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Review fee rate</label>
+            <select name="thesis_review_rates_id" class="rate-review">
+              <option value="">-- None --</option>
+              {% for rate in review_rates %}
+                <option value="{{ rate.rate_id }}" data-program="{{ rate.program_id }}"
+                        {{ rate.rate_id == s.thesis_review_rates_id ? 'selected' : '' }}>
+                  {{ rate.academic_year }} — {{ rate.currency }} {{ rate.amount }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.74rem;">Save changes</button>
+      </form>
+
+      <form method="POST" action="/admin/thesis-schedules/delete" style="margin-top:10px;"
+            onsubmit="return confirm('Delete this thesis schedule? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="schedule_id" value="{{ s.schedule_id }}">
+        <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.7rem; color: var(--rust);">Delete</button>
+      </form>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">No thesis schedules yet. Students cannot register for a thesis until one exists for their program.</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  /**
+   * Narrows both rate dropdowns in a form to the rates belonging to the
+   * program selected in that same form. A rate already selected but
+   * belonging to another program is cleared rather than left hidden and
+   * silently submitted.
+   */
+  function filterRates(programSelect){
+    const form = programSelect.closest('form');
+    const programId = programSelect.value;
+
+    form.querySelectorAll('.rate-registration, .rate-review').forEach(select => {
+      let selectionStillValid = select.value === '';
+
+      Array.from(select.options).forEach(opt => {
+        if (!opt.value) return;
+        const matches = !programId || opt.dataset.program === programId;
+        opt.hidden = !matches;
+        opt.disabled = !matches;
+        if (matches && opt.value === select.value) selectionStillValid = true;
+      });
+
+      if (!selectionStillValid) select.value = '';
+    });
+  }
+
+  document.querySelectorAll('.rate-program').forEach(filterRates);
+</script>
+{% endblock %}

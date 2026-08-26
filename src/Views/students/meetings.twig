@@ -34,7 +34,14 @@
           <div class="meta">{{ m.attendee_count }} attendee{{ m.attendee_count != 1 ? 's' : '' }} — you are not invited to this meeting</div>
         {% endif %}
 
-        {% if m.status == 'in_progress' %}
+        {% if m.status == 'cancelled' %}
+          <span class="stamp mini rejected">Cancelled</span>
+          {% if m.status_description %}
+            <p style="font-size:.85rem; line-height:1.6; color:var(--rust); margin-top:8px;">
+              Reason given: {{ m.status_description }}
+            </p>
+          {% endif %}
+        {% elseif m.status == 'in_progress' %}
           <span class="stamp mini review">In progress</span>
         {% elseif m.is_invited and m.my_attendance_status == 'confirmed' %}
           <span class="stamp mini approved">Confirmed</span>
@@ -77,6 +84,11 @@
 
       {% if m.status == 'cancelled' %}
         <span class="stamp mini rejected">Cancelled</span>
+        {% if m.status_description %}
+          <p style="font-size:.85rem; line-height:1.6; color:var(--rust); margin-top:8px;">
+            Reason given: {{ m.status_description }}
+          </p>
+        {% endif %}
       {% elseif m.is_invited and m.my_attendance_status == 'absent' %}
         <span class="stamp mini rejected">You were marked absent</span>
       {% endif %}

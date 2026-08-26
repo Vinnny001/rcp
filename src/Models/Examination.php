@@ -40,16 +40,6 @@ class Examination
     }
 
 
-    private const GRADE_BANDS = [
-        // [minimum score inclusive, letter, outcome]
-        [80, 'A', 'distinction'],
-        [70, 'B', 'pass'],
-        [60, 'C', 'pass'],
-        [50, 'D', 'pass'],
-        [40, 'E', 'resubmit'],
-        [0,  'F', 'fail'],
-    ];
-
     public function findPendingGradingForLecturer(string $userId): array
     {
         $stmt = $this->db->prepare(
@@ -98,8 +88,8 @@ class Examination
     /**
      * If every grader assigned to this examination has now submitted a
      * score, average them and finalize the examination's overall grade.
-     * PLACEHOLDER POLICY: simple average + fixed grade bands. Replace
-     * with the institution's actual grading rules once known.
+     * The average-to-outcome thresholds live in GradingPolicy, shared
+     * with document reviews so both report against one scale.
      */
     public function maybeFinalize(string $examinationId): void
     {
@@ -114,7 +104,7 @@ class Examination
         }
 
         $average = array_sum($scores) / count($scores);
-        [$letter, $outcome] = $this->bandFor($average);
+        $band = GradingPolicy::examOutcome($average);
 
         $update = $this->db->prepare(
             "UPDATE examinations
@@ -124,21 +114,55 @@ class Examination
         );
         $update->execute([
             'overall_grade' => round($average, 2),
-            'grade_letter'  => $letter,
-            'outcome'       => $outcome,
+            'grade_letter'  => GradingPolicy::letterFor($average),
+            'outcome'       => $band['outcome'],
             'examination_id' => $examinationId,
         ]);
     }
 
-    private function bandFor(float $score): array
+    /**
+     * An examination reduced to what a student may see: the banded
+     * outcome and the examiners' comments, with overall_grade,
+     * grade_letter and every per-grader score left behind. The graders
+     * are named — a student can see who examined them — but not scored.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function findStudentSafeByProposalId(string $proposalId): array
     {
-        foreach (self::GRADE_BANDS as [$min, $letter, $outcome]) {
-            if ($score >= $min) {
-                return [$letter, $outcome];
+        $safe = [];
+
+        foreach ($this->findByProposalId($proposalId) as $exam) {
+            $graders = [];
+            $pending = 0;
+
+            foreach ($this->findGradersByExaminationId($exam['examination_id']) as $grader) {
+                $graders[] = [
+                    'name'          => trim(($grader['first_name'] ?? '') . ' ' . ($grader['last_name'] ?? '')),
+                    'examiner_type' => $grader['examiner_type'],
+                    'has_scored'    => $grader['score'] !== null,
+                ];
+                if ($grader['score'] === null) {
+                    $pending++;
+                }
             }
+
+            $outcome = $exam['outcome'] ?: null;
+
+            $safe[] = [
+                'examination_id'    => $exam['examination_id'],
+                'exam_type'         => $exam['exam_type'],
+                'exam_date'         => $exam['exam_date'],
+                'graded_at'         => $exam['graded_at'],
+                'examiner_comments' => $exam['examiner_comments'],
+                'outcome'           => $outcome,
+                'outcome_label'     => $outcome ? ucfirst($outcome) : null,
+                'stamp_class'       => $outcome ? GradingPolicy::stampClass($outcome) : 'pending',
+                'graders'           => $graders,
+                'pending_graders'   => $pending,
+            ];
         }
-        return ['F', 'fail'];
+
+        return $safe;
     }
-
-
 }

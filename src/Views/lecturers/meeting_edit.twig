@@ -14,6 +14,14 @@
 
 {% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
 
+{% if secure_code %}
+  <div class="notice" style="border-left-color: var(--brass-deep); background:#faf6ec;">
+    <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.09em; color:var(--slate);">Attendance code — supervisor only</div>
+    <div class="mono" style="font-size:1.4rem; letter-spacing:.24em; font-weight:600;">{{ secure_code }}</div>
+    <div class="meta" style="margin:6px 0 0;">Read this out during the meeting. Attendees enter it to submit their review. It does not change when you edit the meeting.</div>
+  </div>
+{% endif %}
+
 <div class="form-card">
   <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/edit">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -50,6 +58,23 @@
       <input type="text" name="virtual_link" value="{{ meeting.virtual_link }}">
     </div>
 
+    <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Documents for review<div class="rule"></div></div>
+
+    {% if student_documents %}
+      <div class="meta" style="margin:0 0 8px;">
+        Tick the documents this meeting should review. Unticking one removes it from the meeting — any scores already recorded against that document are kept.
+      </div>
+      {% for doc in student_documents %}
+        <label class="field" style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">
+          <input type="checkbox" name="review_documents[]" value="{{ doc.document_id }}" style="width:auto;"
+                 {{ doc.document_id in attached_document_ids ? 'checked' : '' }}>
+          <span>{{ doc.doc_type_name }} — {{ doc.file_name }} ({{ doc.document_status|replace({'_': ' '}) }})</span>
+        </label>
+      {% endfor %}
+    {% else %}
+      <div class="meta">{{ student ? student.name ~ ' has not uploaded any documents yet.' : 'No student is linked to this meeting.' }}</div>
+    {% endif %}
+
     <div class="section-title" style="margin:24px 0 12px; font-size:.95rem;">Attendees<div class="rule"></div></div>
 
     {% for att in attendees %}
@@ -83,9 +108,8 @@
 
 
       <select id="newAttendeeSelect">
-      
         <option value="">Select a lecturer</option>
-        {% for l in other_lecturers %}<option value="{{ l.user_id }}">{{ l.name }} — {{ l.department }}</option>{% endfor %}
+        {% for l in other_lecturers %}<option value="{{ l.user_id }}">{{ l.name }}{% if l.department %} — {{ l.department }}{% endif %}</option>{% endfor %}
       </select>
       <select id="newAttendeeRole" style="margin-top:8px;">
         <option value="examiner">Examiner</option>
@@ -96,10 +120,37 @@
       <div id="newAttendeeList" style="margin-top:10px;"></div>
     </div>
 
-
-
-
     <button type="submit" class="btn brass">Save changes</button>
+  </form>
+</div>
+
+<div class="section-title" style="margin-top:32px;">Cancel or change status<div class="rule"></div></div>
+
+<div class="form-card">
+  <div class="meta" style="margin-bottom:16px;">
+    Cancelling keeps the meeting on record with your reason attached — the student sees that reason on their meetings page. A cancelled or completed meeting cannot be reopened.
+  </div>
+
+  <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/status">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="field">
+      <label>New status</label>
+      <select name="status" id="editStatusSelect" onchange="onEditStatusChange()" required>
+        <option value="cancelled">Cancelled</option>
+        <option value="in_progress">In progress</option>
+        <option value="completed">Completed</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label id="editStatusReasonLabel">Reason for cancelling</label>
+      <textarea name="status_description" id="editStatusReason" rows="4" required
+                placeholder="e.g. The external examiner is unavailable — a new date will follow."></textarea>
+      <div class="meta" id="editStatusReasonHint" style="margin-top:6px;">Required. The student sees this on their meetings page.</div>
+    </div>
+
+    <button type="submit" class="btn ghost" style="color:var(--rust); border-color:var(--rust);">Save status</button>
   </form>
 </div>
 
@@ -139,6 +190,17 @@
 
     select.querySelector('option[value="' + userId + '"]')?.remove();
     select.value = '';
+  }
+
+  function onEditStatusChange(){
+    const cancelling = document.getElementById('editStatusSelect').value === 'cancelled';
+    const reason = document.getElementById('editStatusReason');
+
+    reason.required = cancelling;
+    document.getElementById('editStatusReasonLabel').textContent = cancelling ? 'Reason for cancelling' : 'Note (optional)';
+    document.getElementById('editStatusReasonHint').textContent = cancelling
+      ? 'Required. The student sees this on their meetings page.'
+      : 'Optional. Recorded against the meeting.';
   }
 </script>
 {% endblock %}

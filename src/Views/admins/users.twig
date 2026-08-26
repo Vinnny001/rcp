@@ -7,7 +7,7 @@
 <div class="page-head">
   <div>
     <h1>Users</h1>
-    <div class="sub">Every account on the platform, by role and status.</div>
+    <div class="sub">Every account on the platform, with the roles it currently holds.</div>
   </div>
   <div class="ref">USR-REGISTRY</div>
 </div>
@@ -15,17 +15,32 @@
 {% if success %}
   <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
 {% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
 
 <div class="section-title">All accounts<div class="rule"></div></div>
 
 {% if users %}
   <table>
-    <thead><tr><th>Name</th><th>Role</th><th>Department</th><th>Last login</th><th>Status</th><th></th></tr></thead>
+    <thead>
+      <tr><th>Name</th><th>Roles</th><th>Department</th><th>Last login</th><th>Status</th><th>Manage roles</th><th></th></tr>
+    </thead>
     <tbody>
       {% for u in users %}
+        {% set held = roles_by_user[u.user_id]|default([]) %}
         <tr>
-          <td class="strong">{{ u.first_name }} {{ u.last_name }}</td>
-          <td class="mono">{{ u.role|capitalize }}</td>
+          <td class="strong">
+            {{ u.first_name }} {{ u.last_name }}
+            <div class="meta" style="margin:2px 0 0;">{{ u.email }}{% if u.student_number %} · {{ u.student_number }}{% endif %}</div>
+          </td>
+          <td>
+            {% if held %}
+              {% for role in held %}<span class="stamp mini approved" style="margin-right:4px;">{{ role|capitalize }}</span>{% endfor %}
+            {% else %}
+              <span class="stamp mini pending">No roles</span>
+            {% endif %}
+          </td>
           <td>{{ u.department ?? '—' }}</td>
           <td class="mono">{{ u.last_login ? u.last_login|date('d M Y') : 'Never' }}</td>
           <td>
@@ -34,6 +49,25 @@
             {% else %}
               <span class="stamp mini rejected">Suspended</span>
             {% endif %}
+          </td>
+          <td>
+            <form method="POST" action="/admin/users/role" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="user_id" value="{{ u.user_id }}">
+
+              <select name="role_id" required style="min-width:120px;">
+                {% for role in roles %}
+                  <option value="{{ role.role_id }}">{{ role.role_name|capitalize }}</option>
+                {% endfor %}
+              </select>
+
+              <select name="action" required style="min-width:100px;">
+                <option value="grant">Grant</option>
+                <option value="revoke">Revoke</option>
+              </select>
+
+              <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">Apply</button>
+            </form>
           </td>
           <td>
             <form method="POST" action="/admin/users/toggle" style="display:inline;">
@@ -47,6 +81,10 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <div class="notice" style="margin-top:18px;">
+    Roles are additive — a user can hold several and picks which one to sign in as. Granting <span class="mono">lecturer</span> or <span class="mono">student</span> also creates the matching profile record if the user doesn't have one. A newly created lecturer won't appear in examiner invite lists until their internal or external affiliation is recorded.
+  </div>
 {% else %}
   <div class="notice">No users found.</div>
 {% endif %}

@@ -15,6 +15,12 @@
 {% if not documents %}
   <div class="notice">You haven't submitted any documents yet.</div>
 {% else %}
+  <div class="notice" style="margin-bottom:18px;">
+    The status below is your supervisor's validation check. Once a document has been reviewed and scored in a meeting, its outcome appears on <a href="/student/outcomes">My results</a>.
+  </div>
+{% endif %}
+
+{% if documents %}
   <table>
     <thead><tr><th>Document</th><th>Type</th><th>Submitted</th><th>Status</th><th>Review</th><th></th></tr></thead>
     <tbody>

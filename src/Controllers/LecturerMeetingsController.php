@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Models\DocumentReviewScore;
 use App\Models\Lecturer;
 use App\Models\Meeting;
 use App\Models\Examination;
@@ -20,6 +21,23 @@ class LecturerMeetingsController
     private const VALID_MEETING_TYPES = ['approval_board', 'supervisory', 'concept_presentation', 'viva'];
     private const VALID_MODES = ['physical', 'virtual', 'hybrid'];
     private const VALID_ATTENDEE_ROLES = ['chairperson', 'examiner', 'supervisor', 'observer'];
+
+    /**
+     * Statuses a supervisor may move a meeting into by hand. 'scheduled'
+     * is absent deliberately: it's the starting state, and a meeting
+     * that has been cancelled or completed isn't reopened.
+     */
+    private const SETTABLE_STATUSES = ['in_progress', 'completed', 'cancelled'];
+
+    /**
+     * Who may score a document attached to a general meeting. Narrower
+     * than the exam-document rule below — a chairperson runs the room
+     * but isn't scoring the work.
+     */
+    private const DOCUMENT_REVIEW_ROLES = ['examiner', 'supervisor'];
+
+    /** Who may score documents submitted against a formal exam window. */
+    private const EXAM_REVIEW_ROLES = ['examiner', 'chairperson', 'supervisor'];
 
     public function __construct(PDO $db, Twig $twig)
     {
@@ -53,6 +71,28 @@ class LecturerMeetingsController
         return $response->withHeader('Location', $path)->withStatus(302);
     }
 
+    /**
+     * The secure code is the supervisor's to read out — it proves the
+     * people scoring were actually in the room. Any meeting this user
+     * isn't the supervisor of gets the code stripped before it reaches
+     * a template; the ones they do supervise get a code minted if the
+     * meeting predates the feature.
+     *
+     * @param array<int, array<string, mixed>> $meetings
+     * @return array<int, array<string, mixed>>
+     */
+    private function applySecureCodeVisibility(array $meetings, Meeting $meetingModel): array
+    {
+        return array_map(function (array $meeting) use ($meetingModel) {
+            if (($meeting['my_role'] ?? null) === 'supervisor') {
+                $meeting['secure_code'] = $meetingModel->ensureSecureCode($meeting['meeting_id']);
+            } else {
+                unset($meeting['secure_code']);
+            }
+            return $meeting;
+        }, $meetings);
+    }
+
     public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireLecturer()) {
@@ -71,21 +111,33 @@ class LecturerMeetingsController
             return $this->redirect($response, '/login');
         }
 
-                return $this->twig->render($response, 'lecturers/meetings.twig', [
+        // Supervisees who also hold a lecturer account must not appear
+        // in any invite dropdown — they're the subject of the meeting,
+        // not a colleague attending it.
+        $superviseeLecturers = $lecturerModel->findSuperviseeUserIdsWhoAreLecturers($lecturer['lecturer_id']);
+
+        // Flashes are read once and cleared, so a message doesn't
+        // linger on the next visit to the page.
+        $error = $_SESSION['flash_error'] ?? null;
+        $success = $_SESSION['flash_success'] ?? null;
+        unset($_SESSION['flash_error'], $_SESSION['flash_success']);
+
+        return $this->twig->render($response, 'lecturers/meetings.twig', [
             'active_page'           => 'l-meetings',
             'first_name'            => $_SESSION['first_name'] ?? '',
             'staff_number'          => $lecturer['staff_number'] ?? null,
-            'upcoming'              => $meetingModel->findUpcomingForUser($userId),
-            'past'                  => $meetingModel->findPastForUser($userId),
+            'upcoming'              => $this->applySecureCodeVisibility($meetingModel->findUpcomingForUser($userId), $meetingModel),
+            'past'                  => $this->applySecureCodeVisibility($meetingModel->findPastForUser($userId), $meetingModel),
             'students'              => $lecturerModel->findActiveSupervisions($lecturer['lecturer_id']),
-            'other_lecturers'       => $lecturerModel->listAllExcept($userId),
-            'internal_lecturers'    => $lecturerModel->listInternalLecturersExcept($userId),
-            'external_lecturers'    => $lecturerModel->listExternalLecturersExcept($userId),
+            'supervisee_documents'  => $lecturerModel->findSuperviseeDocuments($lecturer['lecturer_id']),
+            'other_lecturers'       => $lecturerModel->listAllExcept($userId, $superviseeLecturers),
+            'internal_lecturers'    => $lecturerModel->listInternalLecturersExcept($userId, $superviseeLecturers),
+            'external_lecturers'    => $lecturerModel->listExternalLecturersExcept($userId, $superviseeLecturers),
             'upcoming_exam_windows' => $lecturerModel->findUpcomingExamSchedulesForSupervisees($lecturer['lecturer_id']),
             'pending_grading'       => $examModel->findPendingGradingForLecturer($userId),
             'csrf_token'            => $this->csrfToken(),
-            'error'                 => $_SESSION['flash_error'] ?? null,
-            'success'               => $_SESSION['flash_success'] ?? null,
+            'error'                 => $error,
+            'success'               => $success,
         ]);
     }
 
@@ -128,8 +180,9 @@ class LecturerMeetingsController
         $aiNotes = !empty($data['ai_notes_enabled']);
         $includeStudent = !empty($data['include_student']);
 
-        $extraLecturerUserIds = array_filter((array) ($data['attendee_lecturers'] ?? []));
-        $lecturerAttendeeRole = $data['lecturer_attendee_role'] ?? 'examiner';
+        $attendeeUserIds = array_values(array_filter((array) ($data['attendee_lecturers'] ?? [])));
+        $attendeeRoles = array_values((array) ($data['attendee_roles'] ?? []));
+        $documentIds = array_values(array_filter((array) ($data['review_documents'] ?? [])));
 
         $errors = [];
         if (!$studentByProposal) {
@@ -150,8 +203,29 @@ class LecturerMeetingsController
         if (in_array($mode, ['virtual', 'hybrid'], true) && $virtualLink === '') {
             $errors[] = 'Please provide a virtual link for a virtual or hybrid meeting.';
         }
-        if ($extraLecturerUserIds && !in_array($lecturerAttendeeRole, self::VALID_ATTENDEE_ROLES, true)) {
-            $errors[] = 'Please select a valid role for invited lecturers.';
+
+        $studentUserId = $studentByProposal['student_user_id'] ?? null;
+
+        foreach ($attendeeUserIds as $i => $uid) {
+            if (!in_array($attendeeRoles[$i] ?? '', self::VALID_ATTENDEE_ROLES, true)) {
+                $errors[] = 'Please select a valid role for every invited attendee.';
+                break;
+            }
+            // The student may hold a lecturer account. The invite list
+            // already hides them, but a hand-crafted POST must not get
+            // them in as an examiner of their own work.
+            if ($studentUserId && $uid === $studentUserId) {
+                $errors[] = 'The student this meeting is about cannot be invited as a lecturer attendee.';
+                break;
+            }
+        }
+
+        // Only the selected student's own documents may be attached.
+        if ($documentIds && $studentUserId) {
+            $ownedIds = array_column($lecturerModel->findDocumentsForStudentUser($studentUserId), 'document_id');
+            if (array_diff($documentIds, $ownedIds)) {
+                $errors[] = 'One or more selected documents do not belong to that student.';
+            }
         }
 
         if ($errors) {
@@ -176,23 +250,27 @@ class LecturerMeetingsController
 
             $alreadyAdded = [$_SESSION['user_id']];
 
-            if ($includeStudent && !empty($studentByProposal['student_user_id'])) {
-                $meetingModel->addAttendee($meetingId, $studentByProposal['student_user_id'], 'student');
-                $alreadyAdded[] = $studentByProposal['student_user_id'];
+            if ($includeStudent && $studentUserId) {
+                $meetingModel->addAttendee($meetingId, $studentUserId, 'student');
+                $alreadyAdded[] = $studentUserId;
             }
 
-            foreach ($extraLecturerUserIds as $lecturerUserId) {
+            foreach ($attendeeUserIds as $i => $lecturerUserId) {
                 if (!in_array($lecturerUserId, $alreadyAdded, true)) {
-                    $meetingModel->addAttendee($meetingId, $lecturerUserId, $lecturerAttendeeRole);
+                    $meetingModel->addAttendee($meetingId, $lecturerUserId, $attendeeRoles[$i]);
                     $alreadyAdded[] = $lecturerUserId;
                 }
+            }
+
+            foreach ($documentIds as $documentId) {
+                $meetingModel->attachDocument($meetingId, $documentId, $_SESSION['user_id']);
             }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Could not schedule the meeting: ' . $e->getMessage();
             return $this->redirect($response, '/lecturer/meetings');
         }
 
-        $_SESSION['flash_success'] = 'Meeting scheduled.';
+        $_SESSION['flash_success'] = 'Meeting scheduled. Your attendance code is shown on the meeting card — share it with attendees during the meeting.';
         return $this->redirect($response, '/lecturer/meetings');
     }
 
@@ -202,7 +280,7 @@ class LecturerMeetingsController
      * document-review meetings tied to a formal exam period, distinct
      * from schedule() above which is unconstrained.
      */
-        public function scheduleForExam(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function scheduleForExam(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireLecturer()) {
             return $this->redirect($response, $redirect);
@@ -275,6 +353,10 @@ class LecturerMeetingsController
                 $errors[] = 'Please select a valid role for every invited attendee.';
                 break;
             }
+            if (!empty($match['student_user_id']) && $uid === $match['student_user_id']) {
+                $errors[] = 'The student this meeting is about cannot be invited as a lecturer attendee.';
+                break;
+            }
             if ($match['exam_type'] !== 'hybrid') {
                 $type = $lecturerModel->getTypeByUserId($uid);
                 if ($type !== $match['exam_type']) {
@@ -320,7 +402,58 @@ class LecturerMeetingsController
             }
         }
 
-        $_SESSION['flash_success'] = 'Meeting scheduled within the exam window.';
+        $_SESSION['flash_success'] = 'Meeting scheduled within the exam window. Your attendance code is shown on the meeting card.';
+        return $this->redirect($response, '/lecturer/meetings');
+    }
+
+    /**
+     * Moves a meeting to a new status, recording why. Cancelling is the
+     * common case and the reason is mandatory there — the student sees
+     * it on their meetings page, so "cancelled" alone isn't an answer.
+     */
+    public function changeStatus(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        $meetingId = $args['id'] ?? '';
+        $meetingModel = new Meeting($this->db);
+        $meeting = $meetingModel->findById($meetingId);
+
+        if (!$meeting || $meeting['created_by'] !== $_SESSION['user_id']) {
+            $_SESSION['flash_error'] = 'You are not authorized to change this meeting.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        $status = (string) ($data['status'] ?? 'cancelled');
+        $reason = trim((string) ($data['status_description'] ?? ''));
+
+        if (!in_array($status, self::SETTABLE_STATUSES, true)) {
+            $_SESSION['flash_error'] = 'That is not a status a meeting can be moved into.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        if ($status === 'cancelled' && $reason === '') {
+            $_SESSION['flash_error'] = 'Please give a reason for cancelling — the student will see it.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        if (!$meetingModel->changeStatus($meetingId, $status, $reason ?: null)) {
+            $_SESSION['flash_error'] = 'This meeting has already been completed or cancelled — its status can no longer be changed.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        $_SESSION['flash_success'] = $status === 'cancelled'
+            ? 'Meeting cancelled. The reason has been recorded and is visible to the student.'
+            : 'Meeting marked as ' . str_replace('_', ' ', $status) . '.';
+
         return $this->redirect($response, '/lecturer/meetings');
     }
 
@@ -340,27 +473,52 @@ class LecturerMeetingsController
         }
 
         $myRole = $meetingModel->isAttendee($meetingId, $_SESSION['user_id']);
-        if (!$myRole || !in_array($myRole, ['examiner', 'chairperson', 'supervisor'], true)) {
+        if (!$myRole || !in_array($myRole, self::EXAM_REVIEW_ROLES, true)) {
             $_SESSION['flash_error'] = 'You are not authorized to review this meeting.';
             return $this->redirect($response, '/lecturer/meetings');
         }
 
         $scoreModel = new \App\Models\ExaminationScore($this->db);
-        $documents = $scoreModel->findByMeeting($meetingId, $_SESSION['user_id']);
+        $reviewModel = new DocumentReviewScore($this->db);
+
+        // Documents attached directly to the meeting — the general
+        // scheduler's optional picks, scored into document_review_scores
+        // because they have no exam window to hang an exam_document off.
+        $meetingDocuments = [];
+        foreach ($meetingModel->findDocuments($meetingId) as $doc) {
+            $doc['my_review'] = $reviewModel->findMine($doc['document_id'], $_SESSION['user_id']);
+            $meetingDocuments[] = $doc;
+        }
+
+        // Mint the code for everyone who opens this page, not just the
+        // supervisor: an examiner reaching a pre-secure-code meeting
+        // before the supervisor ever opened it would otherwise face a
+        // form whose code check can never pass. Minting is separate
+        // from showing — only the supervisor is handed the value.
+        $code = $meetingModel->ensureSecureCode($meetingId);
+        $secureCode = $myRole === 'supervisor' ? $code : null;
+        unset($meeting['secure_code']);
+
+        $error = $_SESSION['flash_error'] ?? null;
+        $success = $_SESSION['flash_success'] ?? null;
+        unset($_SESSION['flash_error'], $_SESSION['flash_success']);
 
         return $this->twig->render($response, 'lecturers/meeting_review.twig', [
-            'active_page' => 'l-meetings',
-            'first_name'  => $_SESSION['first_name'] ?? '',
-            'meeting'     => $meeting,
-            'my_role'     => $myRole,
-            'documents'   => $documents,
-            'csrf_token'  => $this->csrfToken(),
-            'error'       => $_SESSION['flash_error'] ?? null,
-            'success'     => $_SESSION['flash_success'] ?? null,
+            'active_page'       => 'l-meetings',
+            'first_name'        => $_SESSION['first_name'] ?? '',
+            'meeting'           => $meeting,
+            'my_role'           => $myRole,
+            'documents'         => $scoreModel->findByMeeting($meetingId, $_SESSION['user_id']),
+            'meeting_documents' => $meetingDocuments,
+            'can_score_documents' => in_array($myRole, self::DOCUMENT_REVIEW_ROLES, true),
+            'secure_code'       => $secureCode,
+            'csrf_token'        => $this->csrfToken(),
+            'error'             => $error,
+            'success'           => $success,
         ]);
     }
 
-        public function submitReview(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    public function submitReview(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         if ($redirect = $this->requireLecturer()) {
             return $this->redirect($response, $redirect);
@@ -377,35 +535,24 @@ class LecturerMeetingsController
         $meeting = $meetingModel->findById($meetingId);
         $myRole = $meeting ? $meetingModel->isAttendee($meetingId, $_SESSION['user_id']) : null;
 
-        if (!$meeting || !$myRole || !in_array($myRole, ['examiner', 'chairperson', 'supervisor'], true)) {
+        if (!$meeting || !$myRole || !in_array($myRole, self::EXAM_REVIEW_ROLES, true)) {
             $_SESSION['flash_error'] = 'You are not authorized to review this meeting.';
             return $this->redirect($response, '/lecturer/meetings');
         }
 
-        $scoreModel = new \App\Models\ExaminationScore($this->db);
-        $examDocIds = (array) ($data['exam_document_id'] ?? []);
-        $scores = (array) ($data['score'] ?? []);
-        $remarks = (array) ($data['remarks'] ?? []);
+        // Attendance gate: the code is only known to people the
+        // supervisor read it out to, which is to say people who were
+        // actually in the meeting.
+        if (!$meetingModel->verifySecureCode($meetingId, (string) ($data['secure_code'] ?? ''))) {
+            $_SESSION['flash_error'] = 'That attendance code is not correct. Ask the supervisor for the code given out during the meeting.';
+            return $this->redirect($response, '/lecturer/meetings/' . $meetingId . '/review');
+        }
 
         $recorded = 0;
         $skipped = 0;
 
-        foreach ($examDocIds as $i => $examDocId) {
-            $score = $scores[$i] ?? null;
-            if ($score === null || $score === '' || !is_numeric($score) || $score < 0 || $score > 100) {
-                continue;
-            }
-
-            $pidStmt = $this->db->prepare("SELECT proposal_id FROM exam_documents WHERE exam_document_id = :id LIMIT 1");
-            $pidStmt->execute(['id' => $examDocId]);
-            $proposalId = $pidStmt->fetchColumn();
-            if (!$proposalId) {
-                continue;
-            }
-
-            $ok = $scoreModel->submit($examDocId, $proposalId, $_SESSION['user_id'], (float) $score, trim((string) ($remarks[$i] ?? '')) ?: null);
-            $ok ? $recorded++ : $skipped++;
-        }
+        $this->recordExamDocumentScores($data, $recorded, $skipped);
+        $this->recordMeetingDocumentScores($meetingId, $myRole, $meetingModel, $data, $recorded, $skipped);
 
         if ($recorded && $skipped) {
             $_SESSION['flash_success'] = $recorded . ' score(s) recorded. ' . $skipped . ' were skipped — you\'ve already reviewed those.';
@@ -420,7 +567,87 @@ class LecturerMeetingsController
         return $this->redirect($response, '/lecturer/meetings/' . $meetingId . '/review');
     }
 
-            public function editForm(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    /**
+     * Scores for documents submitted against a formal exam window,
+     * which land in examination_scores keyed by exam_document.
+     */
+    private function recordExamDocumentScores(array $data, int &$recorded, int &$skipped): void
+    {
+        $scoreModel = new \App\Models\ExaminationScore($this->db);
+        $examDocIds = (array) ($data['exam_document_id'] ?? []);
+        $scores = (array) ($data['score'] ?? []);
+        $remarks = (array) ($data['remarks'] ?? []);
+
+        foreach ($examDocIds as $i => $examDocId) {
+            $score = $scores[$i] ?? null;
+            if (!$this->isValidScore($score)) {
+                continue;
+            }
+
+            $pidStmt = $this->db->prepare("SELECT proposal_id FROM exam_documents WHERE exam_document_id = :id LIMIT 1");
+            $pidStmt->execute(['id' => $examDocId]);
+            $proposalId = $pidStmt->fetchColumn();
+            if (!$proposalId) {
+                continue;
+            }
+
+            $ok = $scoreModel->submit($examDocId, $proposalId, $_SESSION['user_id'], (float) $score, trim((string) ($remarks[$i] ?? '')) ?: null);
+            $ok ? $recorded++ : $skipped++;
+        }
+    }
+
+    /**
+     * Scores for documents attached to the meeting itself. Only an
+     * invited examiner or the supervisor may record these — a
+     * chairperson or observer sitting in on the meeting cannot.
+     */
+    private function recordMeetingDocumentScores(
+        string $meetingId,
+        string $myRole,
+        Meeting $meetingModel,
+        array $data,
+        int &$recorded,
+        int &$skipped
+    ): void {
+        $documentIds = (array) ($data['review_document_id'] ?? []);
+        if (!$documentIds) {
+            return;
+        }
+
+        if (!in_array($myRole, self::DOCUMENT_REVIEW_ROLES, true)) {
+            return;
+        }
+
+        // Only documents actually attached to this meeting are scorable,
+        // so a forged document_id can't be scored through this form.
+        $attached = array_column($meetingModel->findDocuments($meetingId), 'document_id');
+
+        $reviewModel = new DocumentReviewScore($this->db);
+        $scores = (array) ($data['review_score'] ?? []);
+        $comments = (array) ($data['review_comment'] ?? []);
+
+        foreach ($documentIds as $i => $documentId) {
+            $score = $scores[$i] ?? null;
+            if (!$this->isValidScore($score) || !in_array($documentId, $attached, true)) {
+                continue;
+            }
+
+            $ok = $reviewModel->submit(
+                $documentId,
+                $_SESSION['user_id'],
+                (float) $score,
+                trim((string) ($comments[$i] ?? '')) ?: null
+            );
+            $ok ? $recorded++ : $skipped++;
+        }
+    }
+
+    private function isValidScore(mixed $score): bool
+    {
+        return $score !== null && $score !== '' && is_numeric($score) && $score >= 0 && $score <= 100;
+    }
+
+    public function editForm(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         if ($redirect = $this->requireLecturer()) {
             return $this->redirect($response, $redirect);
@@ -438,19 +665,12 @@ class LecturerMeetingsController
         $lecturerModel = new Lecturer($this->db);
         $attendees = $meetingModel->findAttendees($meetingId);
 
-        // Resolve the student tied to this meeting's proposal, so they
-        // can be re-invited even after being removed — they won't show
-        // up in "existing attendees" once unchecked+saved, and they're
-        // not a lecturer, so the invite-new dropdown never includes them.
-        $studentStmt = $this->db->prepare(
-            "SELECT s.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name
-             FROM thesis_proposals tp
-             JOIN students s ON s.student_id = tp.student_id
-             JOIN users u ON u.user_id = s.user_id
-             WHERE tp.proposal_id = :proposal_id LIMIT 1"
-        );
-        $studentStmt->execute(['proposal_id' => $meeting['proposal_id']]);
-        $student = $studentStmt->fetch();
+        // The student tied to this meeting's proposal. Needed twice
+        // over: so they can be re-invited after being removed (they
+        // aren't a lecturer, so the invite dropdown never lists them),
+        // and so that if they DO hold a lecturer account they're kept
+        // out of that dropdown as a colleague.
+        $student = $meetingModel->findSubjectStudent($meetingId);
 
         $studentCurrentlyIncluded = false;
         foreach ($attendees as $att) {
@@ -460,20 +680,31 @@ class LecturerMeetingsController
             }
         }
 
+        $attachedIds = array_column($meetingModel->findDocuments($meetingId), 'document_id');
+
+        $error = $_SESSION['flash_error'] ?? null;
+        unset($_SESSION['flash_error']);
+
+        $secureCode = $meetingModel->ensureSecureCode($meetingId);
+        unset($meeting['secure_code']);
+
         return $this->twig->render($response, 'lecturers/meeting_edit.twig', [
-            'active_page'    => 'l-meetings',
-            'first_name'     => $_SESSION['first_name'] ?? '',
-            'meeting'        => $meeting,
-            'attendees'      => $attendees,
-            'other_lecturers'=> $lecturerModel->listAllExcept($_SESSION['user_id']),
-            'student'        => $student,
+            'active_page'      => 'l-meetings',
+            'first_name'       => $_SESSION['first_name'] ?? '',
+            'meeting'          => $meeting,
+            'attendees'        => $attendees,
+            'other_lecturers'  => $lecturerModel->listAllExcept($_SESSION['user_id'], $student ? [$student['user_id']] : []),
+            'student'          => $student,
             'student_included' => $studentCurrentlyIncluded,
-            'csrf_token'     => $this->csrfToken(),
-            'error'          => $_SESSION['flash_error'] ?? null,
+            'student_documents' => $student ? $lecturerModel->findDocumentsForStudentUser($student['user_id']) : [],
+            'attached_document_ids' => $attachedIds,
+            'secure_code'      => $secureCode,
+            'csrf_token'       => $this->csrfToken(),
+            'error'            => $error,
         ]);
     }
 
-        public function updateMeeting(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    public function updateMeeting(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
     {
         if ($redirect = $this->requireLecturer()) {
             return $this->redirect($response, $redirect);
@@ -499,7 +730,10 @@ class LecturerMeetingsController
             return $this->redirect($response, '/lecturer/meetings');
         }
 
-        $detailsChanged = $meetingModel->update($meetingId, [
+        $student = $meetingModel->findSubjectStudent($meetingId);
+        $studentUserId = $student['user_id'] ?? null;
+
+        $meetingModel->update($meetingId, [
             'meeting_type' => $data['meeting_type'] ?? $meeting['meeting_type'],
             'scheduled_at' => trim((string) ($data['date'] ?? '')) . ' ' . trim((string) ($data['time'] ?? '')) . ':00',
             'mode'         => $data['mode'] ?? $meeting['mode'],
@@ -523,8 +757,31 @@ class LecturerMeetingsController
         $newRoles = (array) ($data['new_attendee_roles'] ?? []);
         foreach ($newUserIds as $i => $uid) {
             $role = $newRoles[$i] ?? 'observer';
+
+            if (!in_array($role, [...self::VALID_ATTENDEE_ROLES, 'student'], true)) {
+                continue;
+            }
+
+            // The student attends as the student or not at all, even if
+            // they also hold a lecturer account.
+            if ($uid === $studentUserId && $role !== 'student') {
+                continue;
+            }
+
             $meetingModel->addAttendee($meetingId, $uid, $role);
         }
+
+        // Review documents are re-synced wholesale: whatever is ticked
+        // on the form is the meeting's document set afterwards.
+        $documentIds = array_values(array_filter((array) ($data['review_documents'] ?? [])));
+        if ($studentUserId) {
+            $lecturerModel = new Lecturer($this->db);
+            $ownedIds = array_column($lecturerModel->findDocumentsForStudentUser($studentUserId), 'document_id');
+            $documentIds = array_values(array_intersect($documentIds, $ownedIds));
+        } else {
+            $documentIds = [];
+        }
+        $meetingModel->syncDocuments($meetingId, $documentIds, $_SESSION['user_id']);
 
         $_SESSION['flash_success'] = 'Meeting updated.';
         return $this->redirect($response, '/lecturer/meetings');
@@ -547,7 +804,7 @@ class LecturerMeetingsController
         $scoreRaw = $data['score'] ?? '';
         $feedback = trim((string) ($data['feedback'] ?? '')) ?: null;
 
-        if (!$graderId || !is_numeric($scoreRaw) || (float) $scoreRaw < 0 || (float) $scoreRaw > 100) {
+        if (!$graderId || !$this->isValidScore($scoreRaw)) {
             $_SESSION['flash_error'] = 'Please provide a valid score between 0 and 100.';
             return $this->redirect($response, '/lecturer/meetings');
         }
