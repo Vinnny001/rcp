@@ -20,11 +20,15 @@ class Lecturer
      * Assumes a `department` column on `lecturers` and name fields on `users`.
      * Adjust the WHERE clause if you gate this by "accepting students" / load.
      *
+     * $excludeUserId leaves out the proposing student's own identity —
+     * a student who also holds a lecturer account must never be able to
+     * propose themselves as their own supervisor.
+     *
      * @return array<int, array{lecturer_id:string, name:string, department:string}>
      */
-    public function listAvailableSupervisors(): array
+    public function listAvailableSupervisors(?string $excludeUserId = null): array
     {
-        $stmt = $this->db->query(
+        $stmt = $this->db->prepare(
             "SELECT l.lecturer_id,
                     CONCAT(u.first_name, ' ', u.last_name) AS name,
                     COALESCE(d.name, el.department) AS department
@@ -33,9 +37,11 @@ class Lecturer
              LEFT JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
              LEFT JOIN departments d ON d.department_id = il.department_id
              LEFT JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
-             WHERE l.is_available = 1
+             WHERE l.is_available = 1" . ($excludeUserId !== null ? " AND l.user_id != :exclude_user_id" : "") . "
              ORDER BY u.first_name, u.last_name"
         );
+
+        $stmt->execute($excludeUserId !== null ? ['exclude_user_id' => $excludeUserId] : []);
 
         return $stmt->fetchAll() ?: [];
     }
@@ -85,6 +91,14 @@ class Lecturer
              WHERE l.is_examiner = 1"
         );
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public function updateMaxSupervisionLoad(string $lecturerId, int $value): void
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE lecturers SET max_supervision_load = :value WHERE lecturer_id = :lecturer_id"
+        );
+        $stmt->execute(['value' => $value, 'lecturer_id' => $lecturerId]);
     }
 
     public function toggleAvailability(string $lecturerId): void

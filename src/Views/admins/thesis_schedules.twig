@@ -104,6 +104,7 @@
       </summary>
 
       <div class="details-body">
+      <a href="/admin/thesis-schedules/{{ s.schedule_id }}/students" class="btn ghost" style="padding:5px 12px; font-size:.72rem; margin-bottom:14px; display:inline-block;">View students</a>
       <form method="POST" action="/admin/thesis-schedules/update">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="schedule_id" value="{{ s.schedule_id }}">

@@ -40,7 +40,7 @@
 {% if users %}
   <table>
     <thead>
-      <tr><th>Name</th><th>Roles</th><th>Department</th><th>Last login</th><th>Status</th><th>Examiner</th><th>Manage roles</th><th></th></tr>
+      <tr><th>Name</th><th>Roles</th><th>Department</th><th>Last login</th><th>Status</th><th>Examiner</th><th>Supervision load</th><th>Manage roles</th><th></th></tr>
     </thead>
     <tbody>
       {% for u in users %}
@@ -73,6 +73,18 @@
                 <input type="hidden" name="lecturer_id" value="{{ u.lecturer_id }}">
                 <span class="stamp mini {{ u.is_examiner ? 'approved' : 'pending' }}">{{ u.is_examiner ? 'Examiner' : 'Not examiner' }}</span>
                 <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">Toggle</button>
+              </form>
+            {% else %}
+              <span class="meta">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.lecturer_id %}
+              <form method="POST" action="/admin/users/max-supervision-load" style="display:flex; gap:6px; align-items:center;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="lecturer_id" value="{{ u.lecturer_id }}">
+                <input type="number" name="max_supervision_load" value="{{ u.max_supervision_load }}" min="0" style="width:64px;">
+                <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">Save</button>
               </form>
             {% else %}
               <span class="meta">—</span>

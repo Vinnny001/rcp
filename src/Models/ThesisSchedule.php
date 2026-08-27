@@ -66,7 +66,7 @@ class ThesisSchedule
         )->fetchAll();
 
         $review = $this->db->query(
-            "SELECT rate_id, program_id, academic_year, amount, currency, due_date
+            "SELECT rate_id, program_id, academic_year, amount, currency, due_after_months
              FROM thesis_review_fee_rates ORDER BY academic_year DESC"
         )->fetchAll();
 

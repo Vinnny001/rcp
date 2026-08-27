@@ -1,0 +1,45 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Schedule Students{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ schedule.program_name }}</h1>
+    <div class="sub">Students enrolled under this thesis schedule ({{ schedule.enrollment_start_date|date('d M Y') }}).</div>
+  </div>
+  <a href="/admin/thesis-schedules" class="btn ghost">Back to schedules</a>
+</div>
+
+{% if students %}
+  <table>
+    <thead>
+      <tr><th>Student</th><th>Registered</th><th>Latest proposal</th><th>Proposal status</th></tr>
+    </thead>
+    <tbody>
+      {% for s in students %}
+        <tr>
+          <td class="strong">{{ s.student_name }}<div class="meta" style="margin:2px 0 0;">{{ s.student_number }}</div></td>
+          <td class="mono">{{ s.registered_at ? s.registered_at|date('d M Y') : '—' }}</td>
+          <td>{{ s.proposal_title ?? '—' }}</td>
+          <td>
+            {% if s.proposal_status == 'approved' %}
+              <span class="stamp mini approved">Approved</span>
+            {% elseif s.proposal_status == 'rejected' %}
+              <span class="stamp mini rejected">Rejected — needs a new exam schedule</span>
+            {% elseif s.proposal_status %}
+              <span class="stamp mini pending">{{ s.proposal_status|replace({'_': ' '})|capitalize }}</span>
+            {% else %}
+              <span class="meta">No proposal yet</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No students are registered under this schedule yet.</div>
+{% endif %}
+
+{% endblock %}

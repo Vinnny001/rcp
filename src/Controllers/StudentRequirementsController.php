@@ -114,21 +114,27 @@ class StudentRequirementsController
                 $startsAt = $item['document_submission_starts_at'] ? new \DateTimeImmutable($item['document_submission_starts_at']) : null;
                 $deadline = $item['document_submission_deadline'] ? new \DateTimeImmutable($item['document_submission_deadline']) : null;
 
+                // A submission an approval-board exam sent back for
+                // resubmission reopens this slot regardless of lock or
+                // deadline — that's the whole point of a resubmit
+                // verdict: a fresh chance without a new meeting.
+                $needsResubmit = $submission && !empty($submission['requires_resubmit']);
+
                 // Locked once a submission exists with document_status = 'submitted' —
                 // no resubmission permitted at all, regardless of validation outcome.
-                $isLocked = $submission && $submission['document_status'] === 'submitted';
+                $isLocked = $submission && $submission['document_status'] === 'submitted' && !$needsResubmit;
 
                 $windowOpen = $proposalSubmitted
                     && !$isLocked
-                    && (!$startsAt || $now >= $startsAt)
-                    && (!$deadline || $now <= $deadline);
+                    && ($needsResubmit || ((!$startsAt || $now >= $startsAt) && (!$deadline || $now <= $deadline)));
 
                 $requirements[] = array_merge($item, [
-                    'submission'    => $submission,
-                    'is_locked'     => $isLocked,
-                    'window_open'   => $windowOpen,
-                    'not_open_yet'  => $startsAt && $now < $startsAt,
-                    'past_deadline' => $deadline && $now > $deadline,
+                    'submission'     => $submission,
+                    'is_locked'      => $isLocked,
+                    'window_open'    => $windowOpen,
+                    'needs_resubmit' => $needsResubmit,
+                    'not_open_yet'   => !$needsResubmit && $startsAt && $now < $startsAt,
+                    'past_deadline'  => !$needsResubmit && $deadline && $now > $deadline,
                 ]);
             }
         }
@@ -203,22 +209,34 @@ class StudentRequirementsController
 
         $documentModel = new Document($this->db);
 
-        // Lock check: refuse if this slot already has a 'submitted' document.
-        // Drafts CAN be overwritten (replaced) below.
+        // Lock check: refuse if this slot already has a 'submitted'
+        // document — unless an approval-board exam flagged it for
+        // resubmission, which reopens the slot for a fresh attempt.
         $existing = $documentModel->findLatestSubmission($userId, $examScheduleId, $documentTypeId);
-        if ($existing && $existing['document_status'] === 'submitted') {
+        $needsResubmit = $existing && !empty($existing['requires_resubmit']);
+
+        if ($existing && $existing['document_status'] === 'submitted' && !$needsResubmit) {
             $_SESSION['flash_error'] = 'This document has already been submitted and cannot be changed.';
             return $this->redirect($response, '/student/requirements');
         }
 
         $now = new \DateTimeImmutable();
-        if ($examSchedule['document_submission_starts_at'] && $now < new \DateTimeImmutable($examSchedule['document_submission_starts_at'])) {
+        if (!$needsResubmit && $examSchedule['document_submission_starts_at'] && $now < new \DateTimeImmutable($examSchedule['document_submission_starts_at'])) {
             $_SESSION['flash_error'] = 'Submissions for this document are not open yet.';
             return $this->redirect($response, '/student/requirements');
         }
-        if ($examSchedule['document_submission_deadline'] && $now > new \DateTimeImmutable($examSchedule['document_submission_deadline'])) {
+        if (!$needsResubmit && $examSchedule['document_submission_deadline'] && $now > new \DateTimeImmutable($examSchedule['document_submission_deadline'])) {
             $_SESSION['flash_error'] = 'The submission deadline for this document has passed.';
             return $this->redirect($response, '/student/requirements');
+        }
+
+        // A resubmission leaves the prior (already-graded) document and
+        // its exam_documents row alone — a fresh row is created below,
+        // exactly like a first-time submission, so the graded history
+        // stays intact and the new attempt naturally rejoins the same
+        // meeting via its shared exam_schedule_id.
+        if ($needsResubmit) {
+            $existing = null;
         }
 
         $uploadedFiles = $request->getUploadedFiles();

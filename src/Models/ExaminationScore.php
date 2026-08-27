@@ -120,6 +120,63 @@ class ExaminationScore
     }
 
     /**
+     * Called after each score is recorded against a Proposal exam
+     * document under an approval_board meeting. Once every eligible
+     * examiner has scored it, bands the average via
+     * GradingPolicy::examOutcome() and updates thesis_proposals.status
+     * accordingly: pass/distinction approve it, resubmit flags this
+     * exam_document for reopening on the Requirements page, fail
+     * rejects it outright. No-ops if scoring isn't complete yet, or if
+     * $eligibleExaminerIds is empty (nobody eligible to examine at all).
+     */
+    public function checkAndFinalizeProposalExam(string $examDocumentId, array $eligibleExaminerIds): void
+    {
+        if (!$eligibleExaminerIds) {
+            return;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT examiner_id, score_percentage FROM examination_scores WHERE exam_document_id = :id"
+        );
+        $stmt->execute(['id' => $examDocumentId]);
+        $rows = $stmt->fetchAll();
+
+        $scoredExaminerIds = array_column($rows, 'examiner_id');
+        if (array_diff($eligibleExaminerIds, $scoredExaminerIds)) {
+            return; // still waiting on at least one eligible examiner
+        }
+
+        $scores = array_map(fn($r) => (float) $r['score_percentage'], $rows);
+        $average = array_sum($scores) / count($scores);
+        $band = GradingPolicy::examOutcome($average);
+
+        $proposalStmt = $this->db->prepare("SELECT proposal_id FROM exam_documents WHERE exam_document_id = :id LIMIT 1");
+        $proposalStmt->execute(['id' => $examDocumentId]);
+        $proposalId = $proposalStmt->fetchColumn();
+        if (!$proposalId) {
+            return;
+        }
+
+        if (in_array($band['outcome'], ['pass', 'distinction'], true)) {
+            $update = $this->db->prepare(
+                "UPDATE thesis_proposals SET status = 'approved', approval_date = CURDATE() WHERE proposal_id = :id"
+            );
+            $update->execute(['id' => $proposalId]);
+        } elseif ($band['outcome'] === 'resubmit') {
+            $update = $this->db->prepare("UPDATE thesis_proposals SET status = 'revision_required' WHERE proposal_id = :id");
+            $update->execute(['id' => $proposalId]);
+
+            $flag = $this->db->prepare("UPDATE exam_documents SET requires_resubmit = 1 WHERE exam_document_id = :id");
+            $flag->execute(['id' => $examDocumentId]);
+        } else { // fail
+            $update = $this->db->prepare(
+                "UPDATE thesis_proposals SET status = 'rejected', rejection_reason = 'Did not pass the approval board examination.' WHERE proposal_id = :id"
+            );
+            $update->execute(['id' => $proposalId]);
+        }
+    }
+
+    /**
      * Examiner remarks for every document of one type scored within one
      * exam window, with the examiner's name and score stripped — same
      * rule as DocumentReviewScore::commentsForStudent.

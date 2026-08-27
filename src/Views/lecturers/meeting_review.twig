@@ -32,7 +32,7 @@
 {% if not has_exam_documents and not has_meeting_documents %}
   <div class="notice">No documents have been attached to this meeting for review.</div>
 {% else %}
-  <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/review">
+  <form method="POST" action="/lecturer/meetings/{{ meeting.meeting_id }}/review" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
     {% if has_exam_documents %}
@@ -54,6 +54,9 @@
           <div class="meta" style="margin-bottom:14px;">
             {{ doc.file_name }}
             <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View document</a>
+            {% if doc.doc_type_name == 'Proposal' %}
+              <a href="/lecturer/meetings/{{ meeting.meeting_id }}/proposal" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">Proposal overview</a>
+            {% endif %}
             {% if doc.graded_at %}
               <span class="stamp mini approved" style="margin-left:8px;">Scored {{ doc.graded_at|date('d M Y') }} — locked</span>
             {% endif %}
@@ -71,6 +74,11 @@
             <div class="field">
               <label>Remarks / feedback</label>
               <textarea name="remarks[]" rows="3" placeholder="Comments on this document..."></textarea>
+            </div>
+            <div class="field">
+              <label>Supporting document for admin (optional)</label>
+              <input type="file" name="review_attachment[{{ doc.exam_document_id }}]">
+              <div class="meta" style="margin-top:4px;">A detailed written reason, evidence, or reference material for this decision — visible to the admin office only.</div>
             </div>
           {% endif %}
         </div>

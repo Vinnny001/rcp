@@ -9,6 +9,7 @@ use App\Models\DocumentReviewScore;
 use App\Models\Lecturer;
 use App\Models\Meeting;
 use App\Models\Examination;
+use App\Models\ThesisRegistration;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Views\Twig;
@@ -62,6 +63,40 @@ class LecturerMeetingsController
             return array_values(array_diff(self::EXAM_REVIEW_ROLES, ['supervisor']));
         }
         return self::EXAM_REVIEW_ROLES;
+    }
+
+    /**
+     * Fee blockers on scheduling a meeting for this student, in plain
+     * language. An unpaid thesis registration or thesis review fee
+     * blocks any meeting; an unpaid document review fee only blocks
+     * scheduling against the specific exam window it's owed for (pass
+     * $examScheduleId when scheduling into a formal exam window).
+     *
+     * @return array<int, string>
+     */
+    private function feeBlockersForScheduling(string $studentId, ?string $examScheduleId = null): array
+    {
+        $regModel = new ThesisRegistration($this->db);
+        $registration = $regModel->findActiveByStudentId($studentId);
+
+        if (!$registration) {
+            return [];
+        }
+
+        $blockers = [];
+        foreach ($regModel->computeOwed($registration) as $item) {
+            if (in_array($item['fee_type'], ['thesis_registration', 'thesis_review_fee'], true)) {
+                $blockers[] = 'This student has an outstanding ' . str_replace('_', ' ', $item['fee_type']) . ' — a meeting cannot be scheduled until it is paid.';
+            } elseif (
+                $item['fee_type'] === 'document_review_fee'
+                && $examScheduleId !== null
+                && ($item['exam_schedule_id'] ?? null) === $examScheduleId
+            ) {
+                $blockers[] = 'This student has an outstanding document review fee for this exam window — a meeting cannot be scheduled until it is paid.';
+            }
+        }
+
+        return array_values(array_unique($blockers));
     }
 
     /**
@@ -320,6 +355,10 @@ class LecturerMeetingsController
             }
         }
 
+        if ($studentByProposal) {
+            $errors = array_merge($errors, $this->feeBlockersForScheduling($studentByProposal['student_id']));
+        }
+
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
             return $this->redirect($response, '/lecturer/meetings');
@@ -467,6 +506,8 @@ class LecturerMeetingsController
             }
         }
 
+        $errors = array_merge($errors, $this->feeBlockersForScheduling($match['student_id'], $examScheduleId));
+
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);
             return $this->redirect($response, '/lecturer/meetings');
@@ -567,6 +608,52 @@ class LecturerMeetingsController
             : 'Meeting marked as ' . str_replace('_', ' ', $status) . '.';
 
         return $this->redirect($response, '/lecturer/meetings');
+    }
+
+    /**
+     * A read-only view of the proposal behind a Proposal exam document —
+     * reachable only by an attendee of the meeting it's being reviewed
+     * under, not by proposal_id alone, so a lecturer can't browse
+     * proposals they have no reason to see.
+     */
+    public function proposalOverview(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $meetingId = $args['id'] ?? '';
+        $meetingModel = new Meeting($this->db);
+        $meeting = $meetingModel->findById($meetingId);
+
+        if (!$meeting || !$meetingModel->isAttendee($meetingId, $_SESSION['user_id'])) {
+            $_SESSION['flash_error'] = 'You are not authorized to view this proposal.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        $proposal = (new \App\Models\Proposal($this->db))->findById($meeting['proposal_id']);
+        if (!$proposal) {
+            $_SESSION['flash_error'] = 'That proposal could not be found.';
+            return $this->redirect($response, '/lecturer/meetings/' . $meetingId . '/review');
+        }
+
+        $documentModel = new Document($this->db);
+        $synopsisTypeStmt = $this->db->prepare("SELECT doc_type_id FROM document_types WHERE doc_type_name = 'Synopsis' LIMIT 1");
+        $synopsisTypeStmt->execute();
+        $synopsisTypeId = $synopsisTypeStmt->fetchColumn();
+
+        $proposalTypeStmt = $this->db->prepare("SELECT doc_type_id FROM document_types WHERE doc_type_name = 'Proposal' LIMIT 1");
+        $proposalTypeStmt->execute();
+        $proposalTypeId = $proposalTypeStmt->fetchColumn();
+
+        return $this->twig->render($response, 'lecturers/proposal_overview.twig', [
+            'active_page'  => 'l-meetings',
+            'first_name'   => $_SESSION['first_name'] ?? '',
+            'meeting_id'   => $meetingId,
+            'proposal'     => $proposal,
+            'synopsis_doc' => $synopsisTypeId ? $documentModel->findByProposalAndType($proposal['proposal_id'], $synopsisTypeId) : null,
+            'proposal_doc' => $proposalTypeId ? $documentModel->findByProposalAndType($proposal['proposal_id'], $proposalTypeId) : null,
+        ]);
     }
 
     public function review(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
@@ -672,7 +759,16 @@ class LecturerMeetingsController
         $windowExamType = $meetingModel->windowExamType($meetingId);
         $canScoreExamDocuments = in_array($myRole, $this->examReviewRolesFor($windowExamType), true);
 
-        $this->recordExamDocumentScores($data, $canScoreExamDocuments, $recorded, $skipped);
+        // Every attendee eligible to examine this meeting — used to tell
+        // whether every examiner has now scored a given exam document,
+        // which is what triggers the approval-board auto-outcome.
+        $eligibleRoles = $this->examReviewRolesFor($windowExamType);
+        $eligibleExaminerIds = array_values(array_map(
+            fn($a) => $a['user_id'],
+            array_filter($meetingModel->findAttendees($meetingId), fn($a) => in_array($a['role_in_meeting'], $eligibleRoles, true))
+        ));
+
+        $this->recordExamDocumentScores($request, $data, $canScoreExamDocuments, $meeting['meeting_type'], $eligibleExaminerIds, $recorded, $skipped);
         $this->recordMeetingDocumentScores($meetingId, $myRole, $meetingModel, $data, $recorded, $skipped);
 
         if ($recorded && $skipped) {
@@ -688,15 +784,37 @@ class LecturerMeetingsController
         return $this->redirect($response, '/lecturer/meetings/' . $meetingId . '/review');
     }
 
+    private const REVIEW_ATTACHMENT_UPLOAD_DIR = __DIR__ . '/../../public/uploads/documents';
+    private const REVIEW_ATTACHMENT_ALLOWED_MIME = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+    private const REVIEW_ATTACHMENT_MAX_SIZE_KB = 10240;
+
     /**
      * Scores for documents submitted against a formal exam window,
      * which land in examination_scores keyed by exam_document.
      * $allowed carries the external-exam-type-blocks-supervisor rule —
      * refused up front rather than trusted to the caller having already
      * filtered exam_document_id[], since this is the actual write path.
+     *
+     * After each score is recorded, an optional admin-facing attachment
+     * is stored, and — for a Proposal document under an approval_board
+     * meeting — checks whether every eligible examiner has now scored
+     * it, triggering the auto-outcome on the proposal if so.
      */
-    private function recordExamDocumentScores(array $data, bool $allowed, int &$recorded, int &$skipped): void
-    {
+    private function recordExamDocumentScores(
+        ServerRequestInterface $request,
+        array $data,
+        bool $allowed,
+        string $meetingType,
+        array $eligibleExaminerIds,
+        int &$recorded,
+        int &$skipped
+    ): void {
         if (!$allowed) {
             return;
         }
@@ -705,6 +823,8 @@ class LecturerMeetingsController
         $examDocIds = (array) ($data['exam_document_id'] ?? []);
         $scores = (array) ($data['score'] ?? []);
         $remarks = (array) ($data['remarks'] ?? []);
+        $uploadedFiles = $request->getUploadedFiles();
+        $attachments = $uploadedFiles['review_attachment'] ?? [];
 
         foreach ($examDocIds as $i => $examDocId) {
             $score = $scores[$i] ?? null;
@@ -712,16 +832,89 @@ class LecturerMeetingsController
                 continue;
             }
 
-            $pidStmt = $this->db->prepare("SELECT proposal_id FROM exam_documents WHERE exam_document_id = :id LIMIT 1");
-            $pidStmt->execute(['id' => $examDocId]);
-            $proposalId = $pidStmt->fetchColumn();
-            if (!$proposalId) {
+            $docStmt = $this->db->prepare(
+                "SELECT ed.proposal_id, dt.doc_type_name
+                 FROM exam_documents ed
+                 JOIN document_types dt ON dt.doc_type_id = ed.document_type_id
+                 WHERE ed.exam_document_id = :id LIMIT 1"
+            );
+            $docStmt->execute(['id' => $examDocId]);
+            $examDoc = $docStmt->fetch();
+            if (!$examDoc) {
                 continue;
             }
 
-            $ok = $scoreModel->submit($examDocId, $proposalId, $_SESSION['user_id'], (float) $score, trim((string) ($remarks[$i] ?? '')) ?: null);
-            $ok ? $recorded++ : $skipped++;
+            $ok = $scoreModel->submit($examDocId, $examDoc['proposal_id'], $_SESSION['user_id'], (float) $score, trim((string) ($remarks[$i] ?? '')) ?: null);
+
+            if (!$ok) {
+                $skipped++;
+                continue;
+            }
+
+            $recorded++;
+
+            $file = $attachments[$examDocId] ?? null;
+            if ($file) {
+                $this->storeReviewAttachment($examDocId, $file);
+            }
+
+            if ($examDoc['doc_type_name'] === 'Proposal' && $meetingType === 'approval_board') {
+                $scoreModel->checkAndFinalizeProposalExam($examDocId, $eligibleExaminerIds);
+            }
         }
+    }
+
+    /**
+     * Stores one examiner's supporting file for a scored exam document.
+     * Failures here are silent (logged only via the flash-less no-op) —
+     * a malformed/oversized attachment shouldn't undo an already-recorded
+     * score, since the score is the part that actually matters.
+     */
+    private function storeReviewAttachment(string $examDocumentId, $file): void
+    {
+        if ($file->getError() !== UPLOAD_ERR_OK) {
+            return;
+        }
+
+        $mimeType = $file->getClientMediaType();
+        if (!in_array($mimeType, self::REVIEW_ATTACHMENT_ALLOWED_MIME, true)) {
+            return;
+        }
+
+        $sizeKb = (int) ceil($file->getSize() / 1024);
+        if ($sizeKb > self::REVIEW_ATTACHMENT_MAX_SIZE_KB) {
+            return;
+        }
+
+        $typeStmt = $this->db->prepare("SELECT doc_type_id FROM document_types WHERE doc_type_name = 'Examination Report' LIMIT 1");
+        $typeStmt->execute();
+        $documentTypeId = $typeStmt->fetchColumn();
+        if (!$documentTypeId) {
+            return;
+        }
+
+        if (!is_dir(self::REVIEW_ATTACHMENT_UPLOAD_DIR)) {
+            mkdir(self::REVIEW_ATTACHMENT_UPLOAD_DIR, 0755, true);
+        }
+
+        $originalName = $file->getClientFilename() ?: 'attachment';
+        $extension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION)) ?: 'bin';
+        $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+        $file->moveTo(self::REVIEW_ATTACHMENT_UPLOAD_DIR . '/' . $storedName);
+
+        $documentModel = new Document($this->db);
+        $documentId = $documentModel->create([
+            'user_id'          => $_SESSION['user_id'],
+            'uploaded_by'      => $_SESSION['user_id'],
+            'document_type_id' => $documentTypeId,
+            'document_status'  => 'final',
+            'file_name'        => $originalName,
+            'file_path'        => 'uploads/documents/' . $storedName,
+            'file_size_kb'     => $sizeKb,
+            'mime_type'        => $mimeType,
+        ]);
+
+        (new \App\Models\ExamReviewAttachment($this->db))->create($examDocumentId, $_SESSION['user_id'], $documentId);
     }
 
     /**

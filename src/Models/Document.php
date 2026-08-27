@@ -158,7 +158,7 @@ class Document
     public function findLatestSubmission(string $userId, string $examScheduleId, string $documentTypeId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT d.*, ed.exam_document_id, ed.submitted_at
+            "SELECT d.*, ed.exam_document_id, ed.submitted_at, ed.requires_resubmit
              FROM exam_documents ed
              JOIN documents d ON d.document_id = ed.document_id
              WHERE ed.exam_schedule_id = :exam_schedule_id

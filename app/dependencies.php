@@ -274,5 +274,9 @@ LecturerThesesController::class => function (ContainerInterface $c) {
     return new \App\Controllers\StudentNotificationsController($c->get(PDO::class), $c->get(Twig::class));
 },
 
+\App\Middleware\NotificationBadgeMiddleware::class => function (ContainerInterface $c) {
+    return new \App\Middleware\NotificationBadgeMiddleware($c->get(PDO::class), $c->get(Twig::class));
+},
+
     ]);
 };

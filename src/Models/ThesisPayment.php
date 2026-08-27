@@ -27,14 +27,22 @@ class ThesisPayment
         /**
      * Sums confirmed payments for a thesis registration, by fee type.
      * - thesis_registration: one-time, no further scoping needed.
-     * - thesis_review_fee: pass $examScheduleId to scope the sum to a
-     *   specific document/exam schedule — without it, review-fee
+     * - document_review_fee: pass $examScheduleId to scope the sum to a
+     *   specific document/exam schedule — without it, document-review-fee
      *   payments for different document types would be summed together,
-     *   which is wrong now that review fees are per document type.
+     *   which is wrong since that fee is per document type.
+     * - thesis_review_fee: pass $thesisYear to scope the sum to one
+     *   annual period — this fee recurs, so without a year scope,
+     *   payments for different years would be summed together and a
+     *   student could never appear to owe a later year's fee.
      */
-    public function sumConfirmed(string $thesisRegistrationId, string $feeType, ?string $examScheduleId = null): float
-    {
-        if ($feeType === 'thesis_review_fee' && $examScheduleId !== null) {
+    public function sumConfirmed(
+        string $thesisRegistrationId,
+        string $feeType,
+        ?string $examScheduleId = null,
+        ?int $thesisYear = null
+    ): float {
+        if ($feeType === 'document_review_fee' && $examScheduleId !== null) {
             $stmt = $this->db->prepare(
                 "SELECT COALESCE(SUM(amount), 0) FROM thesis_payments
                  WHERE thesis_registration_id = :id AND fee_type = :fee_type
@@ -44,6 +52,20 @@ class ThesisPayment
                 'id'               => $thesisRegistrationId,
                 'fee_type'         => $feeType,
                 'exam_schedule_id' => $examScheduleId,
+            ]);
+            return (float) $stmt->fetchColumn();
+        }
+
+        if ($feeType === 'thesis_review_fee' && $thesisYear !== null) {
+            $stmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) FROM thesis_payments
+                 WHERE thesis_registration_id = :id AND fee_type = :fee_type
+                   AND thesis_year = :thesis_year AND status = 'confirmed'"
+            );
+            $stmt->execute([
+                'id'          => $thesisRegistrationId,
+                'fee_type'    => $feeType,
+                'thesis_year' => $thesisYear,
             ]);
             return (float) $stmt->fetchColumn();
         }

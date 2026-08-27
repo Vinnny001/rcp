@@ -61,6 +61,7 @@ class AdminUser
                     MAX(d.name)           AS department,
                     MAX(l.lecturer_id)    AS lecturer_id,
                     MAX(l.is_examiner)    AS is_examiner,
+                    MAX(l.max_supervision_load) AS max_supervision_load,
                     GROUP_CONCAT(DISTINCT r.role_name ORDER BY r.role_name SEPARATOR ', ') AS roles
              FROM users u
              LEFT JOIN students s ON s.user_id = u.user_id

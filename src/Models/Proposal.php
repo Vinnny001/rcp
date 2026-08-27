@@ -42,6 +42,27 @@ class Proposal
     }
 
     /**
+     * A proposal by its own id, with the student's identity attached —
+     * for a lecturer/examiner reading someone else's proposal (e.g. the
+     * "Proposal overview" button during exam-document review), not the
+     * student's own session-scoped view.
+     */
+    public function findById(string $proposalId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT tp.*, s.student_number, CONCAT(u.first_name, ' ', u.last_name) AS student_name
+             FROM thesis_proposals tp
+             JOIN students s ON s.student_id = tp.student_id
+             JOIN users u ON u.user_id = s.user_id
+             WHERE tp.proposal_id = :proposal_id
+             LIMIT 1"
+        );
+        $stmt->execute(['proposal_id' => $proposalId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /**
      * Creates a new proposal. Pass $submit = false to save as a draft
      * (no submission_date, status stays 'draft'), or true to submit it
      * immediately for review.

@@ -253,14 +253,15 @@ class StudentThesisController
         }
 
         $feeType = $data['fee_type'] ?? '';
-        $year = $data['thesis_year'] !== '' ? (int) $data['thesis_year'] : null;
+        $year = ($data['thesis_year'] ?? '') !== '' ? (int) $data['thesis_year'] : null;
+        $examScheduleId = trim((string) ($data['exam_schedule_id'] ?? '')) ?: null;
         $amount = $data['amount'] ?? '';
         $currency = $data['currency'] ?? 'KES';
         $paymentMethod = $data['payment_method'] ?? '';
         $reference = trim((string) ($data['reference_number'] ?? ''));
 
         $errors = [];
-        if (!in_array($feeType, ['thesis_registration', 'thesis_review_fee'], true)) {
+        if (!in_array($feeType, ['thesis_registration', 'thesis_review_fee', 'document_review_fee'], true)) {
             $errors[] = 'Invalid fee type.';
         }
         if ($amount === '' || (float) $amount <= 0) {
@@ -284,6 +285,7 @@ class StudentThesisController
             $paymentModel->create([
                 'fee_type'         => $feeType,
                 'thesis_year'      => $year,
+                'exam_schedule_id' => $examScheduleId,
                 'amount'           => $amount,
                 'currency'         => $currency,
                 'payment_method'   => $paymentMethod,

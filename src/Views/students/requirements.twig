@@ -38,7 +38,9 @@
             {% if item.document_submission_deadline %}{{ item.document_submission_deadline|date('d M Y') }}{% else %}—{% endif %}
           </td>
           <td>
-            {% if item.submission %}
+            {% if item.needs_resubmit %}
+              <span class="stamp mini pending">Resubmit required</span>
+            {% elseif item.submission %}
               {% if item.submission.document_status == 'draft' %}
                 <span class="stamp mini pending">Draft</span>
               {% elseif item.submission.validation_status == 'valid' %}
@@ -63,9 +65,9 @@
             {% if item.window_open %}
               <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem;"
                 onclick="openUploadModal('{{ item.exam_schedule_id }}', '{{ item.document_type_id }}', '{{ item.doc_type_name|escape('js') }}')">
-                {{ item.submission ? 'Replace draft' : 'Upload' }}
+                {{ item.needs_resubmit ? 'Resubmit' : (item.submission ? 'Replace draft' : 'Upload') }}
               </button>
-              {% if item.submission %}
+              {% if item.submission and item.submission.document_status == 'draft' %}
                 <form method="POST" action="/student/requirements/submit-draft" style="display:inline;">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="document_id" value="{{ item.submission.document_id }}">

@@ -37,6 +37,34 @@ class ThesisRegistration
         return $row ?: null;
     }
 
+    /**
+     * Every student registered under one thesis schedule, with their
+     * latest proposal status attached — lets admin spot students whose
+     * proposal was rejected (failed an approval-board exam) and who
+     * need a brand-new exam schedule to attempt a fresh proposal.
+     */
+    public function findStudentsByScheduleId(string $scheduleId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT str.thesis_registration_id, str.status AS registration_status, str.registered_at,
+                    s.student_id, s.student_number,
+                    CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                    tp.proposal_id, tp.title AS proposal_title, tp.status AS proposal_status
+             FROM student_thesis_registrations str
+             JOIN students s ON s.student_id = str.student_id
+             JOIN users u ON u.user_id = s.user_id
+             LEFT JOIN thesis_proposals tp ON tp.proposal_id = (
+                 SELECT tp2.proposal_id FROM thesis_proposals tp2
+                 WHERE tp2.student_id = s.student_id
+                 ORDER BY tp2.created_at DESC LIMIT 1
+             )
+             WHERE str.thesis_schedule_id = :schedule_id
+             ORDER BY u.first_name, u.last_name"
+        );
+        $stmt->execute(['schedule_id' => $scheduleId]);
+        return $stmt->fetchAll();
+    }
+
     public function create(string $studentId, string $thesisScheduleId): string
     {
         $id = $this->generateUuid();
@@ -65,21 +93,29 @@ class ThesisRegistration
      * Computes everything owed right now.
      *
      * 1. Registration fee — one-time, via thesis_schedules ->
-     *    thesis_registration_rates. Must clear before review fees are
+     *    thesis_registration_rates. Must clear before anything else is
      *    evaluated at all.
      *
-     * 2. Review fees — one per document type under exam_schedule for
-     *    this thesis_schedule. A review fee becomes "due" once
+     * 2. Document review fee — one per document type under exam_schedule
+     *    for this thesis_schedule. Becomes "due" once
      *    NOW() >= document_submission_starts_at + due_after_weeks
      *    (weeks counted from when document submission opens, not from
      *    registration or any other anchor). Each is tracked against its
      *    own exam_schedule_id, so two document types due in the same
      *    year no longer collide.
+     *
+     * 3. Thesis review fee — a recurring annual fee per program
+     *    (thesis_review_fee_rates), owed once a supervisor is assigned.
+     *    The first period is due at enrollment_start_date +
+     *    due_after_months; it then recurs every 12 months after that,
+     *    each period priced by that period's own academic_year rate
+     *    (falling back to the latest configured year, same as
+     *    findReviewFeeRate() already does).
      */
     public function computeOwed(array $registration): array
     {
         $scheduleStmt = $this->db->prepare(
-            "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id
+            "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id, ts.enrollment_start_date
              FROM thesis_schedules ts
              WHERE ts.schedule_id = :schedule_id LIMIT 1"
         );
@@ -140,8 +176,8 @@ class ThesisRegistration
             return $owed;
         }
 
-        // 2. Review fees — per exam_schedule_documents row (document
-        // type), weeks counted from document_submission_starts_at,
+        // 2. Document review fee — per exam_schedule_documents row
+        // (document type), weeks counted from document_submission_starts_at,
         // which now lives on exam_schedule_documents, not exam_schedule.
         $examSchedules = $this->db->prepare(
             "SELECT esd.exam_schedule_id, esd.document_type_id, esd.document_submission_starts_at,
@@ -172,14 +208,14 @@ class ThesisRegistration
             $year = $this->yearsElapsedSince($registration['registered_at']) ?: 1;
             $paid = $paymentModel->sumConfirmed(
                 $registration['thesis_registration_id'],
-                'thesis_review_fee',
+                'document_review_fee',
                 $es['exam_schedule_id']
             );
             $required = (float) $es['amount'];
 
             if ($paid < $required) {
                 $owed[] = [
-                    'fee_type'         => 'thesis_review_fee',
+                    'fee_type'         => 'document_review_fee',
                     'exam_schedule_id' => $es['exam_schedule_id'],
                     'year'             => $year,
                     'paid'             => $paid,
@@ -191,7 +227,77 @@ class ThesisRegistration
             }
         }
 
+        // 3. Thesis review fee — recurring annually off enrollment_start_date.
+        foreach ($this->annualReviewFeePeriodsDue($schedule) as $period) {
+            $paid = $paymentModel->sumConfirmed(
+                $registration['thesis_registration_id'],
+                'thesis_review_fee',
+                null,
+                $period['year']
+            );
+            $required = $period['amount'];
+
+            if ($paid < $required) {
+                $owed[] = [
+                    'fee_type'  => 'thesis_review_fee',
+                    'year'      => $period['year'],
+                    'paid'      => $paid,
+                    'required'  => $required,
+                    'remaining' => $required - $paid,
+                    'currency'  => $period['currency'],
+                    'due_date'  => $period['due_date'],
+                ];
+            }
+        }
+
         return $owed;
+    }
+
+    /**
+     * Every annual thesis-review-fee period that has already become due
+     * (enrollment_start_date + due_after_months, then every 12 months
+     * after that), each priced by that period's own academic-year rate.
+     * Stops at the first period that isn't due yet, since periods are
+     * strictly chronological — capped at 20 years as a sanity bound.
+     *
+     * @return array<int, array{year:int, amount:float, currency:string, due_date:string}>
+     */
+    private function annualReviewFeePeriodsDue(array $schedule): array
+    {
+        $feeRateModel = new ThesisFeeRate($this->db);
+        $enrollmentStart = new \DateTimeImmutable($schedule['enrollment_start_date']);
+        $startYear = (int) $enrollmentStart->format('Y');
+
+        $firstRate = $feeRateModel->findReviewFeeRate($schedule['program_id'], $startYear);
+        if (!$firstRate || $firstRate['due_after_months'] === null) {
+            return []; // not configured yet — no fee enforced until it is
+        }
+
+        $anchorMonths = (int) $firstRate['due_after_months'];
+        $now = new \DateTimeImmutable();
+        $periods = [];
+
+        for ($n = 0; $n < 20; $n++) {
+            $dueAt = $enrollmentStart->modify('+' . ($anchorMonths + 12 * $n) . ' months');
+
+            if ($now < $dueAt) {
+                break; // this and every later period are still in the future
+            }
+
+            $rate = $feeRateModel->findReviewFeeRate($schedule['program_id'], $startYear + $n);
+            if (!$rate) {
+                continue; // nothing configured for this year or earlier
+            }
+
+            $periods[] = [
+                'year'     => $startYear + $n,
+                'amount'   => (float) $rate['amount'],
+                'currency' => $rate['currency'],
+                'due_date' => $dueAt->format('Y-m-d'),
+            ];
+        }
+
+        return $periods;
     }
 
 
@@ -260,7 +366,7 @@ class ThesisRegistration
     public function computeUpcoming(array $registration): array
     {
         $scheduleStmt = $this->db->prepare(
-            "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id
+            "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id, ts.enrollment_start_date
              FROM thesis_schedules ts
              WHERE ts.schedule_id = :schedule_id LIMIT 1"
         );
@@ -333,14 +439,14 @@ class ThesisRegistration
 
             $paid = $paymentModel->sumConfirmed(
                 $registration['thesis_registration_id'],
-                'thesis_review_fee',
+                'document_review_fee',
                 $es['exam_schedule_id']
             );
             $required = (float) $es['amount'];
 
             if ($paid < $required) {
                 $upcoming[] = [
-                    'fee_type'         => 'thesis_review_fee',
+                    'fee_type'         => 'document_review_fee',
                     'doc_type_name'    => $es['doc_type_name'],
                     'exam_schedule_id' => $es['exam_schedule_id'],
                     'required'         => $required,
@@ -350,6 +456,65 @@ class ThesisRegistration
             }
         }
 
+        // Next thesis-review-fee period not yet due (if any) — the ones
+        // already due are surfaced by computeOwed() instead, not here.
+        $nextPeriod = $this->nextAnnualReviewFeePeriod($schedule);
+        if ($nextPeriod) {
+            $paid = $paymentModel->sumConfirmed(
+                $registration['thesis_registration_id'],
+                'thesis_review_fee',
+                null,
+                $nextPeriod['year']
+            );
+
+            if ($paid < $nextPeriod['amount']) {
+                $upcoming[] = [
+                    'fee_type' => 'thesis_review_fee',
+                    'year'     => $nextPeriod['year'],
+                    'required' => $nextPeriod['amount'],
+                    'currency' => $nextPeriod['currency'],
+                    'due_date' => $nextPeriod['due_date'],
+                ];
+            }
+        }
+
         return $upcoming;
+    }
+
+    /**
+     * The first thesis-review-fee period that hasn't become due yet —
+     * the informational counterpart to annualReviewFeePeriodsDue().
+     *
+     * @return array{year:int, amount:float, currency:string, due_date:string}|null
+     */
+    private function nextAnnualReviewFeePeriod(array $schedule): ?array
+    {
+        $feeRateModel = new ThesisFeeRate($this->db);
+        $enrollmentStart = new \DateTimeImmutable($schedule['enrollment_start_date']);
+        $startYear = (int) $enrollmentStart->format('Y');
+
+        $firstRate = $feeRateModel->findReviewFeeRate($schedule['program_id'], $startYear);
+        if (!$firstRate || $firstRate['due_after_months'] === null) {
+            return null;
+        }
+
+        $anchorMonths = (int) $firstRate['due_after_months'];
+        $now = new \DateTimeImmutable();
+
+        for ($n = 0; $n < 20; $n++) {
+            $dueAt = $enrollmentStart->modify('+' . ($anchorMonths + 12 * $n) . ' months');
+
+            if ($now < $dueAt) {
+                $rate = $feeRateModel->findReviewFeeRate($schedule['program_id'], $startYear + $n);
+                return $rate ? [
+                    'year'     => $startYear + $n,
+                    'amount'   => (float) $rate['amount'],
+                    'currency' => $rate['currency'],
+                    'due_date' => $dueAt->format('Y-m-d'),
+                ] : null;
+            }
+        }
+
+        return null;
     }
 }

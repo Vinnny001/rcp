@@ -118,17 +118,17 @@ class ThesisFeeRate
         $rateId = $this->generateUuid();
         $stmt = $this->db->prepare(
             "INSERT INTO thesis_review_fee_rates
-                (rate_id, program_id, academic_year, amount, currency, due_date, created_by, updated_by)
-             VALUES (:rate_id, :program_id, :academic_year, :amount, :currency, :due_date, :created_by, :created_by)"
+                (rate_id, program_id, academic_year, amount, currency, due_after_months, created_by, updated_by)
+             VALUES (:rate_id, :program_id, :academic_year, :amount, :currency, :due_after_months, :created_by, :created_by)"
         );
         $stmt->execute([
-            'rate_id'       => $rateId,
-            'program_id'    => $data['program_id'],
-            'academic_year' => $data['academic_year'],
-            'amount'        => $data['amount'],
-            'currency'      => $data['currency'] ?: 'KES',
-            'due_date'      => $data['due_date'] ?: null,
-            'created_by'    => $createdBy,
+            'rate_id'          => $rateId,
+            'program_id'       => $data['program_id'],
+            'academic_year'    => $data['academic_year'],
+            'amount'           => $data['amount'],
+            'currency'         => $data['currency'] ?: 'KES',
+            'due_after_months' => $data['due_after_months'] !== '' ? (int) $data['due_after_months'] : null,
+            'created_by'       => $createdBy,
         ]);
         return $rateId;
     }
@@ -138,17 +138,17 @@ class ThesisFeeRate
         $stmt = $this->db->prepare(
             "UPDATE thesis_review_fee_rates
              SET program_id = :program_id, academic_year = :academic_year, amount = :amount,
-                 currency = :currency, due_date = :due_date, updated_by = :updated_by
+                 currency = :currency, due_after_months = :due_after_months, updated_by = :updated_by
              WHERE rate_id = :rate_id"
         );
         $stmt->execute([
-            'program_id'    => $data['program_id'],
-            'academic_year' => $data['academic_year'],
-            'amount'        => $data['amount'],
-            'currency'      => $data['currency'] ?: 'KES',
-            'due_date'      => $data['due_date'] ?: null,
-            'updated_by'    => $updatedBy,
-            'rate_id'       => $rateId,
+            'program_id'       => $data['program_id'],
+            'academic_year'    => $data['academic_year'],
+            'amount'           => $data['amount'],
+            'currency'         => $data['currency'] ?: 'KES',
+            'due_after_months' => $data['due_after_months'] !== '' ? (int) $data['due_after_months'] : null,
+            'updated_by'       => $updatedBy,
+            'rate_id'          => $rateId,
         ]);
     }
 

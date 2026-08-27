@@ -1,0 +1,47 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Proposal Overview{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ proposal.title }}</h1>
+    <div class="sub">{{ proposal.student_name }} · {{ proposal.student_number }}</div>
+  </div>
+  <a href="/lecturer/meetings/{{ meeting_id }}/review" class="btn ghost">Back to review</a>
+</div>
+
+<div class="section-title">Status<div class="rule"></div></div>
+<div class="card" style="margin-bottom:24px;">
+  <span class="stamp mini {{ proposal.status in ['approved'] ? 'approved' : (proposal.status in ['rejected'] ? 'rejected' : 'pending') }}">{{ proposal.status|replace({'_': ' '})|capitalize }}</span>
+  {% if proposal.submission_date %}<div class="meta" style="margin-top:8px;">Submitted {{ proposal.submission_date|date('d M Y') }}</div>{% endif %}
+</div>
+
+<div class="section-title">Synopsis<div class="rule"></div></div>
+<div class="card" style="margin-bottom:24px;">
+  <p style="font-size:.9rem; line-height:1.7; white-space:pre-wrap;">{{ proposal.synopsis }}</p>
+</div>
+
+<div class="section-title">Documents<div class="rule"></div></div>
+<div class="card">
+  <div class="meta">Synopsis document</div>
+  <div class="strong" style="margin-bottom:14px;">
+    {% if synopsis_doc %}
+      {{ synopsis_doc.file_name }} <a href="/{{ synopsis_doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View</a>
+    {% else %}
+      Not uploaded
+    {% endif %}
+  </div>
+
+  <div class="meta">Proposal document</div>
+  <div class="strong">
+    {% if proposal_doc %}
+      {{ proposal_doc.file_name }} <a href="/{{ proposal_doc.file_path }}" target="_blank" class="btn ghost" style="padding:4px 10px; font-size:.7rem; margin-left:8px;">View</a>
+    {% else %}
+      Not uploaded
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

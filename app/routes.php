@@ -124,6 +124,7 @@ return function (App $app) {
     $app->get('/admin/users', [AdminController::class, 'users']);
 $app->post('/admin/users/toggle', [AdminController::class, 'toggleUser']);
 $app->post('/admin/users/toggle-examiner', [AdminController::class, 'toggleExaminer']);
+$app->post('/admin/users/max-supervision-load', [AdminController::class, 'updateMaxSupervisionLoad']);
 
 
 $app->get('/admin/departments', [AdminController::class, 'departments']);
@@ -137,6 +138,7 @@ $app->post('/admin/programs/update', [AdminController::class, 'updateProgram']);
 $app->post('/admin/programs/delete', [AdminController::class, 'deleteProgram']);
 
 $app->add($app->getContainer()->get(\App\Middleware\StudentContextMiddleware::class));
+$app->add($app->getContainer()->get(\App\Middleware\NotificationBadgeMiddleware::class));
 
 
 
@@ -154,6 +156,7 @@ $app->post('/lecturer/meetings/schedule-for-exam', [LecturerMeetingsController::
 
 
 $app->get('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 'review']);
+$app->get('/lecturer/meetings/{id}/proposal', [LecturerMeetingsController::class, 'proposalOverview']);
 $app->post('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class, 'submitReview']);
 $app->get('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'editForm']);
 $app->post('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'updateMeeting']);
@@ -167,6 +170,7 @@ $app->post('/admin/users/role', [AdminController::class, 'updateUserRole']);
 
 // Admin: thesis schedules
 $app->get('/admin/thesis-schedules', [AdminController::class, 'thesisSchedules']);
+$app->get('/admin/thesis-schedules/{id}/students', [AdminController::class, 'thesisScheduleStudents']);
 $app->post('/admin/thesis-schedules/create', [AdminController::class, 'createThesisSchedule']);
 $app->post('/admin/thesis-schedules/update', [AdminController::class, 'updateThesisSchedule']);
 $app->post('/admin/thesis-schedules/delete', [AdminController::class, 'deleteThesisSchedule']);
@@ -203,6 +207,9 @@ $app->get('/lecturer/theses/{id}', [LecturerThesesController::class, 'detail']);
 $app->get('/lecturer/profile', [LecturerProfileController::class, 'show']);
 $app->post('/lecturer/profile/availability', [LecturerProfileController::class, 'toggleAvailability']);
 $app->get('/student/profile', [StudentProfileController::class, 'account']);
+
+// Admin: exam review attachments
+$app->get('/admin/exam-review-attachments', [AdminController::class, 'examReviewAttachments']);
 
 // Notifications
 $app->get('/admin/notifications', [AdminController::class, 'notifications']);

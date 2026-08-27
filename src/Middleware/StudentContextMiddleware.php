@@ -55,6 +55,7 @@ class StudentContextMiddleware
 
             $hasRegistration = false;
             $registrationPaid = false;
+            $thesisReviewFeeOwed = false;
 
             if ($student && $profileComplete) {
                 $regModel = new ThesisRegistration($this->db);
@@ -67,7 +68,9 @@ class StudentContextMiddleware
                     foreach ($owed as $item) {
                         if ($item['fee_type'] === 'thesis_registration') {
                             $registrationPaid = false;
-                            break;
+                        }
+                        if ($item['fee_type'] === 'thesis_review_fee') {
+                            $thesisReviewFeeOwed = true;
                         }
                     }
                 }
@@ -89,7 +92,12 @@ class StudentContextMiddleware
             }
 
             // Gate 2: registration-gated pages require an active,
-            // fully-paid registration.
+            // fully-paid registration, and — once a supervisor is
+            // assigned — a cleared thesis review fee. The document
+            // review fee is deliberately NOT checked here: it only
+            // blocks the supervisor from scheduling that specific exam
+            // window (see LecturerMeetingsController), never the
+            // student's own access to these pages.
             if ($profileComplete && $this->isRegistrationGated($path)) {
                 if (!$hasRegistration) {
                     $_SESSION['flash_error'] = 'You need to register for thesis before accessing that page.';
@@ -97,6 +105,10 @@ class StudentContextMiddleware
                 }
                 if (!$registrationPaid) {
                     $_SESSION['flash_error'] = 'Please pay your thesis registration fee before accessing that page.';
+                    return $this->redirectTo('/student/thesis');
+                }
+                if ($thesisReviewFeeOwed) {
+                    $_SESSION['flash_error'] = 'Please pay your outstanding thesis review fee before continuing.';
                     return $this->redirectTo('/student/thesis');
                 }
             }

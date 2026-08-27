@@ -109,6 +109,32 @@ class AdminController
         return $response->withHeader('Location', '/admin/users')->withStatus(302);
     }
 
+    public function updateMaxSupervisionLoad(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/users')->withStatus(302);
+        }
+
+        $lecturerId = (string) ($data['lecturer_id'] ?? '');
+        $value = $data['max_supervision_load'] ?? '';
+
+        if ($lecturerId === '' || !is_numeric($value) || (int) $value < 0) {
+            $_SESSION['flash_error'] = 'Please provide a valid, non-negative supervision load.';
+            return $response->withHeader('Location', '/admin/users')->withStatus(302);
+        }
+
+        (new \App\Models\Lecturer($this->db))->updateMaxSupervisionLoad($lecturerId, (int) $value);
+        $_SESSION['flash_success'] = 'Supervision load updated.';
+
+        return $response->withHeader('Location', '/admin/users')->withStatus(302);
+    }
+
     /**
      * Grants or revokes one role for one user. Roles are additive — a
      * user can hold several at once, and the login screen decides which
@@ -477,6 +503,21 @@ class AdminController
         ]);
     }
 
+    // ---------- Exam review attachments ----------
+
+    public function examReviewAttachments(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        return $this->twig->render($response, 'admins/exam_review_attachments.twig', [
+            'active_page' => 'exam-review-attachments',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'attachments' => (new \App\Models\ExamReviewAttachment($this->db))->findAll(),
+        ]);
+    }
+
     // ---------- Notifications ----------
 
     private const NOTIFICATION_AUDIENCES = ['all_lecturers', 'all_students', 'active_supervisors', 'examiners'];
@@ -816,6 +857,41 @@ class AdminController
             'csrf_token'         => $this->csrfToken(),
             'error'              => $this->takeFlash('flash_error'),
             'success'            => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    /**
+     * Students enrolled under one thesis schedule, with their latest
+     * proposal status — lets admin spot a rejected (failed
+     * approval-board) proposal and know that student needs a brand-new
+     * exam schedule to attempt a fresh one.
+     */
+    public function thesisScheduleStudents(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $scheduleId = $args['id'] ?? '';
+        $scheduleModel = new \App\Models\ThesisSchedule($this->db);
+        $schedule = null;
+        foreach ($scheduleModel->all() as $s) {
+            if ($s['schedule_id'] === $scheduleId) {
+                $schedule = $s;
+                break;
+            }
+        }
+
+        if (!$schedule) {
+            $_SESSION['flash_error'] = 'That thesis schedule could not be found.';
+            return $response->withHeader('Location', '/admin/thesis-schedules')->withStatus(302);
+        }
+
+        return $this->twig->render($response, 'admins/thesis_schedule_students.twig', [
+            'active_page' => 'thesis-schedules',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'schedule'    => $schedule,
+            'students'    => (new \App\Models\ThesisRegistration($this->db))->findStudentsByScheduleId($scheduleId),
         ]);
     }
 

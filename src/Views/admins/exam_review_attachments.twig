@@ -1,0 +1,38 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Review Attachments{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Exam review attachments</h1>
+    <div class="sub">Supporting documents examiners have attached to explain a score, by exam window and document type.</div>
+  </div>
+  <div class="ref">REVIEW-DOCS</div>
+</div>
+
+{% if attachments %}
+  <table>
+    <thead>
+      <tr><th>Student</th><th>Proposal</th><th>Exam window</th><th>Document type</th><th>Examiner</th><th>File</th><th>Uploaded</th></tr>
+    </thead>
+    <tbody>
+      {% for a in attachments %}
+        <tr>
+          <td class="strong">{{ a.student_name }}<div class="meta" style="margin:2px 0 0;">{{ a.student_number }}</div></td>
+          <td>{{ a.proposal_title }}</td>
+          <td class="mono">{{ a.exam_type|capitalize }} · {{ a.starts_at ? a.starts_at|date('d M Y') : '—' }}</td>
+          <td>{{ a.doc_type_name }}</td>
+          <td>{{ a.examiner_name }}</td>
+          <td><a href="/{{ a.file_path }}" target="_blank" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">{{ a.file_name }}</a></td>
+          <td class="mono">{{ a.created_at|date('d M Y H:i') }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No review attachments have been uploaded yet.</div>
+{% endif %}
+
+{% endblock %}

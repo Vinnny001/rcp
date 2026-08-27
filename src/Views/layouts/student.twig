@@ -48,7 +48,12 @@
         <a class="tab {% if active_page == 'meetings' %}active{% endif %}" href="/student/meetings"><span class="num">06</span>Meetings</a>
         <a class="tab {% if active_page == 'exam' %}active{% endif %}" href="/student/exam"><span class="num">07</span>Exam &amp; Graduation</a>
         <a class="tab {% if active_page == 'outcomes' %}active{% endif %}" href="/student/outcomes"><span class="num">08</span>My Results</a>
-        <a class="tab {% if active_page == 'notifications' %}active{% endif %}" href="/student/notifications"><span class="num">09</span>Notifications</a>
+        <a class="tab {% if active_page == 'notifications' %}active{% endif %}" href="/student/notifications">
+          <span class="num">09</span>Notifications
+          {% if unread_notifications_count > 0 %}
+            <span style="display:inline-block; min-width:16px; padding:1px 5px; margin-left:6px; border-radius:9px; background:#b3492a; color:#fff; font-size:.65rem; text-align:center; line-height:1.3;">{{ unread_notifications_count }}</span>
+          {% endif %}
+        </a>
         <a class="tab {% if active_page == 'profile' %}active{% endif %}" href="/student/profile"><span class="num">10</span>Profile</a>
       {% else %}
         <a class="tab {% if active_page == 'thesis_register' %}active{% endif %}" href="/student/thesis/register" style="color: var(--brass-deep);">

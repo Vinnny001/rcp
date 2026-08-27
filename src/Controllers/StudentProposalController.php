@@ -91,7 +91,7 @@ class StudentProposalController
             'first_name'     => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
             'proposal'       => $proposal,
-            'supervisors'    => $lecturerModel->listAvailableSupervisors(),
+            'supervisors'    => $lecturerModel->listAvailableSupervisors($_SESSION['user_id']),
             'synopsis_doc'   => $synopsisDoc,
             'proposal_doc'   => $proposalDoc,
             'csrf_token'     => $this->csrfToken(),
@@ -141,6 +141,18 @@ class StudentProposalController
         }
         if ($submitting && $proposedSupervisor === '') {
             $errors[] = 'Please propose a supervisor before submitting.';
+        }
+
+        // Trusted only if it's actually a lecturer_id from this student's
+        // own eligible list — closes both a self-supervision loophole (a
+        // student who also holds a lecturer account) and a pre-existing
+        // gap where any posted value was accepted with no lookup at all.
+        if ($proposedSupervisor !== '') {
+            $lecturerModel = new Lecturer($this->db);
+            $validSupervisorIds = array_column($lecturerModel->listAvailableSupervisors($_SESSION['user_id']), 'lecturer_id');
+            if (!in_array($proposedSupervisor, $validSupervisorIds, true)) {
+                $errors[] = 'Please choose a valid supervisor.';
+            }
         }
 
         $proposalModel = new Proposal($this->db);
