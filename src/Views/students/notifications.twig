@@ -1,0 +1,32 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Notifications</h1>
+    <div class="sub">Reminders and announcements from your supervisor and the registrar's office.</div>
+  </div>
+</div>
+
+{% if inbox %}
+  {% for n in inbox %}
+    <div class="card" style="margin-bottom:12px; {{ n.status == 'read' ? 'opacity:.65;' : '' }}">
+      <div class="meta">{{ n.created_at|date('d M Y H:i') }}</div>
+      <h3 style="margin:4px 0;">{{ n.subject }}</h3>
+      <p style="font-size:.85rem; line-height:1.6;">{{ n.message }}</p>
+      {% if n.status != 'read' %}
+        <form method="POST" action="/student/notifications/{{ n.notification_id }}/read" style="margin-top:8px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn ghost" style="padding:4px 12px; font-size:.7rem;">Mark read</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">You have no notifications.</div>
+{% endif %}
+
+{% endblock %}

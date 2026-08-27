@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\Student;
+use App\Models\User;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Views\Twig;
@@ -100,5 +101,28 @@ class StudentProfileController
 
         $_SESSION['flash_success'] = 'Profile completed.';
         return $response->withHeader('Location', '/student/dashboard')->withStatus(302);
+    }
+
+    /**
+     * The ongoing "My Profile" page — read-only account details,
+     * distinct from show()/update() above which are the one-time
+     * onboarding flow for academic details.
+     */
+    public function account(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireStudent()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $userId = $_SESSION['user_id'];
+        $user = (new User($this->db))->findById($userId);
+        $student = (new Student($this->db))->findByUserId($userId);
+
+        return $this->twig->render($response, 'students/profile.twig', [
+            'active_page' => 'profile',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'user'        => $user,
+            'student'     => $student,
+        ]);
     }
 }

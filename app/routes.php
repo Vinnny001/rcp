@@ -32,6 +32,9 @@ use App\Controllers\StudentProfileController;
 use App\Controllers\StudentDocumentsController;
 use App\Controllers\LecturerThesesController;
 use App\Controllers\StudentOutcomesController;
+use App\Controllers\LecturerProfileController;
+use App\Controllers\LecturerNotificationsController;
+use App\Controllers\StudentNotificationsController;
 
 
 return function (App $app) {
@@ -120,6 +123,7 @@ return function (App $app) {
 
     $app->get('/admin/users', [AdminController::class, 'users']);
 $app->post('/admin/users/toggle', [AdminController::class, 'toggleUser']);
+$app->post('/admin/users/toggle-examiner', [AdminController::class, 'toggleExaminer']);
 
 
 $app->get('/admin/departments', [AdminController::class, 'departments']);
@@ -195,7 +199,20 @@ $app->get('/admin/audit', [AdminController::class, 'auditLog']);
 $app->get('/lecturer/theses', [LecturerThesesController::class, 'show']);
 $app->get('/lecturer/theses/{id}', [LecturerThesesController::class, 'detail']);
 
+// Lecturer & student profile pages
+$app->get('/lecturer/profile', [LecturerProfileController::class, 'show']);
+$app->post('/lecturer/profile/availability', [LecturerProfileController::class, 'toggleAvailability']);
+$app->get('/student/profile', [StudentProfileController::class, 'account']);
 
+// Notifications
+$app->get('/admin/notifications', [AdminController::class, 'notifications']);
+$app->post('/admin/notifications/send', [AdminController::class, 'sendNotification']);
 
+$app->get('/lecturer/notifications', [LecturerNotificationsController::class, 'show']);
+$app->post('/lecturer/notifications/send', [LecturerNotificationsController::class, 'send']);
+$app->post('/lecturer/notifications/{id}/read', [LecturerNotificationsController::class, 'markRead']);
+
+$app->get('/student/notifications', [StudentNotificationsController::class, 'show']);
+$app->post('/student/notifications/{id}/read', [StudentNotificationsController::class, 'markRead']);
 
 };

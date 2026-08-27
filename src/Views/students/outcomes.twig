@@ -28,7 +28,7 @@
       <div class="grid cols-2">
         {% for exam in group.examinations %}
           <div class="card">
-            <h3>{{ exam.exam_type|capitalize }} examination</h3>
+            <h3>{{ exam.doc_type_name }} — {{ exam.exam_type|capitalize }} examination</h3>
             <div class="meta">{{ exam.exam_date ? exam.exam_date|date('d M Y') : 'Date to be confirmed' }}</div>
 
             <span class="stamp mini {{ exam.stamp_class }}">{{ exam.outcome_label }}</span>

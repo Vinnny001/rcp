@@ -29,7 +29,7 @@
           <button type="submit" class="logout-link">Sign out</button>
         </form>
       </div>
-      <div class="avatar">{{ first_name|slice(0,1) }}{{ last_name|slice(0,1) }}</div>
+      <a href="/lecturer/profile"><div class="avatar">{{ first_name|slice(0,1) }}{{ last_name|slice(0,1) }}</div></a>
     </div>
   </header>
 
@@ -52,6 +52,12 @@
       </a>
       <a class="tab {{ active_page == 'l-my-documents' ? 'active' : '' }}" href="/lecturer/my-documents">
         <span class="num">06</span>My Documents
+      </a>
+      <a class="tab {{ active_page == 'l-notifications' ? 'active' : '' }}" href="/lecturer/notifications">
+        <span class="num">07</span>Notifications
+      </a>
+      <a class="tab {{ active_page == 'l-profile' ? 'active' : '' }}" href="/lecturer/profile">
+        <span class="num">08</span>Profile
       </a>
     </nav>
     <div class="sidebar-foot">RCP v1 · BBIT Dept<br>JKUAT Graduate School</div>

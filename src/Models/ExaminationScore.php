@@ -67,31 +67,32 @@ class ExaminationScore
      * The examination outcome a student sees for each formal exam
      * window their proposal was scored against: the banded verdict
      * (fail/resubmit/pass/distinction — GradingPolicy::examOutcome, not
-     * the document scale) from the average of every examiner's score
-     * across every document submitted into that window, plus their
-     * remarks. Grouped per (proposal, exam_schedule) rather than per
-     * document — a document's score here says whether the exam was
-     * passed, not whether that one document is individually valid,
-     * which is what DocumentReviewScore::findOutcomesForStudent answers
-     * for documents scored inside a general meeting instead.
+     * the document scale) from the average of every examiner's score on
+     * one document type within that window, plus their remarks. Grouped
+     * per (proposal, exam_schedule, document_type) — an exam window can
+     * carry more than one document type (a proposal and a report, say),
+     * each examined and banded on its own, rather than blended into a
+     * single verdict for the window.
      *
      * @return array<int, array<string, mixed>>
      */
     public function findExamOutcomesForStudent(string $userId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT ed.proposal_id, ed.exam_schedule_id, es.exam_type, es.starts_at,
+            "SELECT ed.proposal_id, ed.exam_schedule_id, ed.document_type_id, dt.doc_type_name,
+                    es.exam_type, es.starts_at,
                     AVG(sc.score_percentage)      AS average_score,
                     COUNT(DISTINCT sc.examiner_id) AS reviewer_count,
                     MAX(sc.graded_at)              AS last_graded_at
              FROM exam_documents ed
              JOIN exam_schedule es ON es.exam_schedule_id = ed.exam_schedule_id
+             JOIN document_types dt ON dt.doc_type_id = ed.document_type_id
              JOIN thesis_proposals p ON p.proposal_id = ed.proposal_id
              JOIN students s ON s.student_id = p.student_id
              JOIN examination_scores sc ON sc.exam_document_id = ed.exam_document_id
              WHERE s.user_id = :user_id
                AND sc.score_percentage IS NOT NULL
-             GROUP BY ed.proposal_id, ed.exam_schedule_id
+             GROUP BY ed.proposal_id, ed.exam_schedule_id, ed.document_type_id
              ORDER BY MAX(sc.graded_at) DESC"
         );
         $stmt->execute(['user_id' => $userId]);
@@ -103,6 +104,7 @@ class ExaminationScore
             $outcomes[] = [
                 'proposal_id'      => $row['proposal_id'],
                 'exam_schedule_id' => $row['exam_schedule_id'],
+                'doc_type_name'    => $row['doc_type_name'],
                 'exam_type'        => $row['exam_type'],
                 'exam_date'        => $row['starts_at'],
                 'graded_at'        => $row['last_graded_at'],
@@ -110,7 +112,7 @@ class ExaminationScore
                 'outcome'          => $band['outcome'],
                 'outcome_label'    => $band['label'],
                 'stamp_class'      => GradingPolicy::stampClass($band['outcome']),
-                'comments'         => $this->examRemarksFor($row['proposal_id'], $row['exam_schedule_id']),
+                'comments'         => $this->examRemarksFor($row['proposal_id'], $row['exam_schedule_id'], $row['document_type_id']),
             ];
         }
 
@@ -118,23 +120,28 @@ class ExaminationScore
     }
 
     /**
-     * Examiner remarks for every document scored within one exam
-     * window, with the examiner's name and score stripped — same rule
-     * as DocumentReviewScore::commentsForStudent.
+     * Examiner remarks for every document of one type scored within one
+     * exam window, with the examiner's name and score stripped — same
+     * rule as DocumentReviewScore::commentsForStudent.
      *
      * @return array<int, string>
      */
-    private function examRemarksFor(string $proposalId, string $examScheduleId): array
+    private function examRemarksFor(string $proposalId, string $examScheduleId, string $documentTypeId): array
     {
         $stmt = $this->db->prepare(
             "SELECT sc.remarks
              FROM examination_scores sc
              JOIN exam_documents ed ON ed.exam_document_id = sc.exam_document_id
              WHERE ed.proposal_id = :proposal_id AND ed.exam_schedule_id = :exam_schedule_id
+               AND ed.document_type_id = :document_type_id
                AND sc.remarks IS NOT NULL AND sc.remarks != ''
              ORDER BY sc.graded_at ASC"
         );
-        $stmt->execute(['proposal_id' => $proposalId, 'exam_schedule_id' => $examScheduleId]);
+        $stmt->execute([
+            'proposal_id'      => $proposalId,
+            'exam_schedule_id' => $examScheduleId,
+            'document_type_id' => $documentTypeId,
+        ]);
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 

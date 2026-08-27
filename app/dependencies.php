@@ -262,8 +262,17 @@ LecturerThesesController::class => function (ContainerInterface $c) {
     return new LecturerThesesController($c->get(PDO::class), $c->get(Twig::class));
 },
 
+\App\Controllers\LecturerProfileController::class => function (ContainerInterface $c) {
+    return new \App\Controllers\LecturerProfileController($c->get(PDO::class), $c->get(Twig::class));
+},
 
+\App\Controllers\LecturerNotificationsController::class => function (ContainerInterface $c) {
+    return new \App\Controllers\LecturerNotificationsController($c->get(PDO::class), $c->get(Twig::class));
+},
 
+\App\Controllers\StudentNotificationsController::class => function (ContainerInterface $c) {
+    return new \App\Controllers\StudentNotificationsController($c->get(PDO::class), $c->get(Twig::class));
+},
 
     ]);
 };

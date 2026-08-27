@@ -66,16 +66,47 @@ class AdminController
         $userModel = new \App\Models\AdminUser($this->db);
         $roleModel = new \App\Models\Role($this->db);
 
+        $params = $request->getQueryParams();
+        $search = trim((string) ($params['q'] ?? ''));
+        $roleFilter = trim((string) ($params['role'] ?? ''));
+
         return $this->twig->render($response, 'admins/users.twig', [
             'active_page'      => 'users',
             'first_name'       => $_SESSION['first_name'] ?? '',
-            'users'            => $userModel->all(),
+            'users'            => $userModel->all($search ?: null, $roleFilter ?: null),
             'roles'            => $roleModel->all(),
             'roles_by_user'    => $roleModel->activeRolesByUser(),
+            'q'                => $search,
+            'role_filter'      => $roleFilter,
             'csrf_token'       => $this->csrfToken(),
             'error'            => $this->takeFlash('flash_error'),
             'success'          => $this->takeFlash('flash_success'),
         ]);
+    }
+
+    /**
+     * Flips whether a lecturer can be assigned as an examiner. Purely an
+     * admin-set flag — a lecturer cannot opt themselves into it.
+     */
+    public function toggleExaminer(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/users')->withStatus(302);
+        }
+
+        $lecturerId = (string) ($data['lecturer_id'] ?? '');
+        if ($lecturerId !== '') {
+            (new \App\Models\AdminUser($this->db))->toggleExaminer($lecturerId);
+            $_SESSION['flash_success'] = 'Examiner status updated.';
+        }
+
+        return $response->withHeader('Location', '/admin/users')->withStatus(302);
     }
 
     /**
@@ -444,6 +475,70 @@ class AdminController
             'selected_entity_type' => $entityType,
             'selected_action'      => $action,
         ]);
+    }
+
+    // ---------- Notifications ----------
+
+    private const NOTIFICATION_AUDIENCES = ['all_lecturers', 'all_students', 'active_supervisors', 'examiners'];
+
+    public function notifications(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        return $this->twig->render($response, 'admins/notifications.twig', [
+            'active_page' => 'notifications',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    /**
+     * Broadcasts one notification to every user in the chosen audience.
+     * Every recipient gets an identical in-app notification — there's no
+     * per-user personalization here, just fan-out.
+     */
+    public function sendNotification(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/notifications')->withStatus(302);
+        }
+
+        $audience = (string) ($data['audience'] ?? '');
+        $subject = trim((string) ($data['subject'] ?? ''));
+        $message = trim((string) ($data['message'] ?? ''));
+
+        if (!in_array($audience, self::NOTIFICATION_AUDIENCES, true) || $subject === '' || $message === '') {
+            $_SESSION['flash_error'] = 'Please choose an audience and provide both a subject and a message.';
+            return $response->withHeader('Location', '/admin/notifications')->withStatus(302);
+        }
+
+        $lecturerModel = new \App\Models\Lecturer($this->db);
+        $roleModel = new \App\Models\Role($this->db);
+
+        $userIds = match ($audience) {
+            'all_lecturers'      => $roleModel->activeUserIdsForRole('lecturer'),
+            'all_students'       => $roleModel->activeUserIdsForRole('student'),
+            'active_supervisors' => $lecturerModel->activeSupervisorUserIds(),
+            'examiners'          => $lecturerModel->examinerUserIds(),
+        };
+
+        $sent = (new \App\Models\Notification($this->db))->createForUsers($userIds, $subject, $message, 'broadcast', null);
+
+        $_SESSION['flash_success'] = $sent > 0
+            ? 'Notification sent to ' . $sent . ' recipient' . ($sent === 1 ? '' : 's') . '.'
+            : 'No recipients matched that audience — nothing was sent.';
+
+        return $response->withHeader('Location', '/admin/notifications')->withStatus(302);
     }
 
     /**

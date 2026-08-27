@@ -1,0 +1,82 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Notifications</h1>
+    <div class="sub">Notify meeting attendees or remind your own students of deadlines and important information.</div>
+  </div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Send a notification<div class="rule"></div></div>
+
+<form method="POST" action="/lecturer/notifications/send" class="card" style="max-width:620px; margin-bottom:32px;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <label class="meta" style="display:block; margin-bottom:6px;">Recipients</label>
+  <select name="mode" id="notify-mode" required style="width:100%; margin-bottom:14px;" onchange="document.getElementById('notify-meeting').style.display = this.value==='meeting' ? 'block' : 'none'; document.getElementById('notify-students').style.display = this.value==='student' ? 'block' : 'none';">
+    <option value="">Choose recipients…</option>
+    <option value="meeting">Attendees of one of my meetings</option>
+    <option value="student">One or more of my supervisees</option>
+  </select>
+
+  <div id="notify-meeting" style="display:none; margin-bottom:14px;">
+    <label class="meta" style="display:block; margin-bottom:6px;">Meeting</label>
+    <select name="meeting_id" style="width:100%;">
+      {% for m in meetings %}
+        <option value="{{ m.meeting_id }}">{{ m.meeting_type|capitalize }} — {{ m.scheduled_at|date('d M Y H:i') }}{% if m.proposal_title %} · {{ m.proposal_title }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    {% if not meetings %}<div class="meta" style="margin-top:6px;">You have no upcoming meetings.</div>{% endif %}
+  </div>
+
+  <div id="notify-students" style="display:none; margin-bottom:14px;">
+    <label class="meta" style="display:block; margin-bottom:6px;">Supervisees</label>
+    {% for s in supervisees %}
+      <label style="display:block; font-size:.85rem; margin-bottom:4px;">
+        <input type="checkbox" name="student_user_id[]" value="{{ s.student_user_id }}"> {{ s.student_name }} ({{ s.student_number }})
+      </label>
+    {% endfor %}
+    {% if not supervisees %}<div class="meta">You have no active supervisees.</div>{% endif %}
+  </div>
+
+  <label class="meta" style="display:block; margin-bottom:6px;">Subject</label>
+  <input type="text" name="subject" required style="width:100%; margin-bottom:14px;">
+
+  <label class="meta" style="display:block; margin-bottom:6px;">Message</label>
+  <textarea name="message" rows="5" required style="width:100%; margin-bottom:14px;"></textarea>
+
+  <button type="submit" class="btn ghost" style="padding:8px 20px; font-size:.8rem;">Send</button>
+</form>
+
+<div class="section-title">Your notifications<div class="rule"></div></div>
+
+{% if inbox %}
+  {% for n in inbox %}
+    <div class="card" style="margin-bottom:12px; {{ n.status == 'read' ? 'opacity:.65;' : '' }}">
+      <div class="meta">{{ n.created_at|date('d M Y H:i') }}</div>
+      <h3 style="margin:4px 0;">{{ n.subject }}</h3>
+      <p style="font-size:.85rem; line-height:1.6;">{{ n.message }}</p>
+      {% if n.status != 'read' %}
+        <form method="POST" action="/lecturer/notifications/{{ n.notification_id }}/read" style="margin-top:8px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn ghost" style="padding:4px 12px; font-size:.7rem;">Mark read</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">You have no notifications.</div>
+{% endif %}
+
+{% endblock %}

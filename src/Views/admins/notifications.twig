@@ -1,0 +1,45 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Notifications</h1>
+    <div class="sub">Broadcast an in-app notification to a group of accounts.</div>
+  </div>
+  <div class="ref">NOTIFY</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Compose<div class="rule"></div></div>
+
+<form method="POST" action="/admin/notifications/send" class="card" style="max-width:560px;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <label class="meta" style="display:block; margin-bottom:6px;">Audience</label>
+  <select name="audience" required style="width:100%; margin-bottom:14px;">
+    <option value="">Choose who receives this…</option>
+    <option value="all_lecturers">All lecturers</option>
+    <option value="all_students">All students</option>
+    <option value="active_supervisors">Active supervisors only</option>
+    <option value="examiners">Examiners only</option>
+  </select>
+
+  <label class="meta" style="display:block; margin-bottom:6px;">Subject</label>
+  <input type="text" name="subject" required style="width:100%; margin-bottom:14px;">
+
+  <label class="meta" style="display:block; margin-bottom:6px;">Message</label>
+  <textarea name="message" rows="5" required style="width:100%; margin-bottom:14px;"></textarea>
+
+  <button type="submit" class="btn ghost" style="padding:8px 20px; font-size:.8rem;">Send</button>
+</form>
+
+{% endblock %}

@@ -64,6 +64,24 @@ class Role
     }
 
     /**
+     * User ids currently holding a named role — the "all lecturers" /
+     * "all students" audiences for a notification broadcast.
+     *
+     * @return array<int, string>
+     */
+    public function activeUserIdsForRole(string $roleName): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT ur.user_id
+             FROM user_roles ur
+             JOIN roles r ON r.role_id = ur.role_id
+             WHERE ur.revoked_at IS NULL AND r.role_name = :role_name"
+        );
+        $stmt->execute(['role_name' => $roleName]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
      * Grants a role. If the user previously held it and it was revoked,
      * that old row is reinstated rather than a duplicate inserted —
      * (user_id, role_id) is the primary key, so there can only ever be

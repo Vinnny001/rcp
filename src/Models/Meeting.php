@@ -107,6 +107,25 @@ class Meeting
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Whether this user is an attendee of any meeting that hasn't yet
+     * concluded — scheduled or in progress, with no date window. Used to
+     * gate a lecturer turning their availability off: they shouldn't be
+     * able to go unavailable while still expected somewhere.
+     */
+    public function hasActiveMeetingForUser(string $userId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(DISTINCT m.meeting_id)
+             FROM meetings m
+             INNER JOIN meeting_attendees ma ON ma.meeting_id = m.meeting_id
+             WHERE ma.user_id = :user_id
+               AND m.status IN ('scheduled', 'in_progress')"
+        );
+        $stmt->execute(['user_id' => $userId]);
+        return ((int) $stmt->fetchColumn()) > 0;
+    }
+
 
     public function create(string $proposalId, array $data, string $createdByUserId): string
     {

@@ -1,0 +1,74 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}My Profile{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>My profile</h1>
+    <div class="sub">Your account details and availability for new supervision or examination work.</div>
+  </div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Account<div class="rule"></div></div>
+
+<div class="card" style="margin-bottom:24px;">
+  <div class="meta">Name</div>
+  <div class="strong" style="margin-bottom:10px;">{{ first_name }} {{ last_name }}</div>
+
+  <div class="meta">Email</div>
+  <div class="strong" style="margin-bottom:10px;">{{ user.email ?? '—' }}</div>
+
+  <div class="meta">Phone</div>
+  <div class="strong">{{ user.phone ?? '—' }}</div>
+</div>
+
+<div class="section-title">Supervision &amp; examination<div class="rule"></div></div>
+
+{% if lecturer %}
+  <div class="card" style="margin-bottom:24px;">
+    <div class="meta">Maximum supervision load</div>
+    <div class="strong" style="margin-bottom:14px;">{{ lecturer.max_supervision_load }} student{{ lecturer.max_supervision_load != 1 ? 's' : '' }}</div>
+
+    <div class="meta">Examiner status</div>
+    <div style="margin-bottom:14px;">
+      <span class="stamp mini {{ lecturer.is_examiner ? 'approved' : 'pending' }}">{{ lecturer.is_examiner ? 'Examiner' : 'Not an examiner' }}</span>
+      <span class="meta">— set by the registrar's office, not editable here.</span>
+    </div>
+
+    <div class="meta">Availability</div>
+    <div style="margin-top:6px;">
+      <span class="stamp mini {{ lecturer.is_available ? 'approved' : 'rejected' }}">{{ lecturer.is_available ? 'Available' : 'Unavailable' }}</span>
+    </div>
+
+    {% if lecturer.is_available and unavailability_blockers %}
+      <div class="notice" style="margin-top:14px;">
+        You can turn this off once the following are resolved:
+        <ul style="margin:8px 0 0; padding-left:18px;">
+          {% for blocker in unavailability_blockers %}
+            <li style="font-size:.85rem; line-height:1.6;">{{ blocker }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% else %}
+      <form method="POST" action="/lecturer/profile/availability" style="margin-top:14px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn ghost" style="padding:6px 16px; font-size:.75rem;">
+          {{ lecturer.is_available ? 'Turn off availability' : 'Turn on availability' }}
+        </button>
+      </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="notice">Your lecturer profile could not be found.</div>
+{% endif %}
+
+{% endblock %}

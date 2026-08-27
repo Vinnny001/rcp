@@ -51,6 +51,50 @@ class Lecturer
         return $row ?: null;
     }
 
+    /**
+     * User ids of lecturers currently supervising at least one active
+     * assignment — the admin's "active supervisors only" notification
+     * audience.
+     *
+     * @return array<int, string>
+     */
+    public function activeSupervisorUserIds(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT DISTINCT u.user_id
+             FROM supervision_assignments sa
+             JOIN lecturers l ON l.lecturer_id = sa.supervisor_id
+             JOIN users u ON u.user_id = l.user_id
+             WHERE sa.is_active = 1"
+        );
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
+     * User ids of lecturers flagged as examiners — the admin's
+     * "examiners only" notification audience.
+     *
+     * @return array<int, string>
+     */
+    public function examinerUserIds(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT u.user_id
+             FROM lecturers l
+             JOIN users u ON u.user_id = l.user_id
+             WHERE l.is_examiner = 1"
+        );
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public function toggleAvailability(string $lecturerId): void
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE lecturers SET is_available = NOT is_available WHERE lecturer_id = :lecturer_id"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+    }
+
     public function countActiveSupervisions(string $lecturerId): int
     {
         $stmt = $this->db->prepare(

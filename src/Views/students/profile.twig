@@ -1,0 +1,30 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}My Profile{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>My profile</h1>
+    <div class="sub">Your account details on file.</div>
+  </div>
+</div>
+
+<div class="section-title">Account<div class="rule"></div></div>
+
+<div class="card" style="margin-bottom:24px;">
+  <div class="meta">Name</div>
+  <div class="strong" style="margin-bottom:10px;">{{ first_name }}</div>
+
+  <div class="meta">Email</div>
+  <div class="strong" style="margin-bottom:10px;">{{ user.email ?? '—' }}</div>
+
+  <div class="meta">Phone</div>
+  <div class="strong" style="margin-bottom:10px;">{{ user.phone ?? '—' }}</div>
+
+  <div class="meta">Student number</div>
+  <div class="strong">{{ student.student_number ?? '—' }}</div>
+</div>
+
+{% endblock %}
