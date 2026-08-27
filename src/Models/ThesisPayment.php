@@ -56,7 +56,7 @@ class ThesisPayment
         return (float) $stmt->fetchColumn();
     }
 
-        public function create(array $data, string $thesisRegistrationId): string
+    public function create(array $data, string $thesisRegistrationId): string
     {
         $id = $this->generateUuid();
         $stmt = $this->db->prepare(
@@ -66,16 +66,16 @@ class ThesisPayment
                 (:id, :thesis_registration_id, :exam_schedule_id, :fee_type, :thesis_year, :amount, :currency, :payment_method, :reference_number, 'pending', :payment_date)"
         );
         $stmt->execute([
-            'id'                     => $id,
-            'thesis_registration_id' => $thesisRegistrationId,
-            'exam_schedule_id'       => $data['exam_schedule_id'] ?? null,
-            'fee_type'               => $data['fee_type'],
-            'thesis_year'            => $data['thesis_year'] ?? null,
-            'amount'                 => $data['amount'],
-            'currency'               => $data['currency'] ?? 'KES',
-            'payment_method'         => $data['payment_method'],
-            'reference_number'       => $data['reference_number'] ?? null,
-            'payment_date'           => $data['payment_date'] ?? date('Y-m-d'),
+        'id'                     => $id,
+        'thesis_registration_id' => $thesisRegistrationId,
+        'exam_schedule_id'       => $data['exam_schedule_id'] ?? null,
+        'fee_type'               => $data['fee_type'],
+        'thesis_year'            => $data['thesis_year'] ?? null,
+        'amount'                 => $data['amount'],
+        'currency'               => $data['currency'] ?? 'KES',
+        'payment_method'         => $data['payment_method'],
+        'reference_number'       => $data['reference_number'] ?? null,
+        'payment_date'           => $data['payment_date'] ?? date('Y-m-d'),
         ]);
         return $id;
     }

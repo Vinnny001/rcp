@@ -342,7 +342,7 @@ class Meeting
 
 
 
-        public function findById(string $meetingId): ?array
+    public function findById(string $meetingId): ?array
     {
         $stmt = $this->db->prepare("SELECT * FROM meetings WHERE meeting_id = :id LIMIT 1");
         $stmt->execute(['id' => $meetingId]);
@@ -404,7 +404,7 @@ class Meeting
 
 
 
-        public function findAttendees(string $meetingId): array
+    public function findAttendees(string $meetingId): array
     {
         $stmt = $this->db->prepare(
             "SELECT ma.attendee_id, ma.user_id, ma.role_in_meeting, ma.attendance_status,

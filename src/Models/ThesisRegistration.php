@@ -37,7 +37,7 @@ class ThesisRegistration
         return $row ?: null;
     }
 
-        public function create(string $studentId, string $thesisScheduleId): string
+    public function create(string $studentId, string $thesisScheduleId): string
     {
         $id = $this->generateUuid();
         $stmt = $this->db->prepare(
@@ -53,7 +53,7 @@ class ThesisRegistration
      * submission_date). Year 0 = not yet at the first anniversary.
      * Year 1 = first anniversary passed, one review fee owed. Uncapped.
      */
-        private function yearsElapsedSince(string $anchorDate): int
+    private function yearsElapsedSince(string $anchorDate): int
     {
         $anchor = new \DateTimeImmutable($anchorDate);
         $now = new \DateTimeImmutable();
@@ -76,7 +76,7 @@ class ThesisRegistration
      *    own exam_schedule_id, so two document types due in the same
      *    year no longer collide.
      */
-        public function computeOwed(array $registration): array
+    public function computeOwed(array $registration): array
     {
         $scheduleStmt = $this->db->prepare(
             "SELECT ts.schedule_id, ts.program_id, ts.thesis_registration_rates_id
@@ -155,8 +155,8 @@ class ThesisRegistration
                AND esd.document_submission_starts_at IS NOT NULL"
         );
         $examSchedules->execute([
-            'program_id'  => $schedule['program_id'],
-            'schedule_id' => $schedule['schedule_id'],
+        'program_id'  => $schedule['program_id'],
+        'schedule_id' => $schedule['schedule_id'],
         ]);
 
         $now = new \DateTimeImmutable();
@@ -171,7 +171,9 @@ class ThesisRegistration
 
             $year = $this->yearsElapsedSince($registration['registered_at']) ?: 1;
             $paid = $paymentModel->sumConfirmed(
-                $registration['thesis_registration_id'], 'thesis_review_fee', $es['exam_schedule_id']
+                $registration['thesis_registration_id'],
+                'thesis_review_fee',
+                $es['exam_schedule_id']
             );
             $required = (float) $es['amount'];
 
@@ -330,7 +332,9 @@ class ThesisRegistration
             }
 
             $paid = $paymentModel->sumConfirmed(
-                $registration['thesis_registration_id'], 'thesis_review_fee', $es['exam_schedule_id']
+                $registration['thesis_registration_id'],
+                'thesis_review_fee',
+                $es['exam_schedule_id']
             );
             $required = (float) $es['amount'];
 
@@ -348,7 +352,4 @@ class ThesisRegistration
 
         return $upcoming;
     }
-
-
-
 }

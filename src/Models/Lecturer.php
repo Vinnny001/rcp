@@ -22,7 +22,7 @@ class Lecturer
      *
      * @return array<int, array{lecturer_id:string, name:string, department:string}>
      */
-        public function listAvailableSupervisors(): array
+    public function listAvailableSupervisors(): array
     {
         $stmt = $this->db->query(
             "SELECT l.lecturer_id,
@@ -123,7 +123,7 @@ class Lecturer
     }
 
 
-            public function findActiveSupervisions(string $lecturerId): array
+    public function findActiveSupervisions(string $lecturerId): array
     {
         $stmt = $this->db->prepare(
             "SELECT sa.assignment_id, sa.role, sa.proposal_id, sa.student_id,
@@ -272,7 +272,7 @@ class Lecturer
      * what's coming up, and to constrain meeting creation to a valid
      * window (must happen before ends_at).
      */
-            public function findUpcomingExamSchedulesForSupervisees(string $lecturerId): array
+    public function findUpcomingExamSchedulesForSupervisees(string $lecturerId): array
     {
         $stmt = $this->db->prepare(
             "SELECT es.exam_schedule_id, es.thesis_schedule_id, es.starts_at, es.ends_at,
@@ -373,13 +373,13 @@ class Lecturer
 
 
 
-    
+
         /**
      * Full thesis record for every student this lecturer supervises
      * (active supervision_assignments only), joined with exam results,
      * final document status, and graduation standing.
      */
-        public function findTheses(string $lecturerId): array
+    public function findTheses(string $lecturerId): array
     {
         $stmt = $this->db->prepare(
             "SELECT
@@ -432,8 +432,4 @@ class Lecturer
         }
         return null;
     }
-
-
-
-    
 }

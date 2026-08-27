@@ -52,12 +52,12 @@ class AdminController
             'graduation_pending'     => $stats->graduationPendingApprovalCount(),
             'by_department'          => $stats->byDepartment(),
             'by_program'             => $stats->byProgram(),
-        ]);
+                ]);
     }
 
 
 
-        public function users(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function users(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireAdmin()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);
@@ -71,16 +71,16 @@ class AdminController
         $roleFilter = trim((string) ($params['role'] ?? ''));
 
         return $this->twig->render($response, 'admins/users.twig', [
-            'active_page'      => 'users',
-            'first_name'       => $_SESSION['first_name'] ?? '',
-            'users'            => $userModel->all($search ?: null, $roleFilter ?: null),
-            'roles'            => $roleModel->all(),
-            'roles_by_user'    => $roleModel->activeRolesByUser(),
-            'q'                => $search,
-            'role_filter'      => $roleFilter,
-            'csrf_token'       => $this->csrfToken(),
-            'error'            => $this->takeFlash('flash_error'),
-            'success'          => $this->takeFlash('flash_success'),
+        'active_page'      => 'users',
+        'first_name'       => $_SESSION['first_name'] ?? '',
+        'users'            => $userModel->all($search ?: null, $roleFilter ?: null),
+        'roles'            => $roleModel->all(),
+        'roles_by_user'    => $roleModel->activeRolesByUser(),
+        'q'                => $search,
+        'role_filter'      => $roleFilter,
+        'csrf_token'       => $this->csrfToken(),
+        'error'            => $this->takeFlash('flash_error'),
+        'success'          => $this->takeFlash('flash_success'),
         ]);
     }
 
@@ -572,7 +572,7 @@ class AdminController
 
 
 
-        private function csrfToken(): string
+    private function csrfToken(): string
     {
         if (empty($_SESSION['csrf_token'])) {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));

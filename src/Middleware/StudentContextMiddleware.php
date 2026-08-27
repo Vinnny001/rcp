@@ -105,7 +105,7 @@ class StudentContextMiddleware
         return $handler->handle($request);
     }
 
-        private function isRegistrationGated(string $path): bool
+    private function isRegistrationGated(string $path): bool
     {
         // Explicit exemptions first — these must never be gated, even
         // though they'd otherwise match the '/student/thesis/' prefix

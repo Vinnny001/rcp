@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\ThesisRegistration;
-
-
 use PDO;
 
 class AdminStats
@@ -185,11 +183,9 @@ class AdminStats
             'total_unpaid'              => $totalUnpaid,
             'currency'                  => $currency,
             'registration_unpaid_count' => $registrationUnpaidCount,
-            'registration_unpaid_amount'=> $registrationUnpaidAmount,
+            'registration_unpaid_amount' => $registrationUnpaidAmount,
             'review_unpaid_count'       => $reviewUnpaidCount,
             'review_unpaid_amount'      => $reviewUnpaidAmount,
         ];
     }
-
-    
 }

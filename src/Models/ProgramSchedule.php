@@ -169,10 +169,7 @@ class ProgramSchedule
             'amount'     => $amount,
             'due_date'   => $dueDate,
             'updated_by' => $updatedByUserId,
-            'exam_fee_id'=> $examFeeId,
+            'exam_fee_id' => $examFeeId,
         ]);
     }
-
-
-
 }

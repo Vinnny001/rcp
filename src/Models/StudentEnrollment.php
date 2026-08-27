@@ -122,6 +122,4 @@ class StudentEnrollment
         );
         $stmt->execute(['semester_id' => $semesterId, 'enrollment_id' => $enrollmentId]);
     }
-
-
 }

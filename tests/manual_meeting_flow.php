@@ -156,21 +156,21 @@ try {
 
     echo "\n--- grading bands ---\n";
 
-    check('0 is a fail',           GradingPolicy::examOutcome(0.0)['outcome'] === 'fail');
-    check('30 is a fail',          GradingPolicy::examOutcome(30.0)['outcome'] === 'fail');
-    check('31 is a resubmit',      GradingPolicy::examOutcome(31.0)['outcome'] === 'resubmit');
-    check('49 is a resubmit',      GradingPolicy::examOutcome(49.0)['outcome'] === 'resubmit');
-    check('50 is a pass',          GradingPolicy::examOutcome(50.0)['outcome'] === 'pass');
-    check('74 is a pass',          GradingPolicy::examOutcome(74.0)['outcome'] === 'pass');
-    check('75 is a distinction',   GradingPolicy::examOutcome(75.0)['outcome'] === 'distinction');
-    check('100 is a distinction',  GradingPolicy::examOutcome(100.0)['outcome'] === 'distinction');
+    check('0 is a fail', GradingPolicy::examOutcome(0.0)['outcome'] === 'fail');
+    check('30 is a fail', GradingPolicy::examOutcome(30.0)['outcome'] === 'fail');
+    check('31 is a resubmit', GradingPolicy::examOutcome(31.0)['outcome'] === 'resubmit');
+    check('49 is a resubmit', GradingPolicy::examOutcome(49.0)['outcome'] === 'resubmit');
+    check('50 is a pass', GradingPolicy::examOutcome(50.0)['outcome'] === 'pass');
+    check('74 is a pass', GradingPolicy::examOutcome(74.0)['outcome'] === 'pass');
+    check('75 is a distinction', GradingPolicy::examOutcome(75.0)['outcome'] === 'distinction');
+    check('100 is a distinction', GradingPolicy::examOutcome(100.0)['outcome'] === 'distinction');
 
-    check('doc 0 is rejected',     GradingPolicy::documentOutcome(0.0)['outcome'] === 'rejected');
-    check('doc 30 is rejected',    GradingPolicy::documentOutcome(30.0)['outcome'] === 'rejected');
-    check('doc 31 is a resubmit',  GradingPolicy::documentOutcome(31.0)['outcome'] === 'resubmit');
-    check('doc 49 is a resubmit',  GradingPolicy::documentOutcome(49.0)['outcome'] === 'resubmit');
-    check('doc 50 is valid',       GradingPolicy::documentOutcome(50.0)['outcome'] === 'valid');
-    check('doc 100 is valid',      GradingPolicy::documentOutcome(100.0)['outcome'] === 'valid');
+    check('doc 0 is rejected', GradingPolicy::documentOutcome(0.0)['outcome'] === 'rejected');
+    check('doc 30 is rejected', GradingPolicy::documentOutcome(30.0)['outcome'] === 'rejected');
+    check('doc 31 is a resubmit', GradingPolicy::documentOutcome(31.0)['outcome'] === 'resubmit');
+    check('doc 49 is a resubmit', GradingPolicy::documentOutcome(49.0)['outcome'] === 'resubmit');
+    check('doc 50 is valid', GradingPolicy::documentOutcome(50.0)['outcome'] === 'valid');
+    check('doc 100 is valid', GradingPolicy::documentOutcome(100.0)['outcome'] === 'valid');
 
     echo "  exam scale:     ";
     foreach (GradingPolicy::examScale() as $b) {
@@ -276,7 +276,6 @@ try {
     // logic in practice — verified here at the data level instead:
     // resources are keyed purely by meeting_id, with no role gate).
     check('findResources has no role/visibility filter of its own — the controller strips it for non-invited students', true);
-
 } catch (\Throwable $e) {
     $fail++;
     echo "\n  ERROR  " . $e->getMessage() . "\n         " . $e->getFile() . ':' . $e->getLine() . "\n";

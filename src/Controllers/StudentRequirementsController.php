@@ -289,7 +289,7 @@ class StudentRequirementsController
 
 
 
-        public function submitDraft(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function submitDraft(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);
@@ -333,7 +333,4 @@ class StudentRequirementsController
 
         return $this->redirect($response, '/student/requirements');
     }
-
-
-    
 }

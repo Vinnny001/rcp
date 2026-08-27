@@ -144,7 +144,7 @@ class StudentController
             if (!empty($proposal['assigned_supervisor_id'])) {
                 $supervisorStatus = 'assigned';
                                 $stmt = $this->db->prepare(
-                    "SELECT
+                                    "SELECT
                         CONCAT(u.first_name, ' ', u.last_name) AS name,
                         d.name AS internal_department,
                         el.department AS external_department
@@ -154,7 +154,7 @@ class StudentController
                      LEFT JOIN departments d ON d.department_id = il.department_id
                      LEFT JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id
                      WHERE l.lecturer_id = :lecturer_id LIMIT 1"
-                );
+                                );
                 $stmt->execute(['lecturer_id' => $proposal['assigned_supervisor_id']]);
                 $row = $stmt->fetch();
                 $supervisorName = $row['name'] ?? null;

@@ -91,12 +91,12 @@ class AuthController
         return $response->withHeader('Location', $redirect)->withStatus(302);
     }
 
-        public function showRegisterForm(Request $request, Response $response): Response
+    public function showRegisterForm(Request $request, Response $response): Response
     {
         return $this->view->render($response, 'auth/register.twig');
     }
 
-        public function register(Request $request, Response $response): Response
+    public function register(Request $request, Response $response): Response
     {
         $data = $request->getParsedBody();
         $errors = $this->validateRegistration($data);
@@ -141,19 +141,31 @@ class AuthController
     private function validateRegistration(array $data): array
     {
         $errors = [];
-        if (empty($data['first_name']) || empty($data['last_name'])) $errors[] = 'First and last name are required.';
-        if (empty($data['username'])) $errors[] = 'Username is required.';
-        if (empty($data['email']) || !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) $errors[] = 'A valid email is required.';
-        if (empty($data['password']) || strlen($data['password']) < 8) $errors[] = 'Password must be at least 8 characters.';
-        if (($data['password'] ?? '') !== ($data['password_confirm'] ?? '')) $errors[] = 'Passwords do not match.';
-        if (empty($data['consent'])) $errors[] = 'You must consent to registration.';
+        if (empty($data['first_name']) || empty($data['last_name'])) {
+            $errors[] = 'First and last name are required.';
+        }
+        if (empty($data['username'])) {
+            $errors[] = 'Username is required.';
+        }
+        if (empty($data['email']) || !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'A valid email is required.';
+        }
+        if (empty($data['password']) || strlen($data['password']) < 8) {
+            $errors[] = 'Password must be at least 8 characters.';
+        }
+        if (($data['password'] ?? '') !== ($data['password_confirm'] ?? '')) {
+            $errors[] = 'Passwords do not match.';
+        }
+        if (empty($data['consent'])) {
+            $errors[] = 'You must consent to registration.';
+        }
         return $errors;
     }
 
 
 
 
-    
+
 
     public function logout(Request $request, Response $response): Response
     {

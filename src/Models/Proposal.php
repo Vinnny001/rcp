@@ -114,7 +114,7 @@ class Proposal
      * submitted if it will actually be checked/reviewed under some
      * scheduled exam window, not just accepted into a void.
      */
-        public function proposalSchedulingExists(string $thesisScheduleId): bool
+    public function proposalSchedulingExists(string $thesisScheduleId): bool
     {
         $stmt = $this->db->prepare(
             "SELECT 1 FROM exam_schedule es
@@ -127,6 +127,4 @@ class Proposal
         $stmt->execute(['thesis_schedule_id' => $thesisScheduleId]);
         return (bool) $stmt->fetchColumn();
     }
-
-
 }

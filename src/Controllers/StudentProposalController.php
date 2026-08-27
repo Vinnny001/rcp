@@ -7,12 +7,10 @@ namespace App\Controllers;
 use Slim\Views\Twig;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-
 use App\Models\Lecturer;
 use App\Models\Proposal;
 use App\Models\SupervisionRequest;
 use App\Models\Document;
-
 use PDO;
 
 class StudentProposalController
@@ -106,7 +104,7 @@ class StudentProposalController
         return $rendered;
     }
 
-        public function store(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function store(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);
@@ -213,13 +211,13 @@ class StudentProposalController
         }
 
         $_SESSION['flash_success'] = $submitting
-            ? 'Your proposal was submitted for review.'
-            : 'Draft saved. You can keep editing it until you submit.';
+        ? 'Your proposal was submitted for review.'
+        : 'Draft saved. You can keep editing it until you submit.';
 
         return $this->redirect($response, '/student/proposal');
     }
 
-            private function handleOptionalUpload(
+    private function handleOptionalUpload(
         ServerRequestInterface $request,
         string $proposalId,
         string $fieldName,
@@ -271,7 +269,7 @@ class StudentProposalController
 
         $file->moveTo($destination);
 
-                $examScheduleId = null;
+        $examScheduleId = null;
         $stmt = $this->db->prepare(
             "SELECT esd.exam_schedule_id
              FROM exam_schedule es
@@ -286,14 +284,14 @@ class StudentProposalController
         $examScheduleId = $stmt->fetchColumn() ?: null;
 
         $newDocumentId = $documentModel->create([
-            'user_id'          => $_SESSION['user_id'],
-            'uploaded_by'      => $_SESSION['user_id'],
-            'document_type_id' => $documentTypeId,
-            'document_status'  => $proposalIsDraft ? 'draft' : 'submitted',
-            'file_name'        => $file->getClientFilename(),
-            'file_path'        => 'uploads/documents/' . $storedName,
-            'file_size_kb'     => $sizeKb,
-            'mime_type'        => $mimeType,
+        'user_id'          => $_SESSION['user_id'],
+        'uploaded_by'      => $_SESSION['user_id'],
+        'document_type_id' => $documentTypeId,
+        'document_status'  => $proposalIsDraft ? 'draft' : 'submitted',
+        'file_name'        => $file->getClientFilename(),
+        'file_path'        => 'uploads/documents/' . $storedName,
+        'file_size_kb'     => $sizeKb,
+        'mime_type'        => $mimeType,
         ]);
 
         $documentModel->linkToProposal($newDocumentId, $proposalId, $documentTypeId, $examScheduleId);
@@ -301,7 +299,7 @@ class StudentProposalController
 
 
 
-        public function removeDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function removeDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);

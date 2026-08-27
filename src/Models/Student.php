@@ -25,22 +25,22 @@ class Student
         return $row ?: null;
     }
 
-        public function create(string $userId, array $data): void
+    public function create(string $userId, array $data): void
     {
         $stmt = $this->db->prepare(
             "INSERT INTO students (student_id, user_id, student_number)
              VALUES (:student_id, :user_id, :student_number)"
         );
         $stmt->execute([
-            'student_id'     => $this->generateUuid(),
-            'user_id'        => $userId,
-            'student_number' => $data['student_number'],
+        'student_id'     => $this->generateUuid(),
+        'user_id'        => $userId,
+        'student_number' => $data['student_number'],
         ]);
     }
 
 
 
-        public function isProfileComplete(string $studentId): bool
+    public function isProfileComplete(string $studentId): bool
     {
         $stmt = $this->db->prepare(
             "SELECT student_number, student_email FROM students WHERE student_id = :id LIMIT 1"

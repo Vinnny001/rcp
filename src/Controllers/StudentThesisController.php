@@ -30,7 +30,7 @@ class StudentThesisController
         return null;
     }
 
-        private function getStudentRecord(string $userId): ?array
+    private function getStudentRecord(string $userId): ?array
     {
         $stmt = $this->db->prepare(
             "SELECT student_id, student_number FROM students WHERE user_id = :user_id LIMIT 1"
@@ -58,7 +58,7 @@ class StudentThesisController
         return $response->withHeader('Location', $path)->withStatus(302);
     }
 
-                public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function show(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $this->redirect($response, $redirect);
@@ -106,18 +106,18 @@ class StudentThesisController
         $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
 
         return $this->twig->render($response, 'students/thesis-fees.twig', [
-            'active_page'    => 'thesis',
-            'first_name'     => $_SESSION['first_name'] ?? '',
-            'student_number' => $student['student_number'] ?? null,
-            'not_registered' => false,
-            'registration'   => $registration,
-            'owed'           => $owed,
-            'upcoming'       => $upcoming,
-            'history'        => $history,
-            'has_proposal'   => (bool) $proposal,
-            'csrf_token'     => $this->csrfToken(),
-            'error'          => $_SESSION['flash_error'] ?? null,
-            'success'        => $_SESSION['flash_success'] ?? null,
+        'active_page'    => 'thesis',
+        'first_name'     => $_SESSION['first_name'] ?? '',
+        'student_number' => $student['student_number'] ?? null,
+        'not_registered' => false,
+        'registration'   => $registration,
+        'owed'           => $owed,
+        'upcoming'       => $upcoming,
+        'history'        => $history,
+        'has_proposal'   => (bool) $proposal,
+        'csrf_token'     => $this->csrfToken(),
+        'error'          => $_SESSION['flash_error'] ?? null,
+        'success'        => $_SESSION['flash_success'] ?? null,
         ]);
     }
 
@@ -227,7 +227,7 @@ class StudentThesisController
     }
 
 
-        public function pay(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function pay(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $this->redirect($response, $redirect);
@@ -297,9 +297,4 @@ class StudentThesisController
         $_SESSION['flash_success'] = 'Payment submitted and awaiting confirmation.';
         return $this->redirect($response, '/student/thesis');
     }
-
-
-    
-
-
 }

@@ -134,7 +134,7 @@ class LecturerSupervisionController
         }
 
         return $this->redirect($response, '/lecturer/supervision');
-    }           
+    }
 
     public function validateDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {

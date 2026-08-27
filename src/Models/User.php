@@ -35,7 +35,7 @@ class User
         return $user ?: null;
     }
 
-        public function findByEmailOrStudentNumber(string $identifier): ?array
+    public function findByEmailOrStudentNumber(string $identifier): ?array
     {
         $stmt = $this->db->prepare(
             "SELECT 
