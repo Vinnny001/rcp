@@ -1,0 +1,58 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Chat{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Chat</h1>
+    <div class="sub">Message your supervisor directly.</div>
+  </div>
+</div>
+
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not threads %}
+  <div class="notice">No conversations yet — once you have an assigned supervisor, you'll be able to chat with them here.</div>
+{% else %}
+  <div style="display:flex; gap:20px; align-items:flex-start;">
+    <div style="width:240px; flex-shrink:0;">
+      {% for t in threads %}
+        <a href="/student/chat?with={{ t.lecturer_user_id }}"
+           style="display:block; padding:10px 12px; margin-bottom:6px; border-radius:8px; text-decoration:none; color:inherit;
+                  background:{{ t.lecturer_user_id == selected_id ? 'var(--paper-warm, #f2ede2)' : 'transparent' }}; border:1px solid var(--hairline, #e2dccd);">
+          <div class="strong" style="font-size:.85rem;">
+            {{ t.name }}
+            {% if t.unread_count > 0 %}
+              <span style="display:inline-block; min-width:16px; padding:1px 5px; margin-left:4px; border-radius:9px; background:#b3492a; color:#fff; font-size:.62rem; text-align:center;">{{ t.unread_count }}</span>
+            {% endif %}
+          </div>
+          {% if not t.can_send %}
+            <div class="meta" style="font-size:.68rem;">No longer active</div>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </div>
+
+    <div style="flex:1; min-width:0;">
+      {% include 'partials/_chat_thread.twig' with {
+        'messages': messages,
+        'my_user_id': my_user_id,
+        'can_send_selected': can_send_selected,
+        'selected_id': selected_id,
+        'hidden_field_name': 'lecturer_user_id',
+        'send_action': '/student/chat/send',
+        'csrf_token': csrf_token
+      } %}
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+  {% include 'partials/_chat_scripts.twig' %}
+{% endblock %}

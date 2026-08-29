@@ -1,0 +1,32 @@
+<script>
+  function chatReplyTo(chatId, snippet) {
+    var input = document.getElementById('chatReplyToInput');
+    if (!input) return;
+    input.value = chatId;
+    document.getElementById('chatReplyText').textContent = snippet;
+    document.getElementById('chatReplyBanner').style.display = 'block';
+  }
+  function chatCancelReply() {
+    document.getElementById('chatReplyToInput').value = '';
+    document.getElementById('chatReplyBanner').style.display = 'none';
+  }
+  function chatShowInfo(event, sentAt, readAt) {
+    event.preventDefault();
+    var pop = document.getElementById('chatInfoPopover');
+    pop.innerHTML = 'Sent: ' + sentAt + '<br>Read: ' + (readAt ? readAt : 'Not read yet');
+    pop.style.left = event.clientX + 'px';
+    pop.style.top = event.clientY + 'px';
+    pop.style.display = 'block';
+    document.addEventListener('click', chatHideInfoOnce);
+    return false;
+  }
+  function chatHideInfoOnce() {
+    document.getElementById('chatInfoPopover').style.display = 'none';
+    document.removeEventListener('click', chatHideInfoOnce);
+  }
+  // Keep the log scrolled to the newest message on load.
+  (function() {
+    var log = document.getElementById('chatLog');
+    if (log) log.scrollTop = log.scrollHeight;
+  })();
+</script>

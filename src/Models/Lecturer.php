@@ -306,6 +306,28 @@ class Lecturer
     }
 
     /**
+     * The mirror of findActiveSupervisions() — every lecturer currently
+     * (actively) supervising one student, for that student's chat
+     * thread list (main + co-supervisor both appear as separate
+     * sendable threads).
+     */
+    public function findActiveSupervisorsForStudent(string $studentId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT sa.assignment_id, sa.role, l.lecturer_id, u.user_id AS lecturer_user_id,
+                    CONCAT(u.first_name, ' ', u.last_name) AS lecturer_name
+             FROM supervision_assignments sa
+             JOIN lecturers l ON l.lecturer_id = sa.supervisor_id
+             JOIN users u ON u.user_id = l.user_id
+             WHERE sa.student_id = :student_id
+               AND sa.is_active = 1
+             ORDER BY u.first_name, u.last_name"
+        );
+        $stmt->execute(['student_id' => $studentId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Builds a `NOT IN (...)` fragment plus its bound parameters for a
      * variable-length list of user ids. Returns an empty fragment when
      * the list is empty, so callers can interpolate unconditionally.

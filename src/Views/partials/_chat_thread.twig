@@ -1,0 +1,53 @@
+{#
+  Shared conversation pane: message log + compose box. Included by both
+  students/chat.twig and lecturers/chat.twig with the same variables,
+  since the two sides of a conversation render identically — only the
+  hidden field name / send action differ.
+#}
+
+<div class="card" id="chatLog" style="max-height:60vh; overflow-y:auto; padding:16px; margin-bottom:14px;">
+  {% if not messages %}
+    <div class="meta">No messages yet. Say hello.</div>
+  {% endif %}
+
+  {% for m in messages %}
+    {% set mine = m.sender_user_id == my_user_id %}
+    <div style="display:flex; justify-content:{{ mine ? 'flex-end' : 'flex-start' }}; margin-bottom:10px;">
+      <div class="chat-bubble"
+           ondblclick="chatReplyTo('{{ m.chat_id }}', '{{ m.message|slice(0,80)|escape('js') }}')"
+           oncontextmenu="return chatShowInfo(event, '{{ m.created_at }}', '{{ m.read_at }}')"
+           style="max-width:70%; padding:8px 12px; border-radius:10px; cursor:pointer;
+                  background:{{ mine ? 'var(--brass-deep, #a9702f)' : 'var(--paper-warm, #f2ede2)' }};
+                  color:{{ mine ? '#fff' : 'inherit' }};">
+        {% if m.reply_to_chat_id and m.reply_message %}
+          <div style="font-size:.72rem; opacity:.8; border-left:2px solid currentColor; padding-left:6px; margin-bottom:4px;">
+            {{ m.reply_sender_id == my_user_id ? 'You' : 'Them' }}: {{ m.reply_message|slice(0,80) }}
+          </div>
+        {% endif %}
+        <div style="font-size:.86rem; white-space:pre-wrap;">{{ m.message }}</div>
+        <div style="font-size:.65rem; opacity:.7; margin-top:4px; text-align:right;">{{ m.created_at|date('d M, g:i A') }}</div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+<div id="chatReplyBanner" class="meta" style="display:none; margin-bottom:8px; padding:6px 10px; background:var(--paper-warm, #f2ede2); border-radius:6px;">
+  Replying to: <span id="chatReplyText"></span>
+  <button type="button" onclick="chatCancelReply()" class="btn ghost" style="padding:2px 8px; font-size:.65rem; margin-left:8px;">Cancel</button>
+</div>
+
+<div id="chatInfoPopover" style="display:none; position:fixed; z-index:50; background:#2a2620; color:#fff; padding:8px 12px; border-radius:6px; font-size:.72rem; box-shadow:0 4px 14px rgba(0,0,0,.25);"></div>
+
+{% if can_send_selected %}
+  <form method="POST" action="{{ send_action }}" id="chatSendForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="{{ hidden_field_name }}" value="{{ selected_id }}">
+    <input type="hidden" name="reply_to_chat_id" id="chatReplyToInput" value="">
+    <div style="display:flex; gap:8px;">
+      <textarea name="message" rows="2" required placeholder="Type a message…" style="flex:1;"></textarea>
+      <button type="submit" class="btn brass" style="align-self:flex-end;">Send</button>
+    </div>
+  </form>
+{% else %}
+  <div class="notice">You can no longer send messages in this conversation.</div>
+{% endif %}

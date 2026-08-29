@@ -35,6 +35,8 @@ use App\Controllers\StudentOutcomesController;
 use App\Controllers\LecturerProfileController;
 use App\Controllers\LecturerNotificationsController;
 use App\Controllers\StudentNotificationsController;
+use App\Controllers\StudentChatController;
+use App\Controllers\LecturerChatController;
 
 
 return function (App $app) {
@@ -222,5 +224,11 @@ $app->post('/lecturer/notifications/{id}/read', [LecturerNotificationsController
 
 $app->get('/student/notifications', [StudentNotificationsController::class, 'show']);
 $app->post('/student/notifications/{id}/read', [StudentNotificationsController::class, 'markRead']);
+
+// Student-supervisor chat
+$app->get('/student/chat', [StudentChatController::class, 'show']);
+$app->post('/student/chat/send', [StudentChatController::class, 'send']);
+$app->get('/lecturer/chat', [LecturerChatController::class, 'show']);
+$app->post('/lecturer/chat/send', [LecturerChatController::class, 'send']);
 
 };
