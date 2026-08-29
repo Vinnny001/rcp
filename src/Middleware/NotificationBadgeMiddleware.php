@@ -32,7 +32,7 @@ class NotificationBadgeMiddleware
         $role = $_SESSION['role'] ?? null;
 
         if (in_array($role, ['student', 'lecturer'], true) && !empty($_SESSION['user_id'])) {
-            $count = (new Notification($this->db))->countUnreadForUser($_SESSION['user_id']);
+            $count = (new Notification($this->db))->countUnreadForUser($_SESSION['user_id'], $role);
             $this->twig->getEnvironment()->addGlobal('unread_notifications_count', $count);
         }
 

@@ -68,9 +68,17 @@ class LecturerMeetingsController
     /**
      * Fee blockers on scheduling a meeting for this student, in plain
      * language. An unpaid thesis registration or thesis review fee
-     * blocks any meeting; an unpaid document review fee only blocks
-     * scheduling against the specific exam window it's owed for (pass
-     * $examScheduleId when scheduling into a formal exam window).
+     * blocks any meeting.
+     *
+     * The document review fee is checked differently on purpose: an
+     * unpaid document review fee blocks scheduling against the specific
+     * exam window it's owed for (pass $examScheduleId when scheduling
+     * into a formal exam window) as soon as the document is required —
+     * unlike computeOwed()'s due_after_weeks grace period (which exists
+     * to tell the student when a fee becomes officially "overdue" for
+     * display purposes), scheduling a review meeting for a document
+     * that's still unpaid must never be allowed just because the grace
+     * window hasn't technically elapsed yet.
      *
      * @return array<int, string>
      */
@@ -87,16 +95,46 @@ class LecturerMeetingsController
         foreach ($regModel->computeOwed($registration) as $item) {
             if (in_array($item['fee_type'], ['thesis_registration', 'thesis_review_fee'], true)) {
                 $blockers[] = 'This student has an outstanding ' . str_replace('_', ' ', $item['fee_type']) . ' — a meeting cannot be scheduled until it is paid.';
-            } elseif (
-                $item['fee_type'] === 'document_review_fee'
-                && $examScheduleId !== null
-                && ($item['exam_schedule_id'] ?? null) === $examScheduleId
-            ) {
-                $blockers[] = 'This student has an outstanding document review fee for this exam window — a meeting cannot be scheduled until it is paid.';
+            }
+        }
+
+        if ($examScheduleId !== null) {
+            $unpaidDocTypes = $regModel->documentReviewFeeUnpaidForSchedule($registration, $examScheduleId);
+            foreach ($unpaidDocTypes as $docTypeName) {
+                $blockers[] = 'This student has an unpaid document review fee for ' . $docTypeName . ' — a meeting cannot be scheduled until it is paid.';
             }
         }
 
         return array_values(array_unique($blockers));
+    }
+
+    /**
+     * Document types required under this exam window that the student
+     * hasn't actually submitted yet — due_after_weeks on
+     * document_review_rates only computes when the fee for a document
+     * becomes owed, it says nothing about whether the document itself
+     * was ever submitted, so this is a separate check.
+     *
+     * @return array<int, string> doc_type_names still missing
+     */
+    private function missingRequiredDocuments(string $proposalId, string $examScheduleId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT dt.doc_type_name
+             FROM exam_schedule_documents esd
+             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
+             LEFT JOIN exam_documents ed
+                    ON ed.exam_schedule_id = esd.exam_schedule_id
+                   AND ed.document_type_id = esd.document_type_id
+                   AND ed.proposal_id = :proposal_id
+             LEFT JOIN documents d
+                    ON d.document_id = ed.document_id
+                   AND d.document_status = 'submitted'
+             WHERE esd.exam_schedule_id = :exam_schedule_id
+               AND d.document_id IS NULL"
+        );
+        $stmt->execute(['proposal_id' => $proposalId, 'exam_schedule_id' => $examScheduleId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 
     /**
@@ -507,6 +545,11 @@ class LecturerMeetingsController
         }
 
         $errors = array_merge($errors, $this->feeBlockersForScheduling($match['student_id'], $examScheduleId));
+
+        $missingDocs = $this->missingRequiredDocuments($proposalId, $examScheduleId);
+        if ($missingDocs) {
+            $errors[] = 'The student has not yet submitted: ' . implode(', ', $missingDocs) . '.';
+        }
 
         if ($errors) {
             $_SESSION['flash_error'] = implode(' ', $errors);

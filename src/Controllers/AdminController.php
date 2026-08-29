@@ -65,23 +65,100 @@ class AdminController
 
         $userModel = new \App\Models\AdminUser($this->db);
         $roleModel = new \App\Models\Role($this->db);
+        $lecturerModel = new \App\Models\Lecturer($this->db);
 
         $params = $request->getQueryParams();
         $search = trim((string) ($params['q'] ?? ''));
         $roleFilter = trim((string) ($params['role'] ?? ''));
 
+        $users = $userModel->all($search ?: null, $roleFilter ?: null);
+
+        // The table is admin-facing and small — one lookup per lecturer
+        // row is simpler than folding a third affiliation table into
+        // AdminUser::all()'s already-aggregated query.
+        $affiliations = [];
+        foreach ($users as $u) {
+            if ($u['lecturer_id']) {
+                $affiliations[$u['lecturer_id']] = $lecturerModel->findAffiliation($u['lecturer_id']);
+            }
+        }
+
         return $this->twig->render($response, 'admins/users.twig', [
         'active_page'      => 'users',
         'first_name'       => $_SESSION['first_name'] ?? '',
-        'users'            => $userModel->all($search ?: null, $roleFilter ?: null),
+        'users'            => $users,
         'roles'            => $roleModel->all(),
         'roles_by_user'    => $roleModel->activeRolesByUser(),
+        'affiliations'     => $affiliations,
+        'departments'      => (new \App\Models\Department($this->db))->all(),
         'q'                => $search,
         'role_filter'      => $roleFilter,
         'csrf_token'       => $this->csrfToken(),
         'error'            => $this->takeFlash('flash_error'),
         'success'          => $this->takeFlash('flash_success'),
         ]);
+    }
+
+    /**
+     * Sets or changes a lecturer's affiliation — internal (requires a
+     * unique staff_number and a department) or external (everything
+     * else optional). A lecturer is one or the other, never both;
+     * switching types wipes the old table's row.
+     */
+    public function updateAffiliation(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/users')->withStatus(302);
+        }
+
+        $lecturerId = (string) ($data['lecturer_id'] ?? '');
+        $type = (string) ($data['affiliation_type'] ?? '');
+
+        if ($lecturerId === '' || !in_array($type, ['internal', 'external'], true)) {
+            $_SESSION['flash_error'] = 'Please choose Internal or External.';
+            return $response->withHeader('Location', '/admin/users')->withStatus(302);
+        }
+
+        $lecturerModel = new \App\Models\Lecturer($this->db);
+
+        try {
+            if ($type === 'internal') {
+                $staffNumber = trim((string) ($data['staff_number'] ?? ''));
+                $departmentId = trim((string) ($data['department_id'] ?? ''));
+
+                if ($staffNumber === '' || $departmentId === '') {
+                    $_SESSION['flash_error'] = 'Staff number and department are required for an internal lecturer.';
+                    return $response->withHeader('Location', '/admin/users')->withStatus(302);
+                }
+
+                $lecturerModel->setInternal(
+                    $lecturerId,
+                    $staffNumber,
+                    $departmentId,
+                    trim((string) ($data['specialization'] ?? '')) ?: null
+                );
+            } else {
+                $lecturerModel->setExternal(
+                    $lecturerId,
+                    trim((string) ($data['non_staff_number'] ?? '')) ?: null,
+                    trim((string) ($data['department'] ?? '')) ?: null,
+                    trim((string) ($data['specialization'] ?? '')) ?: null,
+                    trim((string) ($data['institution'] ?? '')) ?: null
+                );
+            }
+
+            $_SESSION['flash_success'] = 'Affiliation updated.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not update affiliation: that staff number may already be in use.';
+        }
+
+        return $response->withHeader('Location', '/admin/users')->withStatus(302);
     }
 
     /**
@@ -573,7 +650,11 @@ class AdminController
             'examiners'          => $lecturerModel->examinerUserIds(),
         };
 
-        $sent = (new \App\Models\Notification($this->db))->createForUsers($userIds, $subject, $message, 'broadcast', null);
+        // Every audience but all_students addresses the lecturer hat —
+        // active_supervisors/examiners are both lecturer-only concepts.
+        $role = $audience === 'all_students' ? 'student' : 'lecturer';
+
+        $sent = (new \App\Models\Notification($this->db))->createForUsers($userIds, $role, $subject, $message, 'broadcast', null);
 
         $_SESSION['flash_success'] = $sent > 0
             ? 'Notification sent to ' . $sent . ' recipient' . ($sent === 1 ? '' : 's') . '.'

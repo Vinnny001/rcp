@@ -40,7 +40,7 @@
 {% if users %}
   <table>
     <thead>
-      <tr><th>Name</th><th>Roles</th><th>Department</th><th>Last login</th><th>Status</th><th>Examiner</th><th>Supervision load</th><th>Manage roles</th><th></th></tr>
+      <tr><th>Name</th><th>Roles</th><th>Department</th><th>Last login</th><th>Status</th><th>Examiner</th><th>Supervision load</th><th>Affiliation</th><th>Manage roles</th><th></th></tr>
     </thead>
     <tbody>
       {% for u in users %}
@@ -85,6 +85,52 @@
                 <input type="hidden" name="lecturer_id" value="{{ u.lecturer_id }}">
                 <input type="number" name="max_supervision_load" value="{{ u.max_supervision_load }}" min="0" style="width:64px;">
                 <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">Save</button>
+              </form>
+            {% else %}
+              <span class="meta">—</span>
+            {% endif %}
+          </td>
+          <td style="min-width:220px;">
+            {% if u.lecturer_id %}
+              {% set aff = affiliations[u.lecturer_id] %}
+              <div class="meta" style="margin-bottom:4px;">
+                {% if aff and aff.type == 'internal' %}
+                  <span class="stamp mini approved">Internal</span> {{ aff.department_name ?? '—' }} · {{ aff.staff_number }}
+                {% elseif aff and aff.type == 'external' %}
+                  <span class="stamp mini pending">External</span> {{ aff.institution ?? '—' }}
+                {% else %}
+                  <span class="stamp mini rejected">Not set</span>
+                {% endif %}
+              </div>
+              {% set formId = 'aff-' ~ u.user_id %}
+              <form method="POST" action="/admin/users/affiliation" style="display:flex; flex-direction:column; gap:4px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="lecturer_id" value="{{ u.lecturer_id }}">
+                <select name="affiliation_type" style="width:100%;"
+                        onchange="document.getElementById('{{ formId }}-internal').style.display = this.value=='internal' ? 'flex' : 'none'; document.getElementById('{{ formId }}-external').style.display = this.value=='external' ? 'flex' : 'none';">
+                  <option value="internal" {{ (aff.type ?? '') == 'internal' ? 'selected' : '' }}>Internal</option>
+                  <option value="external" {{ (aff.type ?? '') == 'external' ? 'selected' : '' }}>External</option>
+                </select>
+
+                <div id="{{ formId }}-internal" style="display:{{ (aff.type ?? 'internal') == 'internal' ? 'flex' : 'none' }}; flex-direction:column; gap:4px;">
+                  <input type="text" name="staff_number" placeholder="Staff number" value="{{ aff.staff_number ?? '' }}" style="width:100%;">
+                  <select name="department_id" style="width:100%;">
+                    <option value="">-- Department --</option>
+                    {% for d in departments %}
+                      <option value="{{ d.department_id }}" {{ (aff.department_id ?? '') == d.department_id ? 'selected' : '' }}>{{ d.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                <div id="{{ formId }}-external" style="display:{{ (aff.type ?? '') == 'external' ? 'flex' : 'none' }}; flex-direction:column; gap:4px;">
+                  <input type="text" name="non_staff_number" placeholder="Non-staff number" value="{{ aff.non_staff_number ?? '' }}" style="width:100%;">
+                  <input type="text" name="institution" placeholder="Institution" value="{{ aff.institution ?? '' }}" style="width:100%;">
+                  <input type="text" name="department" placeholder="Department" value="{{ aff.department ?? '' }}" style="width:100%;">
+                </div>
+
+                <input type="text" name="specialization" placeholder="Specialization (optional)" value="{{ aff.specialization ?? '' }}" style="width:100%;">
+
+                <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.72rem;">Save affiliation</button>
               </form>
             {% else %}
               <span class="meta">—</span>

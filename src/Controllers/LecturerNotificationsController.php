@@ -61,7 +61,7 @@ class LecturerNotificationsController
         return $this->twig->render($response, 'lecturers/notifications.twig', [
             'active_page'  => 'l-notifications',
             'first_name'   => $_SESSION['first_name'] ?? '',
-            'inbox'        => (new Notification($this->db))->findForUser($userId),
+            'inbox'        => (new Notification($this->db))->findForUser($userId, 'lecturer'),
             'meetings'     => (new Meeting($this->db))->findUpcomingForUser($userId),
             'supervisees'  => $lecturer ? $lecturerModel->findActiveSupervisions($lecturer['lecturer_id']) : [],
             'csrf_token'   => $this->csrfToken(),
@@ -101,9 +101,8 @@ class LecturerNotificationsController
         }
 
         $meetingModel = new Meeting($this->db);
-        $recipientIds = [];
-        $relatedEntityType = null;
-        $relatedEntityId = null;
+        $notificationModel = new Notification($this->db);
+        $sent = 0;
 
         if ($mode === 'meeting') {
             $meetingId = (string) ($data['meeting_id'] ?? '');
@@ -112,14 +111,29 @@ class LecturerNotificationsController
                 return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
             }
 
+            // Attendees are a mix of hats — a meeting's student attendee
+            // must see this under their student inbox, while every other
+            // role (examiner/chairperson/supervisor) is a lecturer hat.
+            $studentIds = [];
+            $lecturerIds = [];
             foreach ($meetingModel->findAttendees($meetingId) as $attendee) {
-                if ($attendee['user_id'] !== $userId) {
-                    $recipientIds[] = $attendee['user_id'];
+                if ($attendee['user_id'] === $userId) {
+                    continue;
+                }
+                if ($attendee['role_in_meeting'] === 'student') {
+                    $studentIds[] = $attendee['user_id'];
+                } else {
+                    $lecturerIds[] = $attendee['user_id'];
                 }
             }
 
-            $relatedEntityType = 'meeting';
-            $relatedEntityId = $meetingId;
+            if (!$studentIds && !$lecturerIds) {
+                $_SESSION['flash_error'] = 'This meeting has no other attendees to notify.';
+                return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
+            }
+
+            $sent += $notificationModel->createForUsers($studentIds, 'student', $subject, $message, 'meeting', $meetingId);
+            $sent += $notificationModel->createForUsers($lecturerIds, 'lecturer', $subject, $message, 'meeting', $meetingId);
         } else {
             $lecturerModel = new Lecturer($this->db);
             $lecturer = $lecturerModel->findByUserId($userId);
@@ -135,10 +149,8 @@ class LecturerNotificationsController
                 return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
             }
 
-            $relatedEntityType = 'supervision_reminder';
+            $sent = $notificationModel->createForUsers($recipientIds, 'student', $subject, $message, 'supervision_reminder', null);
         }
-
-        $sent = (new Notification($this->db))->createForUsers($recipientIds, $subject, $message, $relatedEntityType, $relatedEntityId);
 
         $_SESSION['flash_success'] = 'Notification sent to ' . $sent . ' recipient' . ($sent === 1 ? '' : 's') . '.';
 

@@ -125,6 +125,7 @@ return function (App $app) {
 $app->post('/admin/users/toggle', [AdminController::class, 'toggleUser']);
 $app->post('/admin/users/toggle-examiner', [AdminController::class, 'toggleExaminer']);
 $app->post('/admin/users/max-supervision-load', [AdminController::class, 'updateMaxSupervisionLoad']);
+$app->post('/admin/users/affiliation', [AdminController::class, 'updateAffiliation']);
 
 
 $app->get('/admin/departments', [AdminController::class, 'departments']);

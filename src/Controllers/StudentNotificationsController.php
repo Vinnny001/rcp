@@ -51,7 +51,7 @@ class StudentNotificationsController
         return $this->twig->render($response, 'students/notifications.twig', [
             'active_page' => 'notifications',
             'first_name'  => $_SESSION['first_name'] ?? '',
-            'inbox'       => (new Notification($this->db))->findForUser($_SESSION['user_id']),
+            'inbox'       => (new Notification($this->db))->findForUser($_SESSION['user_id'], 'student'),
             'csrf_token'  => $this->csrfToken(),
         ]);
     }

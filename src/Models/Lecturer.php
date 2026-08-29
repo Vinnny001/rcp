@@ -93,6 +93,155 @@ class Lecturer
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 
+    /**
+     * A lecturer's affiliation, whichever table actually has a row for
+     * them — internal_lecturers checked first, since a lecturer can
+     * only be one or the other, not both, at a time. Null if neither
+     * has been recorded yet (the gap the admin Users page's own notice
+     * already describes).
+     *
+     * @return array{type:string}|null
+     */
+    public function findAffiliation(string $lecturerId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT il.staff_id, il.staff_number, il.department_id, il.specialization, d.name AS department_name
+             FROM internal_lecturers il
+             LEFT JOIN departments d ON d.department_id = il.department_id
+             WHERE il.lecturer_id = :lecturer_id LIMIT 1"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        $row = $stmt->fetch();
+        if ($row) {
+            return array_merge(['type' => 'internal'], $row);
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT non_staff_id, non_staff_number, department, specialization, institution
+             FROM external_lecturers WHERE lecturer_id = :lecturer_id LIMIT 1"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+        $row = $stmt->fetch();
+        if ($row) {
+            return array_merge(['type' => 'external'], $row);
+        }
+
+        return null;
+    }
+
+    /**
+     * Marks a lecturer internal, wiping any prior external record —
+     * a lecturer is one or the other, never both. staff_number and
+     * department_id are required by the table itself (NOT NULL).
+     */
+    public function setInternal(string $lecturerId, string $staffNumber, string $departmentId, ?string $specialization): void
+    {
+        // Wrapped in a transaction: if the insert/update below fails
+        // (e.g. a duplicate staff_number), the delete must roll back
+        // too — otherwise a failed switch would leave the lecturer with
+        // neither an internal nor an external record at all.
+        $this->db->beginTransaction();
+
+        try {
+            $this->db->prepare("DELETE FROM external_lecturers WHERE lecturer_id = :lecturer_id")
+                ->execute(['lecturer_id' => $lecturerId]);
+
+            $existing = $this->db->prepare("SELECT staff_id FROM internal_lecturers WHERE lecturer_id = :lecturer_id LIMIT 1");
+            $existing->execute(['lecturer_id' => $lecturerId]);
+            $staffId = $existing->fetchColumn();
+
+            if ($staffId) {
+                $stmt = $this->db->prepare(
+                    "UPDATE internal_lecturers
+                     SET staff_number = :staff_number, department_id = :department_id, specialization = :specialization
+                     WHERE staff_id = :staff_id"
+                );
+                $stmt->execute([
+                    'staff_number'   => $staffNumber,
+                    'department_id'  => $departmentId,
+                    'specialization' => $specialization,
+                    'staff_id'       => $staffId,
+                ]);
+            } else {
+                $stmt = $this->db->prepare(
+                    "INSERT INTO internal_lecturers (staff_id, lecturer_id, staff_number, department_id, specialization)
+                     VALUES (:staff_id, :lecturer_id, :staff_number, :department_id, :specialization)"
+                );
+                $stmt->execute([
+                    'staff_id'       => $this->generateUuid(),
+                    'lecturer_id'    => $lecturerId,
+                    'staff_number'   => $staffNumber,
+                    'department_id'  => $departmentId,
+                    'specialization' => $specialization,
+                ]);
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Marks a lecturer external, wiping any prior internal record.
+     * Every external_lecturers column besides the keys is nullable, so
+     * this can record as little or as much as admin has on hand.
+     */
+    public function setExternal(
+        string $lecturerId,
+        ?string $nonStaffNumber,
+        ?string $department,
+        ?string $specialization,
+        ?string $institution
+    ): void {
+        // Same atomicity reasoning as setInternal() above.
+        $this->db->beginTransaction();
+
+        try {
+            $this->db->prepare("DELETE FROM internal_lecturers WHERE lecturer_id = :lecturer_id")
+                ->execute(['lecturer_id' => $lecturerId]);
+
+            $existing = $this->db->prepare("SELECT non_staff_id FROM external_lecturers WHERE lecturer_id = :lecturer_id LIMIT 1");
+            $existing->execute(['lecturer_id' => $lecturerId]);
+            $nonStaffId = $existing->fetchColumn();
+
+            if ($nonStaffId) {
+                $stmt = $this->db->prepare(
+                    "UPDATE external_lecturers
+                     SET non_staff_number = :non_staff_number, department = :department,
+                         specialization = :specialization, institution = :institution
+                     WHERE non_staff_id = :non_staff_id"
+                );
+                $stmt->execute([
+                    'non_staff_number' => $nonStaffNumber,
+                    'department'       => $department,
+                    'specialization'   => $specialization,
+                    'institution'      => $institution,
+                    'non_staff_id'     => $nonStaffId,
+                ]);
+            } else {
+                $stmt = $this->db->prepare(
+                    "INSERT INTO external_lecturers (non_staff_id, lecturer_id, non_staff_number, department, specialization, institution)
+                     VALUES (:non_staff_id, :lecturer_id, :non_staff_number, :department, :specialization, :institution)"
+                );
+                $stmt->execute([
+                    'non_staff_id'      => $this->generateUuid(),
+                    'lecturer_id'       => $lecturerId,
+                    'non_staff_number'  => $nonStaffNumber,
+                    'department'        => $department,
+                    'specialization'    => $specialization,
+                    'institution'       => $institution,
+                ]);
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
     public function updateMaxSupervisionLoad(string $lecturerId, int $value): void
     {
         $stmt = $this->db->prepare(
@@ -383,6 +532,14 @@ class Lecturer
         }
 
         return null;
+    }
+
+    private function generateUuid(): string
+    {
+        $data = random_bytes(16);
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 
 

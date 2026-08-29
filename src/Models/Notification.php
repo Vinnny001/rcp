@@ -23,8 +23,15 @@ class Notification
         $this->db = $db;
     }
 
+    /**
+     * $role is which hat this notification is addressed to
+     * ('admin'/'lecturer'/'student') — a user holding more than one
+     * role must only see a notification while wearing the hat it was
+     * actually sent to, never the other one.
+     */
     public function create(
         string $userId,
+        string $role,
         string $subject,
         string $message,
         ?string $relatedEntityType = null,
@@ -34,13 +41,14 @@ class Notification
 
         $stmt = $this->db->prepare(
             "INSERT INTO notifications
-                (notification_id, user_id, type, subject, message, related_entity_type, related_entity_id, status, sent_at)
+                (notification_id, user_id, role, type, subject, message, related_entity_type, related_entity_id, status, sent_at)
              VALUES
-                (:id, :user_id, 'in_app', :subject, :message, :related_entity_type, :related_entity_id, 'sent', NOW())"
+                (:id, :user_id, :role, 'in_app', :subject, :message, :related_entity_type, :related_entity_id, 'sent', NOW())"
         );
         $stmt->execute([
             'id'                  => $notificationId,
             'user_id'             => $userId,
+            'role'                => $role,
             'subject'             => $subject,
             'message'             => $message,
             'related_entity_type' => $relatedEntityType,
@@ -51,14 +59,15 @@ class Notification
     }
 
     /**
-     * Sends the same notification to every user id given, skipping
-     * duplicates. Returns how many were actually created, for the
-     * "sent to N people" confirmation.
+     * Sends the same notification, addressed to the same role, to every
+     * user id given, skipping duplicates. Returns how many were
+     * actually created, for the "sent to N people" confirmation.
      *
      * @param array<int, string> $userIds
      */
     public function createForUsers(
         array $userIds,
+        string $role,
         string $subject,
         string $message,
         ?string $relatedEntityType = null,
@@ -67,27 +76,27 @@ class Notification
         $userIds = array_values(array_unique(array_filter($userIds)));
 
         foreach ($userIds as $userId) {
-            $this->create($userId, $subject, $message, $relatedEntityType, $relatedEntityId);
+            $this->create($userId, $role, $subject, $message, $relatedEntityType, $relatedEntityId);
         }
 
         return count($userIds);
     }
 
-    public function findForUser(string $userId): array
+    public function findForUser(string $userId, string $role): array
     {
         $stmt = $this->db->prepare(
-            "SELECT * FROM notifications WHERE user_id = :user_id ORDER BY created_at DESC LIMIT 100"
+            "SELECT * FROM notifications WHERE user_id = :user_id AND role = :role ORDER BY created_at DESC LIMIT 100"
         );
-        $stmt->execute(['user_id' => $userId]);
+        $stmt->execute(['user_id' => $userId, 'role' => $role]);
         return $stmt->fetchAll();
     }
 
-    public function countUnreadForUser(string $userId): int
+    public function countUnreadForUser(string $userId, string $role): int
     {
         $stmt = $this->db->prepare(
-            "SELECT COUNT(*) FROM notifications WHERE user_id = :user_id AND status != 'read'"
+            "SELECT COUNT(*) FROM notifications WHERE user_id = :user_id AND role = :role AND status != 'read'"
         );
-        $stmt->execute(['user_id' => $userId]);
+        $stmt->execute(['user_id' => $userId, 'role' => $role]);
         return (int) $stmt->fetchColumn();
     }
 

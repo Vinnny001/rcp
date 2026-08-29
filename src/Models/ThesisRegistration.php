@@ -38,6 +38,55 @@ class ThesisRegistration
     }
 
     /**
+     * Document types required under one exam window whose review fee
+     * isn't fully paid yet — checked directly against confirmed
+     * payments, with no due-date grace period. This is deliberately
+     * different from computeOwed()'s document-review-fee entries, which
+     * only appear once due_after_weeks has elapsed since the submission
+     * window opened — that grace period is for telling a student when a
+     * fee becomes "overdue" for display purposes, but a meeting must
+     * never be scheduled to review a document that's still unpaid just
+     * because the grace window hasn't technically elapsed yet.
+     *
+     * Known limitation: thesis_payments has no document_type_id column,
+     * so if an exam window ever requires more than one document type,
+     * paying for one would read as paying for all of them under that
+     * exam_schedule_id. Fine today (no exam window requires more than
+     * one document type in practice), but would need a schema change
+     * (a document_type_id column on thesis_payments) to hold once one
+     * does.
+     *
+     * @return array<int, string> doc_type_names still unpaid
+     */
+    public function documentReviewFeeUnpaidForSchedule(array $registration, string $examScheduleId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT dt.doc_type_name, drr.amount
+             FROM exam_schedule_documents esd
+             JOIN exam_schedule es ON es.exam_schedule_id = esd.exam_schedule_id
+             JOIN thesis_schedules ts ON ts.schedule_id = es.thesis_schedule_id
+             JOIN document_review_rates drr
+                    ON drr.document_type_id = esd.document_type_id
+                   AND drr.program_id = ts.program_id
+             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
+             WHERE esd.exam_schedule_id = :exam_schedule_id"
+        );
+        $stmt->execute(['exam_schedule_id' => $examScheduleId]);
+
+        $paymentModel = new ThesisPayment($this->db);
+        $unpaid = [];
+
+        foreach ($stmt->fetchAll() as $row) {
+            $paid = $paymentModel->sumConfirmed($registration['thesis_registration_id'], 'document_review_fee', $examScheduleId);
+            if ($paid < (float) $row['amount']) {
+                $unpaid[] = $row['doc_type_name'];
+            }
+        }
+
+        return $unpaid;
+    }
+
+    /**
      * Every student registered under one thesis schedule, with their
      * latest proposal status attached — lets admin spot students whose
      * proposal was rejected (failed an approval-board exam) and who
