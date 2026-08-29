@@ -27,35 +27,21 @@ class ThesisPayment
         /**
      * Sums confirmed payments for a thesis registration, by fee type.
      * - thesis_registration: one-time, no further scoping needed.
-     * - document_review_fee: pass $examScheduleId to scope the sum to a
-     *   specific document/exam schedule — without it, document-review-fee
-     *   payments for different document types would be summed together,
-     *   which is wrong since that fee is per document type.
      * - thesis_review_fee: pass $thesisYear to scope the sum to one
      *   annual period — this fee recurs, so without a year scope,
      *   payments for different years would be summed together and a
      *   student could never appear to owe a later year's fee.
+     *
+     * The document review fee is NOT tracked here — it lives entirely
+     * in document_payment/DocumentPayment, scoped per document type,
+     * since this table has no document_type_id to tell two required
+     * document types under the same exam window apart.
      */
     public function sumConfirmed(
         string $thesisRegistrationId,
         string $feeType,
-        ?string $examScheduleId = null,
         ?int $thesisYear = null
     ): float {
-        if ($feeType === 'document_review_fee' && $examScheduleId !== null) {
-            $stmt = $this->db->prepare(
-                "SELECT COALESCE(SUM(amount), 0) FROM thesis_payments
-                 WHERE thesis_registration_id = :id AND fee_type = :fee_type
-                   AND exam_schedule_id = :exam_schedule_id AND status = 'confirmed'"
-            );
-            $stmt->execute([
-                'id'               => $thesisRegistrationId,
-                'fee_type'         => $feeType,
-                'exam_schedule_id' => $examScheduleId,
-            ]);
-            return (float) $stmt->fetchColumn();
-        }
-
         if ($feeType === 'thesis_review_fee' && $thesisYear !== null) {
             $stmt = $this->db->prepare(
                 "SELECT COALESCE(SUM(amount), 0) FROM thesis_payments

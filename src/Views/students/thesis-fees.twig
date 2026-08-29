@@ -83,7 +83,7 @@
             <td class="mono">{{ item.due_date ? item.due_date|date('d M Y') : '—' }}</td>
             <td>
               <button type="button" class="btn ghost" style="padding:6px 14px; font-size:.74rem;"
-                onclick="openPayModal('{{ item.fee_type }}', '{{ item.year ?? '' }}', '{{ item.remaining }}', '{{ item.currency }}', '{{ item.fee_type|replace({'_': ' '})|capitalize }}{% if item.year %} (Year {{ item.year }}){% endif %}', '{{ item.exam_schedule_id ?? '' }}')">
+                onclick="openPayModal('{{ item.fee_type }}', '{{ item.year ?? '' }}', '{{ item.remaining }}', '{{ item.currency }}', '{{ item.fee_type|replace({'_': ' '})|capitalize }}{% if item.year %} (Year {{ item.year }}){% endif %}', '{{ item.exam_schedule_id ?? '' }}', '{{ item.document_type_id ?? '' }}')">
                 Pay
               </button>
             </td>
@@ -107,7 +107,7 @@
             <td class="mono">{{ item.due_date|date('d M Y') }}</td>
             <td>
               <button type="button" class="btn ghost" style="padding:6px 14px; font-size:.74rem;"
-                onclick="openPayModal('document_review_fee', '{{ item.year ?? '' }}', '{{ item.required }}', '{{ item.currency }}', '{{ item.doc_type_name }} review fee', '{{ item.exam_schedule_id ?? '' }}')">
+                onclick="openPayModal('document_review_fee', '{{ item.year ?? '' }}', '{{ item.required }}', '{{ item.currency }}', '{{ item.doc_type_name }} review fee', '{{ item.exam_schedule_id ?? '' }}', '{{ item.document_type_id ?? '' }}')">
                 Pay
               </button>
             </td>
@@ -130,6 +130,7 @@
             <td>
               {{ h.fee_type|replace({'_': ' '})|capitalize }}
               {% if h.thesis_year %} (Year {{ h.thesis_year }}){% endif %}
+              {% if h.doc_type_name %} — {{ h.doc_type_name }}{% endif %}
             </td>
             <td class="mono">{{ h.currency }} {{ h.amount|number_format(0) }}</td>
             <td class="mono">{{ h.payment_method|replace({'_': ' '})|capitalize }}</td>
@@ -167,6 +168,7 @@
         <input type="hidden" name="fee_type" id="payFeeType">
         <input type="hidden" name="thesis_year" id="payYear">
         <input type="hidden" name="exam_schedule_id" id="payExamScheduleId">
+        <input type="hidden" name="document_type_id" id="payDocumentTypeId">
 
         <div class="field">
           <label>Amount due</label>
@@ -203,12 +205,13 @@
 
 {% block extra_scripts %}
 <script>
-  function openPayModal(feeType, year, remaining, currency, label, examScheduleId){
+  function openPayModal(feeType, year, remaining, currency, label, examScheduleId, documentTypeId){
     document.getElementById('payFeeType').value = feeType;
     document.getElementById('payYear').value = year;
     document.getElementById('payAmount').value = remaining;
     document.getElementById('payCurrency').value = currency;
     document.getElementById('payExamScheduleId').value = examScheduleId || '';
+    document.getElementById('payDocumentTypeId').value = documentTypeId || '';
     document.getElementById('payAmountDisplay').value = currency + ' ' + remaining;
     document.getElementById('payModalTitle').textContent = 'Pay ' + label;
     document.getElementById('payModal').classList.add('open');

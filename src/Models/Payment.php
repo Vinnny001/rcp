@@ -29,18 +29,14 @@ class Payment
     /**
      * Sums confirmed payments of a given type for a student.
      * - tuition: pass $semesterId to scope to a specific semester.
-     * - examination_fee: pass $semesterId AND $examType to scope to a
-     *   specific semester's internal or external exam fee — these are
-     *   tracked independently since a student may owe one, the other,
-     *   or both, at potentially different rates.
-     * - registration / thesis_fee: neither param is used, since those
-     *   remain one-time-per-schedule, not per-semester.
+     * - registration / thesis_fee / examination_fee: $semesterId is
+     *   unused, since those remain one-time-per-schedule, not
+     *   per-semester.
      */
     public function sumConfirmedByType(
         string $studentId,
         string $paymentType,
-        ?string $semesterId = null,
-        ?string $examType = null
+        ?string $semesterId = null
     ): float {
         if ($paymentType === 'tuition' && $semesterId !== null) {
             $stmt = $this->db->prepare(
@@ -52,21 +48,6 @@ class Payment
                 'student_id'   => $studentId,
                 'payment_type' => $paymentType,
                 'semester_id'  => $semesterId,
-            ]);
-            return (float) $stmt->fetchColumn();
-        }
-
-        if ($paymentType === 'examination_fee' && $semesterId !== null && $examType !== null) {
-            $stmt = $this->db->prepare(
-                "SELECT COALESCE(SUM(amount), 0) FROM payments
-                 WHERE student_id = :student_id AND payment_type = :payment_type
-                   AND status = 'confirmed' AND semester_id = :semester_id AND exam_type = :exam_type"
-            );
-            $stmt->execute([
-                'student_id'   => $studentId,
-                'payment_type' => $paymentType,
-                'semester_id'  => $semesterId,
-                'exam_type'    => $examType,
             ]);
             return (float) $stmt->fetchColumn();
         }

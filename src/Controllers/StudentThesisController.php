@@ -100,7 +100,19 @@ class StudentThesisController
         $owed = $regModel->computeOwed($registration);
         $upcoming = $regModel->computeUpcoming($registration);
         $paymentModel = new ThesisPayment($this->db);
-        $history = $paymentModel->findByRegistrationId($registration['thesis_registration_id']);
+        $docPaymentModel = new \App\Models\DocumentPayment($this->db);
+
+        // Registration/annual fees live in thesis_payments, document
+        // review fees in document_payment — merged here since a student
+        // doesn't care which table produced a given payment record.
+        $history = array_merge(
+            $paymentModel->findByRegistrationId($registration['thesis_registration_id']),
+            array_map(
+                fn($p) => array_merge($p, ['fee_type' => 'document_review_fee']),
+                $docPaymentModel->findByRegistrationId($registration['thesis_registration_id'])
+            )
+        );
+        usort($history, fn($a, $b) => strcmp((string) $b['created_at'], (string) $a['created_at']));
 
         $proposalModel = new \App\Models\Proposal($this->db);
         $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
@@ -255,6 +267,7 @@ class StudentThesisController
         $feeType = $data['fee_type'] ?? '';
         $year = ($data['thesis_year'] ?? '') !== '' ? (int) $data['thesis_year'] : null;
         $examScheduleId = trim((string) ($data['exam_schedule_id'] ?? '')) ?: null;
+        $documentTypeId = trim((string) ($data['document_type_id'] ?? '')) ?: null;
         $amount = $data['amount'] ?? '';
         $currency = $data['currency'] ?? 'KES';
         $paymentMethod = $data['payment_method'] ?? '';
@@ -263,6 +276,9 @@ class StudentThesisController
         $errors = [];
         if (!in_array($feeType, ['thesis_registration', 'thesis_review_fee', 'document_review_fee'], true)) {
             $errors[] = 'Invalid fee type.';
+        }
+        if ($feeType === 'document_review_fee' && (!$examScheduleId || !$documentTypeId)) {
+            $errors[] = 'Please choose which document this payment is for.';
         }
         if ($amount === '' || (float) $amount <= 0) {
             $errors[] = 'Invalid amount.';
@@ -279,18 +295,26 @@ class StudentThesisController
             return $this->redirect($response, '/student/thesis');
         }
 
-        $paymentModel = new ThesisPayment($this->db);
-
         try {
-            $paymentModel->create([
-                'fee_type'         => $feeType,
-                'thesis_year'      => $year,
-                'exam_schedule_id' => $examScheduleId,
-                'amount'           => $amount,
-                'currency'         => $currency,
-                'payment_method'   => $paymentMethod,
-                'reference_number' => $reference,
-            ], $registration['thesis_registration_id']);
+            if ($feeType === 'document_review_fee') {
+                (new \App\Models\DocumentPayment($this->db))->create([
+                    'exam_schedule_id' => $examScheduleId,
+                    'document_type_id' => $documentTypeId,
+                    'amount'           => $amount,
+                    'currency'         => $currency,
+                    'payment_method'   => $paymentMethod,
+                    'reference_number' => $reference,
+                ], $registration['thesis_registration_id']);
+            } else {
+                (new ThesisPayment($this->db))->create([
+                    'fee_type'         => $feeType,
+                    'thesis_year'      => $year,
+                    'amount'           => $amount,
+                    'currency'         => $currency,
+                    'payment_method'   => $paymentMethod,
+                    'reference_number' => $reference,
+                ], $registration['thesis_registration_id']);
+            }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Payment could not be recorded: ' . $e->getMessage();
             return $this->redirect($response, '/student/thesis');

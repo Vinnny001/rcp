@@ -40,28 +40,20 @@ class ThesisRegistration
     /**
      * Document types required under one exam window whose review fee
      * isn't fully paid yet — checked directly against confirmed
-     * payments, with no due-date grace period. This is deliberately
-     * different from computeOwed()'s document-review-fee entries, which
-     * only appear once due_after_weeks has elapsed since the submission
-     * window opened — that grace period is for telling a student when a
-     * fee becomes "overdue" for display purposes, but a meeting must
-     * never be scheduled to review a document that's still unpaid just
-     * because the grace window hasn't technically elapsed yet.
-     *
-     * Known limitation: thesis_payments has no document_type_id column,
-     * so if an exam window ever requires more than one document type,
-     * paying for one would read as paying for all of them under that
-     * exam_schedule_id. Fine today (no exam window requires more than
-     * one document type in practice), but would need a schema change
-     * (a document_type_id column on thesis_payments) to hold once one
-     * does.
+     * payments in document_payment, with no due-date grace period. This
+     * is deliberately different from computeOwed()'s document-review-fee
+     * entries, which only appear once due_after_weeks has elapsed since
+     * the submission window opened — that grace period is for telling a
+     * student when a fee becomes "overdue" for display purposes, but a
+     * meeting must never be scheduled to review a document that's still
+     * unpaid just because the grace window hasn't technically elapsed yet.
      *
      * @return array<int, string> doc_type_names still unpaid
      */
     public function documentReviewFeeUnpaidForSchedule(array $registration, string $examScheduleId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT dt.doc_type_name, drr.amount
+            "SELECT dt.doc_type_id, dt.doc_type_name, drr.amount
              FROM exam_schedule_documents esd
              JOIN exam_schedule es ON es.exam_schedule_id = esd.exam_schedule_id
              JOIN thesis_schedules ts ON ts.schedule_id = es.thesis_schedule_id
@@ -73,11 +65,11 @@ class ThesisRegistration
         );
         $stmt->execute(['exam_schedule_id' => $examScheduleId]);
 
-        $paymentModel = new ThesisPayment($this->db);
+        $paymentModel = new DocumentPayment($this->db);
         $unpaid = [];
 
         foreach ($stmt->fetchAll() as $row) {
-            $paid = $paymentModel->sumConfirmed($registration['thesis_registration_id'], 'document_review_fee', $examScheduleId);
+            $paid = $paymentModel->sumConfirmed($registration['thesis_registration_id'], $examScheduleId, $row['doc_type_id']);
             if ($paid < (float) $row['amount']) {
                 $unpaid[] = $row['doc_type_name'];
             }
@@ -228,14 +220,18 @@ class ThesisRegistration
         // 2. Document review fee — per exam_schedule_documents row
         // (document type), weeks counted from document_submission_starts_at,
         // which now lives on exam_schedule_documents, not exam_schedule.
+        // Paid via document_payment, scoped to (exam_schedule_id,
+        // document_type_id) — the only table that can actually tell two
+        // required document types under the same window apart.
         $examSchedules = $this->db->prepare(
-            "SELECT esd.exam_schedule_id, esd.document_type_id, esd.document_submission_starts_at,
+            "SELECT esd.exam_schedule_id, esd.document_type_id, dt.doc_type_name, esd.document_submission_starts_at,
                     drr.amount, drr.currency, drr.due_after_weeks
              FROM exam_schedule es
              JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
              JOIN document_review_rates drr
                     ON drr.document_type_id = esd.document_type_id
                    AND drr.program_id = :program_id
+             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
              WHERE es.thesis_schedule_id = :schedule_id
                AND esd.document_submission_starts_at IS NOT NULL"
         );
@@ -245,6 +241,7 @@ class ThesisRegistration
         ]);
 
         $now = new \DateTimeImmutable();
+        $docPaymentModel = new DocumentPayment($this->db);
 
         foreach ($examSchedules->fetchAll() as $es) {
             $startsAt = new \DateTimeImmutable($es['document_submission_starts_at']);
@@ -255,10 +252,10 @@ class ThesisRegistration
             }
 
             $year = $this->yearsElapsedSince($registration['registered_at']) ?: 1;
-            $paid = $paymentModel->sumConfirmed(
+            $paid = $docPaymentModel->sumConfirmed(
                 $registration['thesis_registration_id'],
-                'document_review_fee',
-                $es['exam_schedule_id']
+                $es['exam_schedule_id'],
+                $es['document_type_id']
             );
             $required = (float) $es['amount'];
 
@@ -266,6 +263,8 @@ class ThesisRegistration
                 $owed[] = [
                     'fee_type'         => 'document_review_fee',
                     'exam_schedule_id' => $es['exam_schedule_id'],
+                    'document_type_id' => $es['document_type_id'],
+                    'doc_type_name'    => $es['doc_type_name'],
                     'year'             => $year,
                     'paid'             => $paid,
                     'required'         => $required,
@@ -281,7 +280,6 @@ class ThesisRegistration
             $paid = $paymentModel->sumConfirmed(
                 $registration['thesis_registration_id'],
                 'thesis_review_fee',
-                null,
                 $period['year']
             );
             $required = $period['amount'];
@@ -475,6 +473,7 @@ class ThesisRegistration
 
         $now = new \DateTimeImmutable();
         $upcoming = [];
+        $docPaymentModel = new DocumentPayment($this->db);
 
         foreach ($examSchedules->fetchAll() as $es) {
             $startsAt = new \DateTimeImmutable($es['document_submission_starts_at']);
@@ -486,16 +485,17 @@ class ThesisRegistration
                 continue;
             }
 
-            $paid = $paymentModel->sumConfirmed(
+            $paid = $docPaymentModel->sumConfirmed(
                 $registration['thesis_registration_id'],
-                'document_review_fee',
-                $es['exam_schedule_id']
+                $es['exam_schedule_id'],
+                $es['document_type_id']
             );
             $required = (float) $es['amount'];
 
             if ($paid < $required) {
                 $upcoming[] = [
                     'fee_type'         => 'document_review_fee',
+                    'document_type_id' => $es['document_type_id'],
                     'doc_type_name'    => $es['doc_type_name'],
                     'exam_schedule_id' => $es['exam_schedule_id'],
                     'required'         => $required,
@@ -512,7 +512,6 @@ class ThesisRegistration
             $paid = $paymentModel->sumConfirmed(
                 $registration['thesis_registration_id'],
                 'thesis_review_fee',
-                null,
                 $nextPeriod['year']
             );
 
