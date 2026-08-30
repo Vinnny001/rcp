@@ -58,6 +58,24 @@ class StudentChatController
     }
 
     /**
+     * A short label for the other party in a reply quote — last_name if
+     * it's set to something other than blank/whitespace, else
+     * first_name. Never the generic "Them".
+     */
+    private function partnerLabel(?string $userId): string
+    {
+        if (!$userId) {
+            return '';
+        }
+        $user = (new User($this->db))->findById($userId);
+        if (!$user) {
+            return '';
+        }
+        $lastName = trim((string) ($user['last_name'] ?? ''));
+        return $lastName !== '' ? $lastName : (string) ($user['first_name'] ?? '');
+    }
+
+    /**
      * The thread list: active supervisors (sendable) union'd with
      * anyone ever messaged (read-only if no longer active) — a
      * relationship with zero messages yet must still appear as an open
@@ -137,6 +155,7 @@ class StudentChatController
             'selected_id'      => $selectedId,
             'messages'         => $messages,
             'my_user_id'       => $userId,
+            'partner_label'    => $this->partnerLabel($selectedId),
             'can_send_selected' => $canSendSelected,
             'csrf_token'       => $this->csrfToken(),
             'error'            => $error,

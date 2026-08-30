@@ -21,10 +21,10 @@
                   color:{{ mine ? '#fff' : 'inherit' }};">
         {% if m.reply_to_chat_id and m.reply_message %}
           <div style="font-size:.72rem; opacity:.8; border-left:2px solid currentColor; padding-left:6px; margin-bottom:4px;">
-            {{ m.reply_sender_id == my_user_id ? 'You' : 'Them' }}: {{ m.reply_message|slice(0,80) }}
+            {{ m.reply_sender_id == my_user_id ? 'You' : partner_label }}: {{ m.reply_message|slice(0,80) }}
           </div>
         {% endif %}
-        <div style="font-size:.86rem; white-space:pre-wrap;">{{ m.message }}</div>
+        <div style="font-size:.86rem; white-space:pre-wrap;">{{ m.message|chat_linkify }}</div>
         <div style="font-size:.65rem; opacity:.7; margin-top:4px; text-align:right;">{{ m.created_at|date('d M, g:i A') }}</div>
       </div>
     </div>
@@ -44,7 +44,7 @@
     <input type="hidden" name="{{ hidden_field_name }}" value="{{ selected_id }}">
     <input type="hidden" name="reply_to_chat_id" id="chatReplyToInput" value="">
     <div style="display:flex; gap:8px;">
-      <textarea name="message" rows="2" required placeholder="Type a message…" style="flex:1;"></textarea>
+      <textarea name="message" rows="2" required placeholder="Type a message… (Shift+Enter for a new line)" style="flex:1;" onkeydown="chatComposeKeydown(event, this)"></textarea>
       <button type="submit" class="btn brass" style="align-self:flex-end;">Send</button>
     </div>
   </form>

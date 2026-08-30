@@ -24,6 +24,13 @@
     document.getElementById('chatInfoPopover').style.display = 'none';
     document.removeEventListener('click', chatHideInfoOnce);
   }
+  function chatComposeKeydown(event, textarea) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      var form = textarea.form;
+      if (form.requestSubmit) { form.requestSubmit(); } else { form.submit(); }
+    }
+  }
   // Keep the log scrolled to the newest message on load.
   (function() {
     var log = document.getElementById('chatLog');

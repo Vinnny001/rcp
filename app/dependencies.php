@@ -79,7 +79,19 @@ return function (ContainerBuilder $containerBuilder) {
 
         // Twig for Views
         Twig::class => function () {
-            return Twig::create(__DIR__ . '/../src/Views', ['cache' => false]);
+            $twig = Twig::create(__DIR__ . '/../src/Views', ['cache' => false]);
+
+            // Escapes a chat message and then turns URLs and phone
+            // numbers into clickable links — escaping happens first, on
+            // the plain-text segments only, so a message can never
+            // inject markup through this filter.
+            $twig->getEnvironment()->addFilter(new \Twig\TwigFilter(
+                'chat_linkify',
+                [\App\Models\Chat::class, 'linkify'],
+                ['is_safe' => ['html']]
+            ));
+
+            return $twig;
         },
 
         // PDO Database connection

@@ -174,6 +174,49 @@ class Chat
         return (bool) $stmt->fetchColumn();
     }
 
+    /**
+     * Escapes a raw chat message and turns URLs and phone numbers into
+     * clickable links. Escaping always runs first, on the plain-text
+     * segments only — a message can never inject markup through this
+     * method, regardless of what it contains.
+     */
+    public static function linkify(string $text): string
+    {
+        $urlPattern = '/(https?:\/\/[^\s<]+)/i';
+        $telPattern = '/(\+?\d[\d\-\s]{6,}\d)/';
+
+        $segments = preg_split($urlPattern, $text, -1, PREG_SPLIT_DELIM_CAPTURE);
+        $html = '';
+
+        foreach ($segments as $i => $segment) {
+            if ($i % 2 === 1) {
+                // A captured URL — trim trailing punctuation that's more
+                // likely to be sentence punctuation than part of the link.
+                $trailingPunctuation = '';
+                if (preg_match('/([.,;:!?)]+)$/', $segment, $m)) {
+                    $trailingPunctuation = $m[1];
+                    $segment = substr($segment, 0, -strlen($trailingPunctuation));
+                }
+                $escapedUrl = htmlspecialchars($segment, ENT_QUOTES, 'UTF-8');
+                $html .= '<a href="' . $escapedUrl . '" target="_blank" rel="noopener noreferrer">' . $escapedUrl . '</a>'
+                       . htmlspecialchars($trailingPunctuation, ENT_QUOTES, 'UTF-8');
+                continue;
+            }
+
+            $escaped = htmlspecialchars($segment, ENT_QUOTES, 'UTF-8');
+            $html .= preg_replace_callback($telPattern, function (array $m): string {
+                $digitCount = strlen(preg_replace('/\D/', '', $m[1]));
+                if ($digitCount < 7) {
+                    return $m[1]; // too short to confidently be a phone number
+                }
+                $href = preg_replace('/[^\d+]/', '', $m[1]);
+                return '<a href="tel:' . $href . '">' . $m[1] . '</a>';
+            }, $escaped);
+        }
+
+        return $html;
+    }
+
     private function generateUuid(): string
     {
         $data = random_bytes(16);
