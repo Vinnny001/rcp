@@ -164,6 +164,7 @@ $app->post('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class,
 $app->get('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'editForm']);
 $app->post('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'updateMeeting']);
 $app->post('/lecturer/meetings/{id}/status', [LecturerMeetingsController::class, 'changeStatus']);
+$app->get('/lecturer/review-documents', [LecturerMeetingsController::class, 'reviewAttachments']);
 
 // Student results — banded exam and document review outcomes
 $app->get('/student/outcomes', [StudentOutcomesController::class, 'show']);
@@ -197,6 +198,10 @@ $app->post('/admin/fee-rates/review/delete', [AdminController::class, 'deleteRev
 $app->post('/admin/fee-rates/documents/create', [AdminController::class, 'createDocumentReviewRate']);
 $app->post('/admin/fee-rates/documents/update', [AdminController::class, 'updateDocumentReviewRate']);
 $app->post('/admin/fee-rates/documents/delete', [AdminController::class, 'deleteDocumentReviewRate']);
+$app->get('/admin/grading-bands', [AdminController::class, 'gradingBands']);
+$app->post('/admin/grading-bands/create', [AdminController::class, 'createGradingBand']);
+$app->post('/admin/grading-bands/update', [AdminController::class, 'updateGradingBand']);
+$app->post('/admin/grading-bands/delete', [AdminController::class, 'deleteGradingBand']);
 
 // Admin: audit log
 $app->get('/admin/audit', [AdminController::class, 'auditLog']);

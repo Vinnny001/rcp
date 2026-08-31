@@ -104,7 +104,7 @@ class Examination
         }
 
         $average = array_sum($scores) / count($scores);
-        $band = GradingPolicy::examOutcome($average);
+        $band = GradingPolicy::examOutcome($this->db, $average);
 
         $update = $this->db->prepare(
             "UPDATE examinations

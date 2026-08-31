@@ -138,6 +138,35 @@ class LecturerMeetingsController
     }
 
     /**
+     * Document types required under this exam window that HAVE been
+     * submitted but not yet validated by the supervisor — a supervisor
+     * must mark a document valid before scheduling any meeting linked
+     * to it, exam window or general, so this is checked separately from
+     * (and in addition to) missingRequiredDocuments() above.
+     *
+     * @return array<int, string> doc_type_names still unvalidated
+     */
+    private function notYetValidatedDocuments(string $proposalId, string $examScheduleId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT dt.doc_type_name
+             FROM exam_schedule_documents esd
+             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
+             JOIN exam_documents ed
+                    ON ed.exam_schedule_id = esd.exam_schedule_id
+                   AND ed.document_type_id = esd.document_type_id
+                   AND ed.proposal_id = :proposal_id
+             JOIN documents d
+                    ON d.document_id = ed.document_id
+                   AND d.document_status = 'submitted'
+             WHERE esd.exam_schedule_id = :exam_schedule_id
+               AND d.validation_status <> 'valid'"
+        );
+        $stmt->execute(['proposal_id' => $proposalId, 'exam_schedule_id' => $examScheduleId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
      * Document ids a supervisor may share as a meeting resource: either
      * the meeting's own student's documents, or the supervisor's own
      * uploads from their My Documents library. Anything else — a
@@ -393,6 +422,21 @@ class LecturerMeetingsController
             }
         }
 
+        // A supervisor must have marked a document valid before scheduling
+        // any meeting linked to it — general meetings included, not just
+        // formal exam windows (see notYetValidatedDocuments() for the
+        // exam-window equivalent).
+        if ($documentIds) {
+            $placeholders = implode(',', array_fill(0, count($documentIds), '?'));
+            $stmt = $this->db->prepare(
+                "SELECT document_id FROM documents WHERE document_id IN ($placeholders) AND validation_status <> 'valid'"
+            );
+            $stmt->execute($documentIds);
+            if ($stmt->fetchColumn()) {
+                $errors[] = 'One or more selected documents have not been validated as valid yet.';
+            }
+        }
+
         if ($studentByProposal) {
             $errors = array_merge($errors, $this->feeBlockersForScheduling($studentByProposal['student_id']));
         }
@@ -549,6 +593,11 @@ class LecturerMeetingsController
         $missingDocs = $this->missingRequiredDocuments($proposalId, $examScheduleId);
         if ($missingDocs) {
             $errors[] = 'The student has not yet submitted: ' . implode(', ', $missingDocs) . '.';
+        }
+
+        $unvalidatedDocs = $this->notYetValidatedDocuments($proposalId, $examScheduleId);
+        if ($unvalidatedDocs) {
+            $errors[] = 'The following documents have not been validated as valid yet: ' . implode(', ', $unvalidatedDocs) . '.';
         }
 
         if ($errors) {
@@ -1158,6 +1207,17 @@ class LecturerMeetingsController
         } else {
             $documentIds = [];
         }
+        // Same validity gate as schedule(): re-syncing a meeting's
+        // documents must not be able to attach one that hasn't been
+        // marked valid, any more than creating the meeting could.
+        if ($documentIds) {
+            $placeholders = implode(',', array_fill(0, count($documentIds), '?'));
+            $validStmt = $this->db->prepare(
+                "SELECT document_id FROM documents WHERE document_id IN ($placeholders) AND validation_status = 'valid'"
+            );
+            $validStmt->execute($documentIds);
+            $documentIds = $validStmt->fetchAll(PDO::FETCH_COLUMN);
+        }
         $meetingModel->syncDocuments($meetingId, $documentIds, $_SESSION['user_id']);
 
         // Resources may be the student's documents OR the supervisor's
@@ -1171,6 +1231,32 @@ class LecturerMeetingsController
 
         $_SESSION['flash_success'] = 'Meeting updated.';
         return $this->redirect($response, '/lecturer/meetings');
+    }
+
+    /**
+     * The lecturer-scoped equivalent of the admin exam-review-attachments
+     * page — restricted to this lecturer's own supervisees, and (unlike
+     * admin's view) shows which meeting each review was given under.
+     */
+    public function reviewAttachments(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $lecturerModel = new Lecturer($this->db);
+        $lecturer = $lecturerModel->findByUserId($_SESSION['user_id']);
+
+        if (!$lecturer) {
+            $_SESSION['flash_error'] = 'Your lecturer profile could not be found.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+
+        return $this->twig->render($response, 'lecturers/review_documents.twig', [
+            'active_page' => 'l-review-documents',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'attachments' => (new \App\Models\ExamReviewAttachment($this->db))->findForLecturer($lecturer['lecturer_id']),
+        ]);
     }
 
     public function grade(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface

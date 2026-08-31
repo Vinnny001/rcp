@@ -172,9 +172,13 @@ class StudentThesisController
              ORDER BY p.name"
         )->fetchAll();
 
+        // Only schedules with an open enrollment window are choosable —
+        // a closed schedule must not be selectable at all, not just
+        // rejected on submit.
         $schedules = $this->db->query(
             "SELECT schedule_id, program_id, enrollment_start_date, enrollment_end_date
              FROM thesis_schedules
+             WHERE NOW() BETWEEN enrollment_start_date AND enrollment_end_date
              ORDER BY enrollment_start_date DESC"
         )->fetchAll();
 
@@ -225,10 +229,18 @@ class StudentThesisController
             return $this->redirect($response, '/student/thesis/register');
         }
 
-        $scheduleCheck = $this->db->prepare("SELECT schedule_id FROM thesis_schedules WHERE schedule_id = :id LIMIT 1");
+        // Re-validated server-side, never trusted from the posted id
+        // alone — a schedule whose enrollment window has closed (or
+        // hasn't opened yet) must be rejected here even if a stale page
+        // or a crafted request still names it.
+        $scheduleCheck = $this->db->prepare(
+            "SELECT schedule_id FROM thesis_schedules
+             WHERE schedule_id = :id AND NOW() BETWEEN enrollment_start_date AND enrollment_end_date
+             LIMIT 1"
+        );
         $scheduleCheck->execute(['id' => $thesisScheduleId]);
         if (!$scheduleCheck->fetchColumn()) {
-            $_SESSION['flash_error'] = 'That schedule no longer exists. Please choose again.';
+            $_SESSION['flash_error'] = 'Enrollment for that schedule is not currently open. Please choose again.';
             return $this->redirect($response, '/student/thesis/register');
         }
 

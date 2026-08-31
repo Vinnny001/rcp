@@ -268,6 +268,38 @@ class Lecturer
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * The internal lecturer to auto-assign an unresponsive proposal to:
+     * available, internal, with at least one remaining supervision
+     * slot, highest remaining slot wins — a tie is broken by RAND()
+     * ordering after the primary sort, which is exactly "pick randomly
+     * among whoever's tied for the most room."
+     *
+     * lecturers.max_supervision_load is authoritative here, not
+     * internal_lecturers.max_supervision_load — the latter is often
+     * unset in practice; the former is what the admin Users page
+     * actually edits.
+     */
+    public function findBestAvailableInternalCandidate(): ?array
+    {
+        $stmt = $this->db->query(
+            "SELECT l.lecturer_id, u.user_id,
+                    l.max_supervision_load - (
+                        SELECT COUNT(*) FROM supervision_assignments sa
+                        WHERE sa.supervisor_id = l.lecturer_id AND sa.is_active = 1
+                    ) AS remaining_slots
+             FROM lecturers l
+             JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+             JOIN users u ON u.user_id = l.user_id
+             WHERE l.is_available = 1
+             HAVING remaining_slots > 0
+             ORDER BY remaining_slots DESC, RAND()
+             LIMIT 1"
+        );
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
     public function findPendingProposalReviews(string $lecturerId): array
     {
         $stmt = $this->db->prepare(

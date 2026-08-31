@@ -8,6 +8,7 @@ use App\Models\Proposal;
 use App\Models\Meeting;
 use App\Models\ThesisRegistration;
 use App\Models\ThesisPayment;
+use App\Models\ExaminationScore;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Views\Twig;
@@ -84,23 +85,35 @@ class StudentController
     }
 
     /**
-     * Maps status onto the six-step journey rail. Step 1 is now thesis
-     * registration (paid). Step 2 (Requirements Validation) still has no
-     * dedicated tracking — treated as complete once step 1 clears.
+     * Maps status onto the six-step journey rail. Step 1 is thesis
+     * registration (paid). Step 2 (Requirements Validation) is where a
+     * paid, registered student sits before they've even submitted a
+     * proposal — it is NOT skipped straight to step 3 just because
+     * registration cleared. Step 5 (Examination) only starts once the
+     * Concept Presentation (a Thesis-type document scored under a
+     * formal exam window) has come back pass/distinction — reusing the
+     * same per-document-type outcome banding used everywhere else
+     * (ExaminationScore::findExamOutcomesForStudent()).
      */
-    private function currentRailStep(bool $registrationDone, ?array $proposal): int
+    private function currentRailStep(bool $registrationDone, ?array $proposal, string $userId, ExaminationScore $examScoreModel): int
     {
         if (!$registrationDone) {
             return 1;
         }
         if (!$proposal) {
+            return 2;
+        }
+        if ($proposal['status'] !== 'approved') {
             return 3;
         }
-        return match ($proposal['status']) {
-            'draft', 'submitted', 'under_review', 'revision_required', 'rejected' => 3,
-            'approved' => 4,
-            default => 3,
-        };
+
+        foreach ($examScoreModel->findExamOutcomesForStudent($userId) as $outcome) {
+            if ($outcome['doc_type_name'] === 'Thesis' && in_array($outcome['outcome'], ['pass', 'distinction'], true)) {
+                return 5;
+            }
+        }
+
+        return 4;
     }
 
     public function dashboard(Request $request, Response $response): Response
@@ -133,6 +146,17 @@ class StudentController
 
         $proposalModel = new Proposal($this->db);
         $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
+
+        // Lazy substitute for a cron: there's no scheduler in this app,
+        // so an unresponsive-supervisor auto-assignment is checked and
+        // (if eligible) performed right here, on every dossier load —
+        // cheap, since every condition inside is a no-op fast exit for
+        // the common case. Re-fetch afterward so the rest of this page
+        // reflects a just-performed assignment immediately.
+        if ($proposal && empty($proposal['assigned_supervisor_id'])) {
+            $proposalModel->autoAssignSupervisorIfEligible($proposal['proposal_id']);
+            $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
+        }
 
         $meetingModel = new Meeting($this->db);
         $upcomingMeetings = $meetingModel->findUpcomingForStudent($student['student_id'], $userId);
@@ -170,7 +194,7 @@ class StudentController
             'active_page'             => 'overview',
             'student_number'          => $student['student_number'] ?? null,
             'proposal'                => $proposal,
-            'rail_step'               => $this->currentRailStep($registration['done'], $proposal),
+            'rail_step'               => $this->currentRailStep($registration['done'], $proposal, $userId, new ExaminationScore($this->db)),
             'registration'            => $registration,
             'thesis_owed'             => $thesisOwed,
             'not_registered_for_thesis' => !$thesisRegistration,

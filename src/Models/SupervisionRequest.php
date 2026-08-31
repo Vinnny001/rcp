@@ -124,6 +124,56 @@ class SupervisionRequest
         }
     }
 
+    /**
+     * Assigns $lecturerId (already chosen by Lecturer::findBestAvailableInternalCandidate())
+     * as this proposal's supervisor, and marks any still-pending
+     * request as declined-by-timeout for a clean audit trail — same
+     * transactional shape as accept(), just without a specific request
+     * driving the choice of lecturer.
+     */
+    public function autoAssignIfUnresponsive(
+        string $proposalId,
+        string $studentId,
+        string $lecturerId,
+        string $attributedToUserId
+    ): void {
+        $this->db->beginTransaction();
+        try {
+            $updateProposal = $this->db->prepare(
+                "UPDATE thesis_proposals SET assigned_supervisor_id = :lecturer_id
+                 WHERE proposal_id = :proposal_id"
+            );
+            $updateProposal->execute(['lecturer_id' => $lecturerId, 'proposal_id' => $proposalId]);
+
+            $insertAssignment = $this->db->prepare(
+                "INSERT INTO supervision_assignments
+                    (assignment_id, proposal_id, student_id, supervisor_id, role, appointed_by, appointment_date, is_active)
+                 VALUES
+                    (:assignment_id, :proposal_id, :student_id, :supervisor_id, 'main', :appointed_by, CURDATE(), 1)"
+            );
+            $insertAssignment->execute([
+                'assignment_id' => $this->generateUuid(),
+                'proposal_id'   => $proposalId,
+                'student_id'    => $studentId,
+                'supervisor_id' => $lecturerId,
+                'appointed_by'  => $attributedToUserId,
+            ]);
+
+            $declineStale = $this->db->prepare(
+                "UPDATE supervision_requests
+                 SET status = 'declined', decided_at = NOW(), decided_by = :decided_by,
+                     decline_reason = 'No response before enrollment closed — another supervisor was auto-assigned.'
+                 WHERE proposal_id = :proposal_id AND status = 'pending'"
+            );
+            $declineStale->execute(['decided_by' => $attributedToUserId, 'proposal_id' => $proposalId]);
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
     public function decline(string $requestId, string $lecturerId, string $decidedByUserId, ?string $reason): bool
     {
         $stmt = $this->db->prepare(

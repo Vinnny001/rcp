@@ -534,6 +534,116 @@ class AdminController
         return $response->withHeader('Location', '/admin/fee-rates')->withStatus(302);
     }
 
+    // ---------- Grading bands ----------
+
+    public function gradingBands(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        return $this->twig->render($response, 'admins/grading_bands.twig', [
+            'active_page' => 'grading-bands',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'bands'       => (new \App\Models\GradingBand($this->db))->all(),
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function createGradingBand(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+        }
+
+        if ($error = $this->validateGradingBand($data)) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\GradingBand($this->db))->create($data, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Grading band added.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not add the band: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+    }
+
+    public function updateGradingBand(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+        }
+
+        $bandId = (string) ($data['band_id'] ?? '');
+        $error = $bandId === '' ? 'Please choose a band to update.' : $this->validateGradingBand($data);
+
+        if ($error) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+        }
+
+        try {
+            (new \App\Models\GradingBand($this->db))->update($bandId, $data);
+            $_SESSION['flash_success'] = 'Grading band updated.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not update the band: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+    }
+
+    public function deleteGradingBand(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+        }
+
+        (new \App\Models\GradingBand($this->db))->delete((string) ($data['band_id'] ?? ''));
+        $_SESSION['flash_success'] = 'Grading band deleted.';
+
+        return $response->withHeader('Location', '/admin/grading-bands')->withStatus(302);
+    }
+
+    private function validateGradingBand(array $data): ?string
+    {
+        if (!is_numeric($data['min_score'] ?? null) || !is_numeric($data['max_score'] ?? null)) {
+            return 'Please provide valid numeric scores.';
+        }
+        if ((float) $data['min_score'] < 0 || (float) $data['max_score'] > 100) {
+            return 'Scores must be between 0 and 100.';
+        }
+        if ((float) $data['min_score'] > (float) $data['max_score']) {
+            return 'The minimum score cannot be greater than the maximum score.';
+        }
+        if (!in_array($data['outcome'] ?? null, ['pass', 'fail', 'resubmit', 'distinction'], true)) {
+            return 'Please choose a valid outcome.';
+        }
+        return null;
+    }
+
     /**
      * @param array<int, string> $required
      * @return string|null an error message, or null if the data is fine
@@ -968,11 +1078,30 @@ class AdminController
             return $response->withHeader('Location', '/admin/thesis-schedules')->withStatus(302);
         }
 
+        $regModel = new \App\Models\ThesisRegistration($this->db);
+        $students = $regModel->findStudentsByScheduleId($scheduleId);
+
+        // Same lazy substitute for a cron as StudentController::dashboard() —
+        // viewing a schedule's roster is a natural, cheap place to also
+        // settle any proposal left dangling by an unresponsive supervisor
+        // once that schedule's enrollment window has closed.
+        $proposalModel = new \App\Models\Proposal($this->db);
+        $needsRefresh = false;
+        foreach ($students as $s) {
+            if (!empty($s['proposal_id']) && empty($s['assigned_supervisor_id'])) {
+                $proposalModel->autoAssignSupervisorIfEligible($s['proposal_id']);
+                $needsRefresh = true;
+            }
+        }
+        if ($needsRefresh) {
+            $students = $regModel->findStudentsByScheduleId($scheduleId);
+        }
+
         return $this->twig->render($response, 'admins/thesis_schedule_students.twig', [
             'active_page' => 'thesis-schedules',
             'first_name'  => $_SESSION['first_name'] ?? '',
             'schedule'    => $schedule,
-            'students'    => (new \App\Models\ThesisRegistration($this->db))->findStudentsByScheduleId($scheduleId),
+            'students'    => $students,
         ]);
     }
 

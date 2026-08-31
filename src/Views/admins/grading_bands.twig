@@ -1,0 +1,84 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Grading Bands{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Grading bands</h1>
+    <div class="sub">Score thresholds that decide an examination's fail / resubmit / pass / distinction outcome.</div>
+  </div>
+  <div class="ref">GRADING-BANDS</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Exam outcome bands<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Applied to a student's average score across an examination's scored criteria. Ranges should not overlap and together should cover 0–100.</div>
+
+<div class="form-card" style="margin-bottom:22px;">
+  <form method="POST" action="/admin/grading-bands/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field"><label>Min score</label><input type="number" name="min_score" min="0" max="100" step="0.01" required></div>
+      <div class="field"><label>Max score</label><input type="number" name="max_score" min="0" max="100" step="0.01" required></div>
+      <div class="field">
+        <label>Outcome</label>
+        <select name="outcome" required>
+          <option value="">-- Select --</option>
+          <option value="fail">Fail</option>
+          <option value="resubmit">Resubmit</option>
+          <option value="pass">Pass</option>
+          <option value="distinction">Distinction</option>
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn brass">Add band</button>
+  </form>
+</div>
+
+{% if bands %}
+  <table>
+    <thead><tr><th>Min score</th><th>Max score</th><th>Outcome</th><th></th></tr></thead>
+    <tbody>
+      {% for b in bands %}
+        <tr>
+          <td colspan="4">
+            <form method="POST" action="/admin/grading-bands/update" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="band_id" value="{{ b.band_id }}">
+              <input type="number" name="min_score" value="{{ b.min_score }}" min="0" max="100" step="0.01" style="max-width:100px;">
+              <input type="number" name="max_score" value="{{ b.max_score }}" min="0" max="100" step="0.01" style="max-width:100px;">
+              <select name="outcome" style="max-width:150px;">
+                <option value="fail" {{ b.outcome == 'fail' ? 'selected' : '' }}>Fail</option>
+                <option value="resubmit" {{ b.outcome == 'resubmit' ? 'selected' : '' }}>Resubmit</option>
+                <option value="pass" {{ b.outcome == 'pass' ? 'selected' : '' }}>Pass</option>
+                <option value="distinction" {{ b.outcome == 'distinction' ? 'selected' : '' }}>Distinction</option>
+              </select>
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="4" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/grading-bands/delete" onsubmit="return confirm('Delete this band? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="band_id" value="{{ b.band_id }}">
+              <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Delete</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No grading bands yet.</div>
+{% endif %}
+
+{% endblock %}

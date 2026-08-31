@@ -4,28 +4,23 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use PDO;
+
 /**
  * The one place score-to-outcome thresholds live.
  *
  * Students are never shown a raw score — only the band it falls into.
  * Two vocabularies are in play: examinations resolve to
  * fail/resubmit/pass/distinction, document reviews to
- * rejected/resubmit/valid. Both are driven off the same simple rule —
- * average the examiners' percentages, then look the average up here.
+ * rejected/resubmit/valid.
  *
- * These thresholds are policy, not mechanics. Change the two tables
- * below and every page that reports an outcome follows.
+ * The exam vocabulary is admin-configurable, stored in `grading_bands`
+ * (see GradingBand for its CRUD) — examOutcome()/examScale() read it
+ * directly. The document vocabulary is a separate, unrelated concern
+ * that stays a fixed policy here.
  */
 class GradingPolicy
 {
-    /** @var array<int, array{0:float, 1:string, 2:string}> [minimum inclusive, outcome, label] */
-    private const EXAM_BANDS = [
-        [75.0, 'distinction', 'Distinction'],
-        [50.0, 'pass',        'Pass'],
-        [31.0, 'resubmit',    'Resubmit'],
-        [0.0,  'fail',        'Fail'],
-    ];
-
     /** @var array<int, array{0:float, 1:string, 2:string}> [minimum inclusive, outcome, label] */
     private const DOCUMENT_BANDS = [
         [50.0, 'valid',    'Valid'],
@@ -49,11 +44,27 @@ class GradingPolicy
     ];
 
     /**
+     * Bands an exam average against the admin-configurable
+     * grading_bands table. Falls back to 'fail' if the bands are
+     * missing/misconfigured (e.g. gaps in coverage) rather than
+     * throwing — a missing band must never block scoring from working.
+     *
      * @return array{outcome:string, label:string}
      */
-    public static function examOutcome(float $average): array
+    public static function examOutcome(PDO $db, float $average): array
     {
-        return self::resolve(self::EXAM_BANDS, $average);
+        $stmt = $db->prepare(
+            "SELECT outcome FROM grading_bands WHERE :avg BETWEEN min_score AND max_score
+             ORDER BY min_score DESC LIMIT 1"
+        );
+        $stmt->execute(['avg' => $average]);
+        $outcome = $stmt->fetchColumn();
+
+        if (!$outcome) {
+            return ['outcome' => 'fail', 'label' => 'Fail'];
+        }
+
+        return ['outcome' => $outcome, 'label' => ucfirst($outcome)];
     }
 
     /**
@@ -80,9 +91,24 @@ class GradingPolicy
      *
      * @return array<int, array{label:string, range:string}>
      */
-    public static function examScale(): array
+    public static function examScale(PDO $db): array
     {
-        return self::describe(self::EXAM_BANDS);
+        $stmt = $db->query("SELECT min_score, max_score, outcome FROM grading_bands ORDER BY min_score DESC");
+        $described = [];
+
+        foreach ($stmt->fetchAll() as $row) {
+            $described[] = [
+                'label' => ucfirst($row['outcome']),
+                'range' => self::trimNumber((float) $row['min_score']) . '–' . self::trimNumber((float) $row['max_score']) . '%',
+            ];
+        }
+
+        return $described;
+    }
+
+    private static function trimNumber(float $n): string
+    {
+        return rtrim(rtrim(number_format($n, 1, '.', ''), '0'), '.');
     }
 
     /**

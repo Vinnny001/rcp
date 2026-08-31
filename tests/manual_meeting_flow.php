@@ -156,14 +156,14 @@ try {
 
     echo "\n--- grading bands ---\n";
 
-    check('0 is a fail', GradingPolicy::examOutcome(0.0)['outcome'] === 'fail');
-    check('30 is a fail', GradingPolicy::examOutcome(30.0)['outcome'] === 'fail');
-    check('31 is a resubmit', GradingPolicy::examOutcome(31.0)['outcome'] === 'resubmit');
-    check('49 is a resubmit', GradingPolicy::examOutcome(49.0)['outcome'] === 'resubmit');
-    check('50 is a pass', GradingPolicy::examOutcome(50.0)['outcome'] === 'pass');
-    check('74 is a pass', GradingPolicy::examOutcome(74.0)['outcome'] === 'pass');
-    check('75 is a distinction', GradingPolicy::examOutcome(75.0)['outcome'] === 'distinction');
-    check('100 is a distinction', GradingPolicy::examOutcome(100.0)['outcome'] === 'distinction');
+    check('0 is a fail', GradingPolicy::examOutcome($pdo, 0.0)['outcome'] === 'fail');
+    check('30 is a fail', GradingPolicy::examOutcome($pdo, 30.0)['outcome'] === 'fail');
+    check('31 is a resubmit', GradingPolicy::examOutcome($pdo, 31.0)['outcome'] === 'resubmit');
+    check('49 is a resubmit', GradingPolicy::examOutcome($pdo, 49.0)['outcome'] === 'resubmit');
+    check('50 is a pass', GradingPolicy::examOutcome($pdo, 50.0)['outcome'] === 'pass');
+    check('74 is a pass', GradingPolicy::examOutcome($pdo, 74.0)['outcome'] === 'pass');
+    check('75 is a distinction', GradingPolicy::examOutcome($pdo, 75.0)['outcome'] === 'distinction');
+    check('100 is a distinction', GradingPolicy::examOutcome($pdo, 100.0)['outcome'] === 'distinction');
 
     check('doc 0 is rejected', GradingPolicy::documentOutcome(0.0)['outcome'] === 'rejected');
     check('doc 30 is rejected', GradingPolicy::documentOutcome(30.0)['outcome'] === 'rejected');
@@ -173,7 +173,7 @@ try {
     check('doc 100 is valid', GradingPolicy::documentOutcome(100.0)['outcome'] === 'valid');
 
     echo "  exam scale:     ";
-    foreach (GradingPolicy::examScale() as $b) {
+    foreach (GradingPolicy::examScale($pdo) as $b) {
         echo $b['label'] . ' ' . $b['range'] . '  ';
     }
     echo "\n  document scale: ";

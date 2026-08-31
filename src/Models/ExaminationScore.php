@@ -99,7 +99,7 @@ class ExaminationScore
 
         $outcomes = [];
         foreach ($stmt->fetchAll() as $row) {
-            $band = GradingPolicy::examOutcome((float) $row['average_score']);
+            $band = GradingPolicy::examOutcome($this->db, (float) $row['average_score']);
 
             $outcomes[] = [
                 'proposal_id'      => $row['proposal_id'],
@@ -148,7 +148,7 @@ class ExaminationScore
 
         $scores = array_map(fn($r) => (float) $r['score_percentage'], $rows);
         $average = array_sum($scores) / count($scores);
-        $band = GradingPolicy::examOutcome($average);
+        $band = GradingPolicy::examOutcome($this->db, $average);
 
         $proposalStmt = $this->db->prepare("SELECT proposal_id FROM exam_documents WHERE exam_document_id = :id LIMIT 1");
         $proposalStmt->execute(['id' => $examDocumentId]);

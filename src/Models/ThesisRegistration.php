@@ -90,7 +90,8 @@ class ThesisRegistration
             "SELECT str.thesis_registration_id, str.status AS registration_status, str.registered_at,
                     s.student_id, s.student_number,
                     CONCAT(u.first_name, ' ', u.last_name) AS student_name,
-                    tp.proposal_id, tp.title AS proposal_title, tp.status AS proposal_status
+                    tp.proposal_id, tp.title AS proposal_title, tp.status AS proposal_status,
+                    tp.assigned_supervisor_id
              FROM student_thesis_registrations str
              JOIN students s ON s.student_id = str.student_id
              JOIN users u ON u.user_id = s.user_id

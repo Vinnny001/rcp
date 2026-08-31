@@ -118,7 +118,7 @@ class StudentOutcomesController
             'student_number'   => $student['student_number'] ?? null,
             'exam_outcomes'    => $examOutcomes,
             'document_outcomes' => $documentOutcomes,
-            'exam_scale'       => GradingPolicy::examScale(),
+            'exam_scale'       => GradingPolicy::examScale($this->db),
             'document_scale'   => GradingPolicy::documentScale(),
         ]);
     }
