@@ -158,15 +158,35 @@ class LecturerDocumentsController
         }
 
         $documentModel = new Document($this->db);
+        $allDocuments = $documentModel->findByOwner($_SESSION['user_id']);
+
+        // Split into three distinct tables rather than one mixed list:
+        // a document is at most one of these, since each review
+        // attachment upload creates its own dedicated documents row
+        // (see Document::findByOwner()).
+        $ownDocuments = [];
+        $examReviewDocuments = [];
+        $generalReviewDocuments = [];
+        foreach ($allDocuments as $doc) {
+            if (!empty($doc['exam_review_meeting_id'])) {
+                $examReviewDocuments[] = $doc;
+            } elseif (!empty($doc['general_review_meeting_id'])) {
+                $generalReviewDocuments[] = $doc;
+            } else {
+                $ownDocuments[] = $doc;
+            }
+        }
 
         return $this->twig->render($response, 'lecturers/my_documents.twig', [
-            'active_page'    => 'l-my-documents',
-            'first_name'     => $_SESSION['first_name'] ?? '',
-            'documents'      => $documentModel->findByOwner($_SESSION['user_id']),
-            'document_types' => $this->db->query("SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name")->fetchAll(),
-            'csrf_token'     => $this->csrfToken(),
-            'error'          => $_SESSION['flash_error'] ?? null,
-            'success'        => $_SESSION['flash_success'] ?? null,
+            'active_page'              => 'l-my-documents',
+            'first_name'               => $_SESSION['first_name'] ?? '',
+            'documents'                => $ownDocuments,
+            'exam_review_documents'    => $examReviewDocuments,
+            'general_review_documents' => $generalReviewDocuments,
+            'document_types'           => $this->db->query("SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name")->fetchAll(),
+            'csrf_token'               => $this->csrfToken(),
+            'error'                    => $_SESSION['flash_error'] ?? null,
+            'success'                  => $_SESSION['flash_success'] ?? null,
         ]);
     }
 

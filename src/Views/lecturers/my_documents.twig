@@ -38,40 +38,68 @@
 </div>
 
 <div class="section-title">Uploaded documents<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Your own resources — grading sheets, templates, references.</div>
 
 {% if documents %}
-  <table>
-    <thead><tr><th>File</th><th>Type</th><th>Uploaded</th><th>Context</th><th></th></tr></thead>
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>File</th><th>Type</th><th>Uploaded</th><th></th></tr></thead>
     <tbody>
       {% for doc in documents %}
         <tr>
           <td class="strong">{{ doc.file_name }}</td>
           <td class="mono">{{ doc.doc_type_name }}</td>
           <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
-          <td>
-            {% if doc.exam_review_meeting_id %}
-              <span class="stamp mini approved">Exam review evidence</span>
-              <div class="meta" style="margin-top:4px;">
-                {{ doc.exam_review_meeting_type|replace({'_': ' '})|capitalize }} · {{ doc.exam_review_meeting_at|date('d M Y H:i') }}<br>
-                Reviewed: {{ doc.exam_reviewed_doc_type_name }} — {{ doc.exam_reviewed_file_name }}
-              </div>
-            {% elseif doc.general_review_meeting_id %}
-              <span class="stamp mini approved">Document review evidence</span>
-              <div class="meta" style="margin-top:4px;">
-                {{ doc.general_review_meeting_type|replace({'_': ' '})|capitalize }} · {{ doc.general_review_meeting_at|date('d M Y H:i') }}<br>
-                Reviewed: {{ doc.general_reviewed_file_names ?? '—' }}
-              </div>
-            {% else %}
-              —
-            {% endif %}
-          </td>
           <td><a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">View / download</a></td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
 {% else %}
-  <div class="notice">You haven't uploaded any documents yet.</div>
+  <div class="notice" style="margin-bottom:32px;">You haven't uploaded any documents yet.</div>
+{% endif %}
+
+<div class="section-title">Exam review evidence<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Supporting files you attached while reviewing a document under a formal exam window.</div>
+
+{% if exam_review_documents %}
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>File</th><th>Meeting</th><th>Document reviewed</th><th>Uploaded</th><th></th></tr></thead>
+    <tbody>
+      {% for doc in exam_review_documents %}
+        <tr>
+          <td class="strong">{{ doc.file_name }}</td>
+          <td class="mono">{{ doc.exam_review_meeting_type|replace({'_': ' '})|capitalize }}<div class="meta" style="margin-top:2px;">{{ doc.exam_review_meeting_at|date('d M Y H:i') }}</div></td>
+          <td>{{ doc.exam_reviewed_doc_type_name }} — {{ doc.exam_reviewed_file_name }}</td>
+          <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
+          <td><a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">View / download</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice" style="margin-bottom:32px;">No exam review evidence uploaded yet.</div>
+{% endif %}
+
+<div class="section-title">Document review evidence<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">Supporting files you attached while reviewing a document outside a formal exam window.</div>
+
+{% if general_review_documents %}
+  <table>
+    <thead><tr><th>File</th><th>Meeting</th><th>Document(s) reviewed</th><th>Uploaded</th><th></th></tr></thead>
+    <tbody>
+      {% for doc in general_review_documents %}
+        <tr>
+          <td class="strong">{{ doc.file_name }}</td>
+          <td class="mono">{{ doc.general_review_meeting_type|replace({'_': ' '})|capitalize }}<div class="meta" style="margin-top:2px;">{{ doc.general_review_meeting_at|date('d M Y H:i') }}</div></td>
+          <td>{{ doc.general_reviewed_file_names ?? '—' }}</td>
+          <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
+          <td><a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">View / download</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No document review evidence uploaded yet.</div>
 {% endif %}
 
 {% endblock %}

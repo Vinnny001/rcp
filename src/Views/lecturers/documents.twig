@@ -48,7 +48,7 @@
         <tr>
           <td class="strong">{{ doc.student_name }}</td>
           <td>{{ doc.file_name }}</td>
-          <td class="mono">{{ doc.document_type|replace({'_': ' '})|capitalize }}</td>
+          <td class="mono">{{ doc.doc_type_name }}</td>
           <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
           <td>
             {% if doc.validation_status == 'valid' %}
@@ -59,7 +59,8 @@
               <span class="stamp mini pending">Pending</span>
             {% endif %}
           </td>
-          <td>
+          <td style="white-space:nowrap;">
+            <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">View document</a>
             {% if doc.validation_status == 'pending' %}
               <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem;" onclick="openModal('docModal-{{ doc.document_id }}')">Review</button>
             {% elseif doc.validation_notes %}
@@ -79,9 +80,10 @@
     <div class="modal-overlay" id="docModal-{{ doc.document_id }}" onclick="closeModal(event,'docModal-{{ doc.document_id }}')">
       <div class="modal" onclick="event.stopPropagation()">
         <button type="button" class="modal-close" onclick="hideModal('docModal-{{ doc.document_id }}')">✕ Close</button>
-        <div class="ref">{{ doc.student_name }} · {{ doc.document_type|replace({'_': ' '})|capitalize }}</div>
+        <div class="ref">{{ doc.student_name }} · {{ doc.doc_type_name }}</div>
         <h2>Review document</h2>
         <div class="sub">{{ doc.file_name }} — uploaded {{ doc.uploaded_at|date('d M Y') }}</div>
+        <a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="margin-bottom:16px;">View document</a>
 
         <form method="POST" action="/lecturer/documents/validate">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

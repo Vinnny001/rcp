@@ -51,21 +51,35 @@ class Document
         return $documentId;
     }
 
-    public function findBySupervisorId(string $lecturerId): array
+    public function findBySupervisorId(string $lecturerId, ?string $studentId = null, ?string $status = null): array
     {
-        $stmt = $this->db->prepare(
-            "SELECT d.*,
-                    s.student_number,
+        $sql = "SELECT d.*, dt.doc_type_name,
+                    s.student_id, s.student_number,
                     CONCAT(u.first_name, ' ', u.last_name) AS student_name
              FROM documents d
+             JOIN document_types dt ON dt.doc_type_id = d.document_type_id
              JOIN students s ON s.user_id = d.uploaded_by
              JOIN users u ON u.user_id = d.uploaded_by
              JOIN supervision_assignments sa ON sa.student_id = s.student_id
              WHERE sa.supervisor_id = :lecturer_id
-               AND sa.is_active = 1
-             ORDER BY d.uploaded_at DESC"
-        );
-        $stmt->execute(['lecturer_id' => $lecturerId]);
+               AND sa.is_active = 1";
+
+        $params = ['lecturer_id' => $lecturerId];
+
+        if ($studentId !== null) {
+            $sql .= " AND s.student_id = :student_id";
+            $params['student_id'] = $studentId;
+        }
+
+        if ($status !== null) {
+            $sql .= " AND d.validation_status = :status";
+            $params['status'] = $status;
+        }
+
+        $sql .= " ORDER BY d.uploaded_at DESC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll();
     }
 
