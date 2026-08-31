@@ -120,6 +120,11 @@
               <label>Comment</label>
               <textarea name="review_comment[]" rows="3" placeholder="Comments on this document..."></textarea>
             </div>
+            <div class="field">
+              <label>Supporting document for admin (optional)</label>
+              <input type="file" name="meeting_review_attachment[{{ doc.document_id }}]">
+              <div class="meta" style="margin-top:4px;">A detailed written reason, evidence, or reference material for this decision — visible to the admin office only.</div>
+            </div>
           {% endif %}
         </div>
       {% endfor %}

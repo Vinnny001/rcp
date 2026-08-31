@@ -62,12 +62,9 @@
       <a class="tab {{ active_page == 'l-profile' ? 'active' : '' }}" href="/lecturer/profile">
         <span class="num">08</span>Profile
       </a>
-      <a class="tab {{ active_page == 'l-review-documents' ? 'active' : '' }}" href="/lecturer/review-documents">
-        <span class="num">09</span>Review Documents
-      </a>
       {% if show_chat %}
         <a class="tab {{ active_page == 'l-chat' ? 'active' : '' }}" href="/lecturer/chat">
-          <span class="num">10</span>Chat
+          <span class="num">09</span>Chat
           {% if unread_chats_count > 0 %}
             <span style="display:inline-block; min-width:16px; padding:1px 5px; margin-left:6px; border-radius:9px; background:#b3492a; color:#fff; font-size:.65rem; text-align:center; line-height:1.3;">{{ unread_chats_count }}</span>
           {% endif %}

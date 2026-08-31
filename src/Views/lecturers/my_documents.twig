@@ -29,10 +29,10 @@
       </div>
       <div class="field">
         <label>File</label>
-        <input type="file" name="document_file" accept=".pdf,.doc,.docx,.xls,.xlsx" required>
+        <input type="file" name="document_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" required>
       </div>
     </div>
-    <div class="meta" style="margin-bottom:14px;">PDF, Word, or Excel — up to 10MB.</div>
+    <div class="meta" style="margin-bottom:14px;">PDF, Word, Excel, or PowerPoint — up to 10MB.</div>
     <button type="submit" class="btn brass">Upload</button>
   </form>
 </div>
@@ -41,13 +41,30 @@
 
 {% if documents %}
   <table>
-    <thead><tr><th>File</th><th>Type</th><th>Uploaded</th><th></th></tr></thead>
+    <thead><tr><th>File</th><th>Type</th><th>Uploaded</th><th>Context</th><th></th></tr></thead>
     <tbody>
       {% for doc in documents %}
         <tr>
           <td class="strong">{{ doc.file_name }}</td>
           <td class="mono">{{ doc.doc_type_name }}</td>
           <td class="mono">{{ doc.uploaded_at|date('d M Y') }}</td>
+          <td>
+            {% if doc.exam_review_meeting_id %}
+              <span class="stamp mini approved">Exam review evidence</span>
+              <div class="meta" style="margin-top:4px;">
+                {{ doc.exam_review_meeting_type|replace({'_': ' '})|capitalize }} · {{ doc.exam_review_meeting_at|date('d M Y H:i') }}<br>
+                Reviewed: {{ doc.exam_reviewed_doc_type_name }} — {{ doc.exam_reviewed_file_name }}
+              </div>
+            {% elseif doc.general_review_meeting_id %}
+              <span class="stamp mini approved">Document review evidence</span>
+              <div class="meta" style="margin-top:4px;">
+                {{ doc.general_review_meeting_type|replace({'_': ' '})|capitalize }} · {{ doc.general_review_meeting_at|date('d M Y H:i') }}<br>
+                Reviewed: {{ doc.general_reviewed_file_names ?? '—' }}
+              </div>
+            {% else %}
+              —
+            {% endif %}
+          </td>
           <td><a href="/{{ doc.file_path }}" target="_blank" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">View / download</a></td>
         </tr>
       {% endfor %}

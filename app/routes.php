@@ -164,7 +164,6 @@ $app->post('/lecturer/meetings/{id}/review', [LecturerMeetingsController::class,
 $app->get('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'editForm']);
 $app->post('/lecturer/meetings/{id}/edit', [LecturerMeetingsController::class, 'updateMeeting']);
 $app->post('/lecturer/meetings/{id}/status', [LecturerMeetingsController::class, 'changeStatus']);
-$app->get('/lecturer/review-documents', [LecturerMeetingsController::class, 'reviewAttachments']);
 
 // Student results — banded exam and document review outcomes
 $app->get('/student/outcomes', [StudentOutcomesController::class, 'show']);

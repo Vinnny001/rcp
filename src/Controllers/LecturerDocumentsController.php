@@ -25,6 +25,8 @@ class LecturerDocumentsController
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ];
     private const MAX_SIZE_KB = 10240;
 
@@ -196,7 +198,7 @@ class LecturerDocumentsController
 
         $mimeType = $file->getClientMediaType();
         if (!in_array($mimeType, self::ALLOWED_MIME, true)) {
-            $_SESSION['flash_error'] = 'Only PDF, Word, or Excel files are accepted.';
+            $_SESSION['flash_error'] = 'Only PDF, Word, Excel, or PowerPoint files are accepted.';
             return $this->redirect($response, '/lecturer/my-documents');
         }
 

@@ -847,6 +847,7 @@ class LecturerMeetingsController
 
         $recorded = 0;
         $skipped = 0;
+        $attachmentIssues = [];
 
         $windowExamType = $meetingModel->windowExamType($meetingId);
         $canScoreExamDocuments = in_array($myRole, $this->examReviewRolesFor($windowExamType), true);
@@ -860,8 +861,8 @@ class LecturerMeetingsController
             array_filter($meetingModel->findAttendees($meetingId), fn($a) => in_array($a['role_in_meeting'], $eligibleRoles, true))
         ));
 
-        $this->recordExamDocumentScores($request, $data, $canScoreExamDocuments, $meeting['meeting_type'], $eligibleExaminerIds, $recorded, $skipped);
-        $this->recordMeetingDocumentScores($meetingId, $myRole, $meetingModel, $data, $recorded, $skipped);
+        $this->recordExamDocumentScores($request, $data, $meetingId, $canScoreExamDocuments, $meeting['meeting_type'], $eligibleExaminerIds, $recorded, $skipped, $attachmentIssues);
+        $this->recordMeetingDocumentScores($request, $meetingId, $myRole, $meetingModel, $data, $recorded, $skipped, $attachmentIssues);
 
         if ($recorded && $skipped) {
             $_SESSION['flash_success'] = $recorded . ' score(s) recorded. ' . $skipped . ' were skipped — you\'ve already reviewed those.';
@@ -871,6 +872,10 @@ class LecturerMeetingsController
             $_SESSION['flash_error'] = 'You have already reviewed every document here — no changes were made.';
         } else {
             $_SESSION['flash_error'] = 'No valid scores were provided.';
+        }
+
+        if ($attachmentIssues) {
+            $_SESSION['flash_error'] = trim(($_SESSION['flash_error'] ?? '') . ' ' . implode(' ', $attachmentIssues));
         }
 
         return $this->redirect($response, '/lecturer/meetings/' . $meetingId . '/review');
@@ -883,6 +888,8 @@ class LecturerMeetingsController
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ];
     private const REVIEW_ATTACHMENT_MAX_SIZE_KB = 10240;
 
@@ -901,11 +908,13 @@ class LecturerMeetingsController
     private function recordExamDocumentScores(
         ServerRequestInterface $request,
         array $data,
+        string $meetingId,
         bool $allowed,
         string $meetingType,
         array $eligibleExaminerIds,
         int &$recorded,
-        int &$skipped
+        int &$skipped,
+        array &$attachmentIssues
     ): void {
         if (!$allowed) {
             return;
@@ -946,8 +955,8 @@ class LecturerMeetingsController
             $recorded++;
 
             $file = $attachments[$examDocId] ?? null;
-            if ($file) {
-                $this->storeReviewAttachment($examDocId, $file);
+            if ($file && $file->getError() !== UPLOAD_ERR_NO_FILE) {
+                $this->storeReviewAttachment($examDocId, $meetingId, $file, $attachmentIssues);
             }
 
             if ($examDoc['doc_type_name'] === 'Proposal' && $meetingType === 'approval_board') {
@@ -957,32 +966,40 @@ class LecturerMeetingsController
     }
 
     /**
-     * Stores one examiner's supporting file for a scored exam document.
-     * Failures here are silent (logged only via the flash-less no-op) —
-     * a malformed/oversized attachment shouldn't undo an already-recorded
-     * score, since the score is the part that actually matters.
+     * Validates and stores an examiner's uploaded evidence file as its
+     * own "Examination Report" Document row, returning its new
+     * document_id — or null, with $reason explaining why, if rejected.
+     * Shared by both the exam-document and general-meeting review
+     * paths below; a rejected file must never fail silently, since
+     * a supervisor otherwise has no way to learn their attachment never
+     * actually made it in (this is exactly the bug behind an empty
+     * review-attachments table despite an upload appearing to succeed).
      */
-    private function storeReviewAttachment(string $examDocumentId, $file): void
+    private function storeReviewAttachmentFile($file, ?string &$reason): ?string
     {
         if ($file->getError() !== UPLOAD_ERR_OK) {
-            return;
+            $reason = 'the upload failed.';
+            return null;
         }
 
         $mimeType = $file->getClientMediaType();
         if (!in_array($mimeType, self::REVIEW_ATTACHMENT_ALLOWED_MIME, true)) {
-            return;
+            $reason = 'only PDF, Word, Excel, and PowerPoint files are accepted.';
+            return null;
         }
 
         $sizeKb = (int) ceil($file->getSize() / 1024);
         if ($sizeKb > self::REVIEW_ATTACHMENT_MAX_SIZE_KB) {
-            return;
+            $reason = 'it is larger than the 10 MB limit.';
+            return null;
         }
 
         $typeStmt = $this->db->prepare("SELECT doc_type_id FROM document_types WHERE doc_type_name = 'Examination Report' LIMIT 1");
         $typeStmt->execute();
         $documentTypeId = $typeStmt->fetchColumn();
         if (!$documentTypeId) {
-            return;
+            $reason = 'no "Examination Report" document type is configured.';
+            return null;
         }
 
         if (!is_dir(self::REVIEW_ATTACHMENT_UPLOAD_DIR)) {
@@ -995,7 +1012,7 @@ class LecturerMeetingsController
         $file->moveTo(self::REVIEW_ATTACHMENT_UPLOAD_DIR . '/' . $storedName);
 
         $documentModel = new Document($this->db);
-        $documentId = $documentModel->create([
+        return $documentModel->create([
             'user_id'          => $_SESSION['user_id'],
             'uploaded_by'      => $_SESSION['user_id'],
             'document_type_id' => $documentTypeId,
@@ -1005,8 +1022,42 @@ class LecturerMeetingsController
             'file_size_kb'     => $sizeKb,
             'mime_type'        => $mimeType,
         ]);
+    }
 
-        (new \App\Models\ExamReviewAttachment($this->db))->create($examDocumentId, $_SESSION['user_id'], $documentId);
+    /**
+     * The exam-document side of the shared attachment store above:
+     * links the stored file to the specific exam_document (and, now,
+     * the meeting) it was evidence for.
+     */
+    private function storeReviewAttachment(string $examDocumentId, string $meetingId, $file, array &$attachmentIssues): void
+    {
+        $reason = null;
+        $documentId = $this->storeReviewAttachmentFile($file, $reason);
+        if (!$documentId) {
+            $attachmentIssues[] = 'Your supporting document could not be attached — ' . $reason;
+            return;
+        }
+
+        (new \App\Models\ExamReviewAttachment($this->db))->create($examDocumentId, $meetingId, $_SESSION['user_id'], $documentId);
+    }
+
+    /**
+     * The general-meeting side of the shared attachment store above:
+     * document_review_attachments has no per-document column of its
+     * own (a general meeting can carry several documents for review at
+     * once), so the file is linked to the meeting itself rather than
+     * to one specific document under review.
+     */
+    private function storeDocumentReviewAttachment(string $meetingId, $file, array &$attachmentIssues): void
+    {
+        $reason = null;
+        $documentId = $this->storeReviewAttachmentFile($file, $reason);
+        if (!$documentId) {
+            $attachmentIssues[] = 'Your supporting document could not be attached — ' . $reason;
+            return;
+        }
+
+        (new \App\Models\DocumentReviewAttachment($this->db))->create($meetingId, $_SESSION['user_id'], $documentId);
     }
 
     /**
@@ -1015,12 +1066,14 @@ class LecturerMeetingsController
      * chairperson or observer sitting in on the meeting cannot.
      */
     private function recordMeetingDocumentScores(
+        ServerRequestInterface $request,
         string $meetingId,
         string $myRole,
         Meeting $meetingModel,
         array $data,
         int &$recorded,
-        int &$skipped
+        int &$skipped,
+        array &$attachmentIssues
     ): void {
         $documentIds = (array) ($data['review_document_id'] ?? []);
         if (!$documentIds) {
@@ -1038,6 +1091,8 @@ class LecturerMeetingsController
         $reviewModel = new DocumentReviewScore($this->db);
         $scores = (array) ($data['review_score'] ?? []);
         $comments = (array) ($data['review_comment'] ?? []);
+        $uploadedFiles = $request->getUploadedFiles();
+        $attachments = $uploadedFiles['meeting_review_attachment'] ?? [];
 
         foreach ($documentIds as $i => $documentId) {
             $score = $scores[$i] ?? null;
@@ -1051,7 +1106,18 @@ class LecturerMeetingsController
                 (float) $score,
                 trim((string) ($comments[$i] ?? '')) ?: null
             );
-            $ok ? $recorded++ : $skipped++;
+
+            if (!$ok) {
+                $skipped++;
+                continue;
+            }
+
+            $recorded++;
+
+            $file = $attachments[$documentId] ?? null;
+            if ($file && $file->getError() !== UPLOAD_ERR_NO_FILE) {
+                $this->storeDocumentReviewAttachment($meetingId, $file, $attachmentIssues);
+            }
         }
     }
 
@@ -1233,31 +1299,6 @@ class LecturerMeetingsController
         return $this->redirect($response, '/lecturer/meetings');
     }
 
-    /**
-     * The lecturer-scoped equivalent of the admin exam-review-attachments
-     * page — restricted to this lecturer's own supervisees, and (unlike
-     * admin's view) shows which meeting each review was given under.
-     */
-    public function reviewAttachments(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
-    {
-        if ($redirect = $this->requireLecturer()) {
-            return $this->redirect($response, $redirect);
-        }
-
-        $lecturerModel = new Lecturer($this->db);
-        $lecturer = $lecturerModel->findByUserId($_SESSION['user_id']);
-
-        if (!$lecturer) {
-            $_SESSION['flash_error'] = 'Your lecturer profile could not be found.';
-            return $this->redirect($response, '/lecturer/meetings');
-        }
-
-        return $this->twig->render($response, 'lecturers/review_documents.twig', [
-            'active_page' => 'l-review-documents',
-            'first_name'  => $_SESSION['first_name'] ?? '',
-            'attachments' => (new \App\Models\ExamReviewAttachment($this->db))->findForLecturer($lecturer['lecturer_id']),
-        ]);
-    }
 
     public function grade(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {

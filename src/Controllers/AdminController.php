@@ -702,6 +702,7 @@ class AdminController
             'active_page' => 'exam-review-attachments',
             'first_name'  => $_SESSION['first_name'] ?? '',
             'attachments' => (new \App\Models\ExamReviewAttachment($this->db))->findAll(),
+            'document_review_attachments' => (new \App\Models\DocumentReviewAttachment($this->db))->findAll(),
         ]);
     }
 

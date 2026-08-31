@@ -254,14 +254,38 @@ class Document
      * Includes the document type name and, where applicable, which
      * proposal or exam_schedule slot it's linked to, for display.
      */
+    /**
+     * A document is at most one of: a plain upload, an exam-review
+     * attachment (era), or a general-meeting-review attachment (dra) —
+     * never more than one, since each attachment upload creates its
+     * own dedicated documents row — so these two LEFT JOINs can never
+     * multiply a row. For a review attachment, this surfaces which
+     * meeting it was evidence for and which document it was reviewing,
+     * so the uploader sees that context on their own My Documents page
+     * without needing admin's (evidence-only-visible-to-admin) view.
+     */
     public function findByOwner(string $userId): array
     {
         $stmt = $this->db->prepare(
             "SELECT d.*, dt.doc_type_name,
-                    ed.proposal_id, ed.exam_schedule_id, ed.submitted_at
+                    ed.proposal_id, ed.exam_schedule_id, ed.submitted_at,
+                    em.meeting_id AS exam_review_meeting_id, em.meeting_type AS exam_review_meeting_type, em.scheduled_at AS exam_review_meeting_at,
+                    erd.file_name AS exam_reviewed_file_name, erdt.doc_type_name AS exam_reviewed_doc_type_name,
+                    gm.meeting_id AS general_review_meeting_id, gm.meeting_type AS general_review_meeting_type, gm.scheduled_at AS general_review_meeting_at,
+                    (SELECT GROUP_CONCAT(rd.file_name SEPARATOR ', ')
+                       FROM meeting_documents md
+                       JOIN documents rd ON rd.document_id = md.document_id
+                      WHERE md.meeting_id = dra.meeting_id) AS general_reviewed_file_names
              FROM documents d
              JOIN document_types dt ON dt.doc_type_id = d.document_type_id
              LEFT JOIN exam_documents ed ON ed.document_id = d.document_id
+             LEFT JOIN exam_review_attachments era ON era.document_id = d.document_id
+             LEFT JOIN meetings em ON em.meeting_id = era.meeting_id
+             LEFT JOIN exam_documents erd_ed ON erd_ed.exam_document_id = era.exam_document_id
+             LEFT JOIN documents erd ON erd.document_id = erd_ed.document_id
+             LEFT JOIN document_types erdt ON erdt.doc_type_id = erd_ed.document_type_id
+             LEFT JOIN document_review_attachments dra ON dra.document_id = d.document_id
+             LEFT JOIN meetings gm ON gm.meeting_id = dra.meeting_id
              WHERE d.user_id = :user_id
              ORDER BY d.uploaded_at DESC"
         );
