@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Models\Chat;
 use App\Models\Lecturer;
 use App\Models\User;
+use App\Services\WsToken;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Views\Twig;
@@ -145,10 +146,13 @@ class LecturerChatController
             'selected_id'      => $selectedId,
             'messages'         => $messages,
             'my_user_id'       => $userId,
+            'role'             => 'lecturer',
             'partner_label'    => $this->partnerLabel($selectedId),
             'can_send_selected' => $canSendSelected,
             'csrf_token'       => $this->csrfToken(),
             'error'            => $error,
+            'ws_url'           => $_ENV['WS_URL'] ?? '',
+            'ws_token'         => WsToken::mint($userId, 'lecturer', $_ENV['WS_AUTH_SECRET'] ?? ''),
         ]);
     }
 

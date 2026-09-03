@@ -36,4 +36,210 @@
     var log = document.getElementById('chatLog');
     if (log) log.scrollTop = log.scrollHeight;
   })();
+
+  // --- Real-time chat over the rcp_messaging WebSocket server ---------
+  // Mirrors _chat_thread.twig's bubble markup and Chat::linkify() so a
+  // message that arrives live looks identical to one rendered on page
+  // load. The <form> below still posts normally (chatModel->sendMessage)
+  // as a no-JS / WS-unavailable fallback — it's only intercepted once a
+  // live, authenticated socket exists.
+
+  function chatEscapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function chatLinkify(text) {
+    var urlPattern = /(https?:\/\/[^\s<]+)/gi;
+    var telPattern = /(\+?\d[\d\-\s]{6,}\d)/g;
+    var segments = text.split(urlPattern);
+    var html = '';
+
+    segments.forEach(function(segment, i) {
+      if (i % 2 === 1) {
+        var trailing = '';
+        var m = segment.match(/([.,;:!?)]+)$/);
+        if (m) {
+          trailing = m[1];
+          segment = segment.slice(0, segment.length - trailing.length);
+        }
+        var escapedUrl = chatEscapeHtml(segment);
+        html += '<a href="' + escapedUrl + '" target="_blank" rel="noopener noreferrer">' + escapedUrl + '</a>' + chatEscapeHtml(trailing);
+        return;
+      }
+
+      html += chatEscapeHtml(segment).replace(telPattern, function(match) {
+        var digitCount = match.replace(/\D/g, '').length;
+        if (digitCount < 7) return match;
+        var href = match.replace(/[^\d+]/g, '');
+        return '<a href="tel:' + href + '">' + match + '</a>';
+      });
+    });
+
+    return html;
+  }
+
+  function chatFormatTimestamp(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var hours = d.getHours();
+    var ampm = hours >= 12 ? 'PM' : 'AM';
+    var h12 = hours % 12 || 12;
+    var minutes = ('0' + d.getMinutes()).slice(-2);
+    return ('0' + d.getDate()).slice(-2) + ' ' + months[d.getMonth()] + ', ' + h12 + ':' + minutes + ' ' + ampm;
+  }
+
+  function chatRenderBubble(msg, myUserId, partnerLabel) {
+    var mine = msg.sender_user_id === myUserId;
+
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex; justify-content:' + (mine ? 'flex-end' : 'flex-start') + '; margin-bottom:10px;';
+
+    var bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.style.cssText = 'max-width:70%; padding:8px 12px; border-radius:10px; cursor:pointer;'
+      + 'background:' + (mine ? 'var(--brass-deep, #a9702f)' : 'var(--paper-warm, #f2ede2)') + ';'
+      + 'color:' + (mine ? '#fff' : 'inherit') + ';';
+
+    if (msg.reply_to_chat_id && msg.reply_message) {
+      var quote = document.createElement('div');
+      quote.style.cssText = 'font-size:.72rem; opacity:.8; border-left:2px solid currentColor; padding-left:6px; margin-bottom:4px;';
+      quote.textContent = (msg.reply_sender_id === myUserId ? 'You' : partnerLabel) + ': ' + msg.reply_message.slice(0, 80);
+      bubble.appendChild(quote);
+    }
+
+    var body = document.createElement('div');
+    body.style.cssText = 'font-size:.86rem; white-space:pre-wrap;';
+    body.innerHTML = chatLinkify(msg.message);
+    bubble.appendChild(body);
+
+    var meta = document.createElement('div');
+    meta.style.cssText = 'font-size:.65rem; opacity:.7; margin-top:4px; text-align:right;';
+    meta.textContent = chatFormatTimestamp(msg.created_at);
+    bubble.appendChild(meta);
+
+    bubble.addEventListener('dblclick', function() {
+      chatReplyTo(msg.chat_id, msg.message.slice(0, 80));
+    });
+    bubble.addEventListener('contextmenu', function(event) {
+      return chatShowInfo(event, chatFormatTimestamp(msg.created_at), null);
+    });
+
+    row.appendChild(bubble);
+    return row;
+  }
+
+  (function() {
+    var log = document.getElementById('chatLog');
+    if (!log) return;
+
+    var wsUrl = log.dataset.wsUrl;
+    var wsToken = log.dataset.wsToken;
+    var partnerUserId = log.dataset.partnerUserId;
+    if (!wsUrl || !wsToken || !partnerUserId) return;
+
+    var myUserId = log.dataset.myUserId;
+    var role = log.dataset.role;
+    var partnerLabel = log.dataset.partnerLabel;
+    var canSend = log.dataset.canSend === '1';
+    var studentUserId = role === 'student' ? myUserId : partnerUserId;
+    var lecturerUserId = role === 'lecturer' ? myUserId : partnerUserId;
+
+    var ws = null;
+    var authed = false;
+    var reconnectDelay = 1000;
+    var stopReconnecting = false;
+
+    function sameConversation(msg) {
+      return msg.student_user_id === studentUserId && msg.lecturer_user_id === lecturerUserId;
+    }
+
+    function appendMessage(msg) {
+      if (log.dataset.empty === '1') {
+        log.innerHTML = '';
+        log.dataset.empty = '0';
+      }
+      log.appendChild(chatRenderBubble(msg, myUserId, partnerLabel));
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function markRead() {
+      if (!authed) return;
+      ws.send(JSON.stringify({ type: 'read', student_user_id: studentUserId, lecturer_user_id: lecturerUserId }));
+    }
+
+    function handleServerMessage(data) {
+      if (data.type === 'auth_ok') {
+        authed = true;
+        reconnectDelay = 1000;
+        markRead();
+        return;
+      }
+      if (data.type === 'message' && sameConversation(data)) {
+        appendMessage(data);
+        if (data.sender_user_id !== myUserId) markRead();
+        return;
+      }
+      if (data.type === 'error') {
+        console.error('[chat]', data.code);
+        if (data.code === 'auth_failed') {
+          // The token this page was rendered with is bad or expired —
+          // retrying would just fail again forever. Only a reload (a
+          // fresh token from the server) can fix this.
+          stopReconnecting = true;
+        } else if (data.code === 'send_failed' || data.code === 'forbidden' || data.code === 'not_active_supervision' || data.code === 'server_error') {
+          alert('Your message could not be sent (' + data.code.replace(/_/g, ' ') + '). Please try again.');
+        }
+      }
+    }
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = function() {
+        ws.send(JSON.stringify({ type: 'auth', token: wsToken }));
+      };
+      ws.onmessage = function(event) {
+        var data;
+        try { data = JSON.parse(event.data); } catch (e) { return; }
+        handleServerMessage(data);
+      };
+      ws.onclose = function() {
+        authed = false;
+        if (stopReconnecting) return;
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+      };
+      ws.onerror = function() {
+        ws.close();
+      };
+    }
+
+    var form = document.getElementById('chatSendForm');
+    if (canSend && form) {
+      form.addEventListener('submit', function(event) {
+        if (!authed) return; // no live socket — fall back to the normal POST
+        event.preventDefault();
+
+        var textarea = form.querySelector('textarea[name="message"]');
+        var message = textarea.value.trim();
+        if (!message) return;
+
+        var replyInput = document.getElementById('chatReplyToInput');
+        ws.send(JSON.stringify({
+          type: 'send',
+          student_user_id: studentUserId,
+          lecturer_user_id: lecturerUserId,
+          message: message,
+          reply_to_chat_id: replyInput.value || null,
+        }));
+
+        textarea.value = '';
+        chatCancelReply();
+      });
+    }
+
+    connect();
+  })();
 </script>
