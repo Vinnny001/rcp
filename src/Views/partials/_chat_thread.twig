@@ -20,7 +20,7 @@
     <div style="display:flex; justify-content:{{ mine ? 'flex-end' : 'flex-start' }}; margin-bottom:10px;">
       <div class="chat-bubble"
            ondblclick="chatReplyTo('{{ m.chat_id }}', '{{ m.message|slice(0,80)|escape('js') }}')"
-           oncontextmenu="return chatShowInfo(event, '{{ m.created_at }}', '{{ m.read_at }}')"
+           oncontextmenu="return chatShowInfo(event, '{{ m.chat_id }}', '{{ m.created_at|date('c') }}', '{{ m.read_at ? m.read_at|date('c') : '' }}')"
            style="max-width:70%; padding:8px 12px; border-radius:10px; cursor:pointer;
                   background:{{ mine ? 'var(--brass-deep, #a9702f)' : 'var(--paper-warm, #f2ede2)' }};
                   color:{{ mine ? '#fff' : 'inherit' }};">
@@ -30,7 +30,17 @@
           </div>
         {% endif %}
         <div style="font-size:.86rem; white-space:pre-wrap;">{{ m.message|chat_linkify }}</div>
-        <div style="font-size:.65rem; opacity:.7; margin-top:4px; text-align:right;">{{ m.created_at|date('d M, g:i A') }}</div>
+        <div style="font-size:.65rem; opacity:.7; margin-top:4px; text-align:right;">
+          {{ m.created_at|date('d M, g:i A') }}
+          {% if mine %}
+            {% set tick_state = m.read_at ? 'read' : (m.delivered_at ? 'delivered' : 'sent') %}
+            <span id="tick-{{ m.chat_id }}"
+                  data-state="{{ tick_state }}"
+                  data-created-at="{{ m.created_at|date('c') }}"
+                  data-read-at="{{ m.read_at ? m.read_at|date('c') : '' }}"
+                  style="margin-left:4px; color:{{ tick_state == 'read' ? '#3b82f6' : 'inherit' }};">{{ tick_state == 'sent' ? '✓' : '✓✓' }}</span>
+          {% endif %}
+        </div>
       </div>
     </div>
   {% endfor %}

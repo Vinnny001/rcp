@@ -26,7 +26,7 @@
            style="display:block; padding:10px 12px; margin-bottom:6px; border-radius:8px; text-decoration:none; color:inherit;
                   background:{{ t.lecturer_user_id == selected_id ? 'var(--paper-warm, #f2ede2)' : 'transparent' }}; border:1px solid var(--hairline, #e2dccd);">
           <div class="strong" style="font-size:.85rem;">
-            {{ t.name }}
+            <span id="presenceDot-{{ t.lecturer_user_id }}" title="Offline" style="display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; background:#c7c2b4;"></span>{{ t.name }}
             <span id="threadBadge-{{ t.lecturer_user_id }}" style="display:{{ t.unread_count > 0 ? 'inline-block' : 'none' }}; min-width:16px; padding:1px 5px; margin-left:4px; border-radius:9px; background:#b3492a; color:#fff; font-size:.62rem; text-align:center;">{{ t.unread_count }}</span>
           </div>
           {% if not t.can_send %}

@@ -10,10 +10,17 @@
     document.getElementById('chatReplyToInput').value = '';
     document.getElementById('chatReplyBanner').style.display = 'none';
   }
-  function chatShowInfo(event, sentAt, readAt) {
+  function chatShowInfo(event, chatId, fallbackSentAt, fallbackReadAt) {
     event.preventDefault();
+    // A "mine" bubble's tick span is the live-updated source of truth
+    // for read state; fall back to what was baked in at render time for
+    // a bubble that never gets one (the other party's messages).
+    var tick = document.getElementById('tick-' + chatId);
+    var sentAt = (tick && tick.dataset.createdAt) || fallbackSentAt;
+    var readAt = (tick && tick.dataset.readAt) || fallbackReadAt;
     var pop = document.getElementById('chatInfoPopover');
-    pop.innerHTML = 'Sent: ' + sentAt + '<br>Read: ' + (readAt ? readAt : 'Not read yet');
+    pop.innerHTML = 'Sent: ' + (sentAt ? chatFormatTimestamp(sentAt) : 'unknown')
+      + '<br>Read: ' + (readAt ? chatFormatTimestamp(readAt) : 'Not read yet');
     pop.style.left = event.clientX + 'px';
     pop.style.top = event.clientY + 'px';
     pop.style.display = 'block';
@@ -94,6 +101,46 @@
     return ('0' + d.getDate()).slice(-2) + ' ' + months[d.getMonth()] + ', ' + h12 + ':' + minutes + ' ' + ampm;
   }
 
+  // Tick state only ever moves forward (sent -> delivered -> read) —
+  // rank-gating every write means an out-of-order or duplicate event
+  // (e.g. a 'delivered' notification arriving after a 'read_receipt'
+  // already upgraded the same bubble) can never regress a tick.
+  function chatTickRank(state) {
+    return state === 'read' ? 2 : (state === 'delivered' ? 1 : 0);
+  }
+
+  function chatTickVisual(state) {
+    return {
+      text: state === 'sent' ? '✓' : '✓✓',
+      color: state === 'read' ? '#3b82f6' : 'inherit',
+    };
+  }
+
+  function chatSetTickState(tick, state, readAtIso) {
+    if (chatTickRank(state) <= chatTickRank(tick.dataset.state)) return;
+    var visual = chatTickVisual(state);
+    tick.textContent = visual.text;
+    tick.style.color = visual.color;
+    tick.dataset.state = state;
+    if (readAtIso) tick.dataset.readAt = readAtIso;
+  }
+
+  function chatUpgradeAllTicks(scopeEl, state) {
+    var nowIso = new Date().toISOString();
+    scopeEl.querySelectorAll('[id^="tick-"]').forEach(function(tick) {
+      chatSetTickState(tick, state, state === 'read' ? nowIso : null);
+    });
+  }
+
+  function chatUpgradeTicksUpTo(scopeEl, upToIso) {
+    var upTo = new Date(upToIso).getTime();
+    scopeEl.querySelectorAll('[id^="tick-"]').forEach(function(tick) {
+      if (new Date(tick.dataset.createdAt).getTime() <= upTo) {
+        chatSetTickState(tick, 'delivered', null);
+      }
+    });
+  }
+
   function chatRenderBubble(msg, myUserId, partnerLabel) {
     var mine = msg.sender_user_id === myUserId;
 
@@ -123,11 +170,25 @@
     meta.textContent = chatFormatTimestamp(msg.created_at);
     bubble.appendChild(meta);
 
+    if (mine) {
+      var state = msg.read_at ? 'read' : (msg.delivered_at ? 'delivered' : 'sent');
+      var visual = chatTickVisual(state);
+      var tick = document.createElement('span');
+      tick.id = 'tick-' + msg.chat_id;
+      tick.dataset.state = state;
+      tick.dataset.createdAt = msg.created_at;
+      tick.dataset.readAt = msg.read_at || '';
+      tick.style.marginLeft = '4px';
+      tick.style.color = visual.color;
+      tick.textContent = visual.text;
+      meta.appendChild(tick);
+    }
+
     bubble.addEventListener('dblclick', function() {
       chatReplyTo(msg.chat_id, msg.message.slice(0, 80));
     });
     bubble.addEventListener('contextmenu', function(event) {
-      return chatShowInfo(event, chatFormatTimestamp(msg.created_at), null);
+      return chatShowInfo(event, msg.chat_id, msg.created_at, msg.read_at || '');
     });
 
     row.appendChild(bubble);
@@ -135,8 +196,21 @@
   }
 
   (function() {
+    if (!window.RcpChat) return;
+
+    // Presence dots apply to every thread in the sidebar, not just
+    // whichever one is currently open, so this listener is registered
+    // unconditionally rather than inside the "is a thread selected?"
+    // guard below.
+    RcpChat.on('presence', function(data) {
+      var dot = document.getElementById('presenceDot-' + data.user_id);
+      if (!dot) return;
+      dot.style.background = data.online ? '#2ecc71' : '#c7c2b4';
+      dot.title = data.online ? 'Online' : 'Offline';
+    });
+
     var log = document.getElementById('chatLog');
-    if (!log || !window.RcpChat) return;
+    if (!log) return;
 
     var partnerUserId = log.dataset.partnerUserId;
     if (!partnerUserId) return;
@@ -175,6 +249,22 @@
       if (!sameConversation(data)) return;
       appendMessage(data);
       if (data.sender_user_id !== myUserId) markRead();
+    });
+
+    // The other party opened this thread — every tick on my own
+    // messages here can jump straight to "read" (skipping "delivered"
+    // if it hadn't already arrived).
+    RcpChat.on('read_receipt', function(data) {
+      if (!sameConversation(data)) return;
+      chatUpgradeAllTicks(log, 'read');
+    });
+
+    // The other party just came back online — any of my messages sent
+    // before they connected (created_at <= up_to) move from "sent" to
+    // "delivered".
+    RcpChat.on('delivered', function(data) {
+      if (!sameConversation(data)) return;
+      chatUpgradeTicksUpTo(log, data.up_to);
     });
 
     RcpChat.on('error', function(data) {

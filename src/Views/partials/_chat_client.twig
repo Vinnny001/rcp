@@ -18,6 +18,7 @@
     var reconnectDelay = 1000;
     var stopReconnecting = false;
     var unreadCount = {{ unread_chats_count|default(0) }};
+    var presence = {};
 
     function emit(type, data) {
       (listeners[type] || []).forEach(function(cb) { cb(data); });
@@ -68,6 +69,15 @@
         emit('read_receipt', data);
         return;
       }
+      if (data.type === 'delivered') {
+        emit('delivered', data);
+        return;
+      }
+      if (data.type === 'presence') {
+        presence[data.user_id] = data.online;
+        emit('presence', data);
+        return;
+      }
       if (data.type === 'error') {
         emit('error', data);
         if (data.code === 'auth_failed') stopReconnecting = true;
@@ -101,6 +111,7 @@
       on: function(type, cb) { (listeners[type] = listeners[type] || []).push(cb); },
       send: function(obj) { if (authed) ws.send(JSON.stringify(obj)); },
       isAuthed: function() { return authed; },
+      isOnline: function(userId) { return !!presence[userId]; },
       clearThreadBadge: function(partnerId) {
         var badge = document.getElementById('threadBadge-' + partnerId);
         if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
