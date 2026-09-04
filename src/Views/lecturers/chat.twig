@@ -22,13 +22,12 @@
     <div style="width:240px; flex-shrink:0;">
       {% for t in threads %}
         <a href="/lecturer/chat?with={{ t.student_user_id }}"
+           data-partner-id="{{ t.student_user_id }}"
            style="display:block; padding:10px 12px; margin-bottom:6px; border-radius:8px; text-decoration:none; color:inherit;
                   background:{{ t.student_user_id == selected_id ? 'var(--paper-warm, #f2ede2)' : 'transparent' }}; border:1px solid var(--hairline, #e2dccd);">
           <div class="strong" style="font-size:.85rem;">
             {{ t.name }}
-            {% if t.unread_count > 0 %}
-              <span style="display:inline-block; min-width:16px; padding:1px 5px; margin-left:4px; border-radius:9px; background:#b3492a; color:#fff; font-size:.62rem; text-align:center;">{{ t.unread_count }}</span>
-            {% endif %}
+            <span id="threadBadge-{{ t.student_user_id }}" style="display:{{ t.unread_count > 0 ? 'inline-block' : 'none' }}; min-width:16px; padding:1px 5px; margin-left:4px; border-radius:9px; background:#b3492a; color:#fff; font-size:.62rem; text-align:center;">{{ t.unread_count }}</span>
           </div>
           {% if not t.can_send %}
             <div class="meta" style="font-size:.68rem;">No longer supervising</div>

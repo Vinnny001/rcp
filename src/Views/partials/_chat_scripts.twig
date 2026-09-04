@@ -42,7 +42,10 @@
   // message that arrives live looks identical to one rendered on page
   // load. The <form> below still posts normally (chatModel->sendMessage)
   // as a no-JS / WS-unavailable fallback — it's only intercepted once a
-  // live, authenticated socket exists.
+  // live, authenticated socket exists. The connection itself belongs to
+  // window.RcpChat (see _chat_client.twig, included once by the layout)
+  // — this file only listens and sends, so opening this page never
+  // creates a second socket alongside the layout's site-wide one.
 
   function chatEscapeHtml(text) {
     var div = document.createElement('div');
@@ -133,24 +136,17 @@
 
   (function() {
     var log = document.getElementById('chatLog');
-    if (!log) return;
+    if (!log || !window.RcpChat) return;
 
-    var wsUrl = log.dataset.wsUrl;
-    var wsToken = log.dataset.wsToken;
     var partnerUserId = log.dataset.partnerUserId;
-    if (!wsUrl || !wsToken || !partnerUserId) return;
+    if (!partnerUserId) return;
 
-    var myUserId = log.dataset.myUserId;
-    var role = log.dataset.role;
+    var myUserId = RcpChat.myUserId;
+    var role = RcpChat.role;
     var partnerLabel = log.dataset.partnerLabel;
     var canSend = log.dataset.canSend === '1';
     var studentUserId = role === 'student' ? myUserId : partnerUserId;
     var lecturerUserId = role === 'lecturer' ? myUserId : partnerUserId;
-
-    var ws = null;
-    var authed = false;
-    var reconnectDelay = 1000;
-    var stopReconnecting = false;
 
     function sameConversation(msg) {
       return msg.student_user_id === studentUserId && msg.lecturer_user_id === lecturerUserId;
@@ -166,60 +162,32 @@
     }
 
     function markRead() {
-      if (!authed) return;
-      ws.send(JSON.stringify({ type: 'read', student_user_id: studentUserId, lecturer_user_id: lecturerUserId }));
+      RcpChat.send({ type: 'read', student_user_id: studentUserId, lecturer_user_id: lecturerUserId });
+      // The badge for this thread may already be stale-zero from the
+      // page-load render (see StudentChatController::show ordering);
+      // this keeps the sidebar in sync regardless.
+      RcpChat.clearThreadBadge(partnerUserId);
     }
 
-    function handleServerMessage(data) {
-      if (data.type === 'auth_ok') {
-        authed = true;
-        reconnectDelay = 1000;
-        markRead();
-        return;
-      }
-      if (data.type === 'message' && sameConversation(data)) {
-        appendMessage(data);
-        if (data.sender_user_id !== myUserId) markRead();
-        return;
-      }
-      if (data.type === 'error') {
-        console.error('[chat]', data.code);
-        if (data.code === 'auth_failed') {
-          // The token this page was rendered with is bad or expired —
-          // retrying would just fail again forever. Only a reload (a
-          // fresh token from the server) can fix this.
-          stopReconnecting = true;
-        } else if (data.code === 'send_failed' || data.code === 'forbidden' || data.code === 'not_active_supervision' || data.code === 'server_error') {
-          alert('Your message could not be sent (' + data.code.replace(/_/g, ' ') + '). Please try again.');
-        }
-      }
-    }
+    RcpChat.on('auth_ok', markRead);
 
-    function connect() {
-      ws = new WebSocket(wsUrl);
-      ws.onopen = function() {
-        ws.send(JSON.stringify({ type: 'auth', token: wsToken }));
-      };
-      ws.onmessage = function(event) {
-        var data;
-        try { data = JSON.parse(event.data); } catch (e) { return; }
-        handleServerMessage(data);
-      };
-      ws.onclose = function() {
-        authed = false;
-        if (stopReconnecting) return;
-        setTimeout(connect, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
-      };
-      ws.onerror = function() {
-        ws.close();
-      };
-    }
+    RcpChat.on('message', function(data) {
+      if (!sameConversation(data)) return;
+      appendMessage(data);
+      if (data.sender_user_id !== myUserId) markRead();
+    });
+
+    RcpChat.on('error', function(data) {
+      console.error('[chat]', data.code);
+      if (data.code === 'send_failed' || data.code === 'forbidden' || data.code === 'not_active_supervision' || data.code === 'server_error') {
+        alert('Your message could not be sent (' + data.code.replace(/_/g, ' ') + '). Please try again.');
+      }
+    });
 
     var form = document.getElementById('chatSendForm');
     if (canSend && form) {
       form.addEventListener('submit', function(event) {
-        if (!authed) return; // no live socket — fall back to the normal POST
+        if (!RcpChat.isAuthed()) return; // no live socket — fall back to the normal POST
         event.preventDefault();
 
         var textarea = form.querySelector('textarea[name="message"]');
@@ -227,19 +195,17 @@
         if (!message) return;
 
         var replyInput = document.getElementById('chatReplyToInput');
-        ws.send(JSON.stringify({
+        RcpChat.send({
           type: 'send',
           student_user_id: studentUserId,
           lecturer_user_id: lecturerUserId,
           message: message,
           reply_to_chat_id: replyInput.value || null,
-        }));
+        });
 
         textarea.value = '';
         chatCancelReply();
       });
     }
-
-    connect();
   })();
 </script>

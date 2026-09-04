@@ -1,0 +1,112 @@
+<script>
+  // One WebSocket connection per page, shared by the whole layout — not
+  // just the chat page — so the nav "Chat" badge and (when the chat page
+  // itself is open) every other thread's sidebar badge stay live even
+  // for messages that aren't in the conversation currently on screen.
+  // _chat_scripts.twig (chat page only) attaches to window.RcpChat
+  // instead of opening a second connection.
+  (function() {
+    var wsUrl = {{ ws_url|json_encode|raw }};
+    var wsToken = {{ ws_token|json_encode|raw }};
+    var myUserId = {{ ws_user_id|json_encode|raw }};
+    var role = {{ ws_role|json_encode|raw }};
+    if (!wsUrl || !wsToken || !myUserId) return;
+
+    var listeners = {};
+    var ws = null;
+    var authed = false;
+    var reconnectDelay = 1000;
+    var stopReconnecting = false;
+    var unreadCount = {{ unread_chats_count|default(0) }};
+
+    function emit(type, data) {
+      (listeners[type] || []).forEach(function(cb) { cb(data); });
+    }
+
+    function setNavBadge(count) {
+      var badge = document.getElementById('navChatBadge');
+      if (!badge) return;
+      badge.textContent = count;
+      badge.style.display = count > 0 ? 'inline-block' : 'none';
+    }
+
+    function otherPartyOf(msg) {
+      return role === 'student' ? msg.lecturer_user_id : msg.student_user_id;
+    }
+
+    function isViewingThread(partnerId) {
+      var log = document.getElementById('chatLog');
+      return !!(log && log.dataset.partnerUserId === partnerId);
+    }
+
+    function bumpThreadBadge(partnerId) {
+      var badge = document.getElementById('threadBadge-' + partnerId);
+      if (!badge) return;
+      var next = (parseInt(badge.textContent, 10) || 0) + 1;
+      badge.textContent = next;
+      badge.style.display = 'inline-block';
+    }
+
+    function handleMessage(data) {
+      if (data.type === 'auth_ok') {
+        authed = true;
+        reconnectDelay = 1000;
+        emit('auth_ok', data);
+        return;
+      }
+      if (data.type === 'message') {
+        emit('message', data);
+        if (data.sender_user_id === myUserId) return;
+        var partnerId = otherPartyOf(data);
+        if (isViewingThread(partnerId)) return;
+        unreadCount += 1;
+        setNavBadge(unreadCount);
+        bumpThreadBadge(partnerId);
+        return;
+      }
+      if (data.type === 'read_receipt') {
+        emit('read_receipt', data);
+        return;
+      }
+      if (data.type === 'error') {
+        emit('error', data);
+        if (data.code === 'auth_failed') stopReconnecting = true;
+      }
+    }
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = function() {
+        ws.send(JSON.stringify({ type: 'auth', token: wsToken }));
+      };
+      ws.onmessage = function(event) {
+        var data;
+        try { data = JSON.parse(event.data); } catch (e) { return; }
+        handleMessage(data);
+      };
+      ws.onclose = function() {
+        authed = false;
+        if (stopReconnecting) return;
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+      };
+      ws.onerror = function() {
+        ws.close();
+      };
+    }
+
+    window.RcpChat = {
+      myUserId: myUserId,
+      role: role,
+      on: function(type, cb) { (listeners[type] = listeners[type] || []).push(cb); },
+      send: function(obj) { if (authed) ws.send(JSON.stringify(obj)); },
+      isAuthed: function() { return authed; },
+      clearThreadBadge: function(partnerId) {
+        var badge = document.getElementById('threadBadge-' + partnerId);
+        if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
+      },
+    };
+
+    connect();
+  })();
+</script>

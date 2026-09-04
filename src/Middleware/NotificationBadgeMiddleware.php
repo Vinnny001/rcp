@@ -7,6 +7,7 @@ namespace App\Middleware;
 use App\Models\Chat;
 use App\Models\Lecturer;
 use App\Models\Notification;
+use App\Services\WsToken;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Slim\Views\Twig;
@@ -19,6 +20,13 @@ use PDO;
  * and pass them individually. Same pattern as StudentContextMiddleware's
  * profile_complete/has_thesis_registration globals; bundled into one
  * middleware to keep this to a single extra pass per request.
+ *
+ * Also mints the rcp_messaging auth token here (ws_token/ws_url/
+ * ws_user_id/ws_role globals) rather than in the chat controllers —
+ * this middleware runs on every request, so the layout can open one
+ * site-wide WebSocket connection and keep the nav "Chat" badge (and,
+ * on the chat page, the other threads in the sidebar) live even when
+ * the user isn't looking at that conversation.
  */
 class NotificationBadgeMiddleware
 {
@@ -63,6 +71,10 @@ class NotificationBadgeMiddleware
 
             if ($showChat) {
                 $this->twig->getEnvironment()->addGlobal('unread_chats_count', $chatModel->countUnreadForUser($userId, $role));
+                $this->twig->getEnvironment()->addGlobal('ws_url', $_ENV['WS_URL'] ?? '');
+                $this->twig->getEnvironment()->addGlobal('ws_token', WsToken::mint($userId, $role, $_ENV['WS_AUTH_SECRET'] ?? ''));
+                $this->twig->getEnvironment()->addGlobal('ws_user_id', $userId);
+                $this->twig->getEnvironment()->addGlobal('ws_role', $role);
             }
         }
 

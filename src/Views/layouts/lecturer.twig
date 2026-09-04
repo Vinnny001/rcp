@@ -65,9 +65,7 @@
       {% if show_chat %}
         <a class="tab {{ active_page == 'l-chat' ? 'active' : '' }}" href="/lecturer/chat">
           <span class="num">09</span>Chat
-          {% if unread_chats_count > 0 %}
-            <span style="display:inline-block; min-width:16px; padding:1px 5px; margin-left:6px; border-radius:9px; background:#b3492a; color:#fff; font-size:.65rem; text-align:center; line-height:1.3;">{{ unread_chats_count }}</span>
-          {% endif %}
+          <span id="navChatBadge" style="display:{{ unread_chats_count > 0 ? 'inline-block' : 'none' }}; min-width:16px; padding:1px 5px; margin-left:6px; border-radius:9px; background:#b3492a; color:#fff; font-size:.65rem; text-align:center; line-height:1.3;">{{ unread_chats_count }}</span>
         </a>
       {% endif %}
     </nav>
@@ -85,6 +83,10 @@
   function hideModal(id){ document.getElementById(id).classList.remove('open'); }
   function closeModal(e, id){ if(e.target.id===id) hideModal(id); }
 </script>
+
+{% if show_chat %}
+  {% include 'partials/_chat_client.twig' %}
+{% endif %}
 
 {% block extra_scripts %}{% endblock %}
 
