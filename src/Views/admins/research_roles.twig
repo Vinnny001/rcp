@@ -1,0 +1,123 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Research Roles{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Research roles</h1>
+    <div class="sub">Who coordinates each program, and who sits on each department's panel. Both are drawn from lecturers; neither changes anyone's sign-in role.</div>
+  </div>
+  <div class="ref">RESEARCH-ROLES</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Research coordinators<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">
+  One per program. The coordinator reviews supervisor shortlists, convenes the department meeting, writes the minutes, releases approved requests to lecturers and schedules exams. One person may coordinate more than one program.
+</div>
+
+<table style="margin-bottom:28px;">
+  <thead>
+    <tr><th>Program</th><th>Department</th><th>Coordinator</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for p in programs %}
+      <tr>
+        <td class="strong">{{ p.program_name }}</td>
+        <td class="meta">{{ p.department_name }}</td>
+        <td colspan="2">
+          <form method="POST" action="/admin/research-roles/coordinator" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="program_id" value="{{ p.program_id }}">
+            <select name="user_id" style="max-width:260px;">
+              <option value="">— No coordinator —</option>
+              {% for l in lecturers %}
+                <option value="{{ l.user_id }}" {{ p.user_id == l.user_id ? 'selected' : '' }}>{{ l.full_name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
+            {% if not p.user_id %}
+              <span class="meta" style="font-size:.72rem; color: var(--rust);">Unassigned — shortlists for this program have nowhere to go</span>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="section-title">Department heads<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:14px;">
+  Heads are invited to supervision-review meetings and cast one approve/reject vote each on a student's shortlist. A department may have several, holding different positions.
+</div>
+
+<div class="form-card" style="margin-bottom:22px;">
+  <form method="POST" action="/admin/research-roles/head">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Department</label>
+        <select name="department_id" required>
+          <option value="">-- Select --</option>
+          {% for d in departments %}<option value="{{ d.department_id }}">{{ d.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Person</label>
+        <select name="user_id" required>
+          <option value="">-- Select --</option>
+          {% for l in lecturers %}<option value="{{ l.user_id }}">{{ l.full_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Position</label>
+        <select name="position_id" required>
+          <option value="">-- Select --</option>
+          {% for pos in positions %}<option value="{{ pos.position_id }}">{{ pos.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn brass">Add head</button>
+  </form>
+</div>
+
+{% if heads %}
+  <table>
+    <thead><tr><th>Department</th><th>Name</th><th>Position</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for h in heads %}
+        <tr{% if not h.is_active %} style="opacity:.55;"{% endif %}>
+          <td>{{ h.department_name }}</td>
+          <td class="strong">{{ h.head_name }}<div class="meta" style="font-size:.7rem;">{{ h.email }}</div></td>
+          <td>{{ h.position_name }}</td>
+          <td>{{ h.is_active ? 'Serving' : 'Stood down' }}</td>
+          <td style="text-align:right;">
+            <form method="POST" action="/admin/research-roles/head/status" style="display:inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="dept_head_id" value="{{ h.dept_head_id }}">
+              <input type="hidden" name="restore" value="{{ h.is_active ? '0' : '1' }}">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;{% if h.is_active %} color: var(--rust);{% endif %}">
+                {{ h.is_active ? 'Stand down' : 'Reinstate' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="meta" style="margin-top:12px;">
+    Standing someone down removes them from future meetings. Votes they have already cast stay on the record.
+  </div>
+{% else %}
+  <div class="notice">No department heads yet. Shortlist meetings need heads to vote before a supervisor can be appointed.</div>
+{% endif %}
+
+{% endblock %}

@@ -675,6 +675,163 @@ class AdminController
         return null;
     }
 
+    public function researchRoles(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        return $this->twig->render($response, 'admins/research_roles.twig', [
+            'active_page'  => 'research-roles',
+            'first_name'   => $_SESSION['first_name'] ?? '',
+            'programs'     => (new \App\Models\ResearchCoordinator($this->db))->allProgramsWithCoordinator(),
+            'heads'        => (new \App\Models\DepartmentHead($this->db))->all(),
+            'positions'    => (new \App\Models\DepartmentHead($this->db))->positions(),
+            'departments'  => $this->db->query("SELECT department_id, name FROM departments ORDER BY name")->fetchAll(),
+            'lecturers'    => $this->lecturerUsers(),
+            'csrf_token'   => $this->csrfToken(),
+            'error'        => $this->takeFlash('flash_error'),
+            'success'      => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function assignCoordinator(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleRoleWrite($request, $response, function (array $data): string {
+            $programId = (string) ($data['program_id'] ?? '');
+            $userId    = (string) ($data['user_id'] ?? '');
+            $model     = new \App\Models\ResearchCoordinator($this->db);
+
+            if ($programId === '') {
+                throw new \RuntimeException('Please choose a program.');
+            }
+
+            // A blank pick is how the form clears a program's coordinator.
+            if ($userId === '') {
+                $model->remove($programId);
+                return 'Coordinator removed. That program has no coordinator until one is assigned.';
+            }
+
+            $model->assign($programId, $userId, $_SESSION['user_id']);
+            return 'Coordinator assigned.';
+        });
+    }
+
+    public function assignDepartmentHead(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleRoleWrite($request, $response, function (array $data): string {
+            $departmentId = (string) ($data['department_id'] ?? '');
+            $userId       = (string) ($data['user_id'] ?? '');
+            $positionId   = (string) ($data['position_id'] ?? '');
+
+            if ($departmentId === '' || $userId === '' || $positionId === '') {
+                throw new \RuntimeException('Please choose a department, a person and a position.');
+            }
+
+            (new \App\Models\DepartmentHead($this->db))->assign($departmentId, $userId, $positionId, $_SESSION['user_id']);
+            return 'Department head saved.';
+        });
+    }
+
+    public function setDepartmentHeadActive(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleRoleWrite($request, $response, function (array $data): string {
+            $restore = ($data['restore'] ?? '') === '1';
+            (new \App\Models\DepartmentHead($this->db))->setActive((string) ($data['dept_head_id'] ?? ''), $restore);
+
+            return $restore
+                ? 'Head reinstated.'
+                : 'Head stood down. Their past votes stay on the record.';
+        });
+    }
+
+    public function examinerQualifications(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        return $this->twig->render($response, 'admins/examiner_qualifications.twig', [
+            'active_page' => 'examiner-qualifications',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'lecturers'   => (new \App\Models\ExaminerQualification($this->db))->allLecturersWithPrograms(),
+            'programs'    => $this->db->query(
+                "SELECT p.program_id, p.name AS program_name, d.name AS department_name
+                 FROM programs p JOIN departments d ON d.department_id = p.department_id
+                 ORDER BY d.name, p.name"
+            )->fetchAll(),
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function toggleExaminerQualification(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleRoleWrite($request, $response, function (array $data): string {
+            $lecturerId = (string) ($data['lecturer_id'] ?? '');
+            $programId  = (string) ($data['program_id'] ?? '');
+            if ($lecturerId === '' || $programId === '') {
+                throw new \RuntimeException('Please choose a lecturer and a program.');
+            }
+
+            $model = new \App\Models\ExaminerQualification($this->db);
+            if (($data['remove'] ?? '') === '1') {
+                $model->remove($lecturerId, $programId);
+                return 'Qualification removed. They will no longer appear as an examiner for that program.';
+            }
+
+            $model->add($lecturerId, $programId, $_SESSION['user_id']);
+            return 'Qualification added.';
+        }, '/admin/examiner-qualifications');
+    }
+
+    /**
+     * Shared guard, CSRF check and redirect for the role screens — only
+     * the write itself differs between them.
+     */
+    private function handleRoleWrite(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        callable $write,
+        string $redirectTo = '/admin/research-roles'
+    ): ResponseInterface {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', $redirectTo)->withStatus(302);
+        }
+
+        try {
+            $_SESSION['flash_success'] = $write($data);
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $response->withHeader('Location', $redirectTo)->withStatus(302);
+    }
+
+    /**
+     * Users who can hold a research role. Coordinators and department
+     * heads are drawn from lecturers, never students.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function lecturerUsers(): array
+    {
+        return $this->db->query(
+            "SELECT u.user_id, CONCAT(u.first_name, ' ', u.last_name) AS full_name, u.email
+             FROM users u
+             JOIN lecturers l ON l.user_id = u.user_id
+             WHERE u.is_active = 1
+             ORDER BY u.last_name, u.first_name"
+        )->fetchAll();
+    }
+
     public function createGradingBand(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireAdmin()) {

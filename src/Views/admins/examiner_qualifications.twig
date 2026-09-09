@@ -1,0 +1,78 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Examiner Qualifications{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Examiner qualifications</h1>
+    <div class="sub">Which programs each lecturer may examine. Separate from supervision — a lecturer can examine a program they supervise nobody in.</div>
+  </div>
+  <div class="ref">EXAMINER-QUALS</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="notice" style="margin-bottom:22px;">
+  A lecturer only appears in a program's examiner list if they are qualified for it here. Someone with no qualification for Computer Science can never be invited to a Computer Science exam, whatever else they supervise.
+</div>
+
+{% if lecturers %}
+  <table>
+    <thead>
+      <tr><th>Lecturer</th><th>Type</th><th>Qualified to examine</th><th>Add a program</th></tr>
+    </thead>
+    <tbody>
+      {% for l in lecturers %}
+        <tr>
+          <td class="strong">
+            {{ l.lecturer_name }}
+            <div class="meta" style="font-size:.7rem;">{{ l.email }}</div>
+          </td>
+          <td class="meta">{{ l.kind|capitalize }}</td>
+          <td>
+            {% if l.programs %}
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                {% for p in l.programs %}
+                  <form method="POST" action="/admin/examiner-qualifications/toggle" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="lecturer_id" value="{{ l.lecturer_id }}">
+                    <input type="hidden" name="program_id" value="{{ p.program_id }}">
+                    <input type="hidden" name="remove" value="1">
+                    <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem;"
+                            title="Remove this qualification">{{ p.program_name }} &times;</button>
+                  </form>
+                {% endfor %}
+              </div>
+            {% else %}
+              <span class="meta">Not qualified for any program — cannot be invited as an examiner</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="POST" action="/admin/examiner-qualifications/toggle" style="display:flex; gap:6px; align-items:center;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="lecturer_id" value="{{ l.lecturer_id }}">
+              <select name="program_id" style="max-width:210px;" required>
+                <option value="">-- Select --</option>
+                {% for p in programs %}
+                  <option value="{{ p.program_id }}">{{ p.program_name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">Add</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">No lecturers on the system yet.</div>
+{% endif %}
+
+{% endblock %}

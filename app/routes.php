@@ -208,6 +208,14 @@ $app->post('/admin/exam-stages/create', [AdminController::class, 'createExamStag
 $app->post('/admin/exam-stages/update', [AdminController::class, 'updateExamStage']);
 $app->post('/admin/exam-stages/archive', [AdminController::class, 'archiveExamStage']);
 
+// Admin: research roles (coordinators, department heads) and examiner qualifications
+$app->get('/admin/research-roles', [AdminController::class, 'researchRoles']);
+$app->post('/admin/research-roles/coordinator', [AdminController::class, 'assignCoordinator']);
+$app->post('/admin/research-roles/head', [AdminController::class, 'assignDepartmentHead']);
+$app->post('/admin/research-roles/head/status', [AdminController::class, 'setDepartmentHeadActive']);
+$app->get('/admin/examiner-qualifications', [AdminController::class, 'examinerQualifications']);
+$app->post('/admin/examiner-qualifications/toggle', [AdminController::class, 'toggleExaminerQualification']);
+
 // Admin: audit log
 $app->get('/admin/audit', [AdminController::class, 'auditLog']);
 
