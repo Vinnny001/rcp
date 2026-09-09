@@ -211,19 +211,33 @@ if ($lecturerMeetings) {
     $shown = array_filter($allCodes, fn($c) => str_contains($lecturerMeetings, $c));
     assertThat('at least one real code is rendered for the supervisor', count($shown) > 0, count($shown) . ' code(s)');
 
-    // The lecturer-who-is-also-a-supervised-student must not be an
-    // option in the invite dropdown.
+    // A student this lecturer supervises, who also holds a lecturer
+    // account, must not be offered as a colleague to invite — they
+    // could be the subject of the very meeting being scheduled.
+    //
+    // Scoped to THIS lecturer's supervisees on purpose. A lecturer
+    // studying for their own degree under somebody else is a perfectly
+    // ordinary examiner, and the student picker on this form only ever
+    // offers this lecturer's own supervisions, so nobody else's
+    // supervisee can end up as the subject here. An earlier version of
+    // this check looked at every dual-role account on the system and
+    // failed for exactly that reason.
     preg_match_all('/<select id="genInviteSelect".*?<\/select>/s', $lecturerMeetings, $m);
     $dropdown = $m[0][0] ?? '';
     $conflicted = $pdo->query(
-        "SELECT DISTINCT s.user_id FROM students s JOIN lecturers l ON l.user_id = s.user_id"
+        "SELECT DISTINCT s.user_id
+         FROM students s
+         JOIN lecturers l ON l.user_id = s.user_id
+         JOIN supervision_assignments sa ON sa.student_id = s.student_id AND sa.is_active = 1
+         JOIN lecturers sup ON sup.lecturer_id = sa.supervisor_id
+         WHERE sup.user_id = " . $pdo->quote($lecturer['user_id'])
     )->fetchAll(PDO::FETCH_COLUMN);
 
     $leaked = array_filter($conflicted, fn($uid) => str_contains($dropdown, $uid));
     assertThat(
-        'student-lecturers are absent from the invite dropdown',
+        'a supervisee who is also a lecturer is absent from the invite dropdown',
         count($leaked) === 0,
-        count($conflicted) . ' dual-role account(s) checked'
+        count($conflicted) . ' dual-role supervisee(s) checked'
     );
 }
 

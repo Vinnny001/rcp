@@ -111,12 +111,17 @@ try {
     ];
 
     // A student this lecturer actually supervises, with a proposal_id
-    // and at least one document to offer as a resource.
+    // and at least one document to offer as a resource. A supervisee
+    // who also holds a lecturer account is preferred, since that is the
+    // account the attendee guard below actually has to catch.
     $assignment = $pdo->prepare(
-        "SELECT sa.proposal_id, s.user_id AS student_user_id
+        "SELECT sa.proposal_id, sa.student_id, s.user_id AS student_user_id,
+                (l.lecturer_id IS NOT NULL) AS subject_is_lecturer
          FROM supervision_assignments sa
          JOIN students s ON s.student_id = sa.student_id
+         LEFT JOIN lecturers l ON l.user_id = s.user_id
          WHERE sa.supervisor_id = :lecturer_id AND sa.is_active = 1
+         ORDER BY subject_is_lecturer DESC
          LIMIT 1"
     );
     $assignment->execute(['lecturer_id' => $lecturer['lecturer_id']]);
@@ -142,6 +147,40 @@ try {
     ], [], $session);
 
     check('schedule POST redirects (success)', $result['status'] === 302 && $result['location'] === '/lecturer/meetings');
+
+    // The invite dropdown hides a supervisee who also holds a lecturer
+    // account, but hiding is not enforcing. Post their id straight into
+    // the attendee list and the server has to refuse it — otherwise a
+    // student could be invited to examine their own work.
+    $conflicted = $pdo->prepare(
+        "SELECT s.user_id FROM students s
+         JOIN lecturers l ON l.user_id = s.user_id
+         WHERE s.student_id = :student_id LIMIT 1"
+    );
+    $conflicted->execute(['student_id' => $assignment['student_id']]);
+    $subjectIsAlsoLecturer = $conflicted->fetchColumn();
+
+    $smuggleMarker = 'SMUGGLE-' . bin2hex(random_bytes(4));
+    $smuggled = post('/lecturer/meetings/schedule', [
+        'csrf_token'         => $session['csrf_token'],
+        'proposal_id'        => $assignment['proposal_id'],
+        'meeting_type'       => 'supervisory',
+        'date'               => date('Y-m-d', strtotime('+7 days')),
+        'time'               => '11:00',
+        'mode'               => 'physical',
+        'location'           => $smuggleMarker,
+        'attendee_lecturers' => [$assignment['student_user_id']],
+        'attendee_roles'     => ['examiner'],
+    ], [], $session);
+
+    $smuggledMeeting = $pdo->prepare("SELECT COUNT(*) FROM meetings WHERE location = :marker");
+    $smuggledMeeting->execute(['marker' => $smuggleMarker]);
+
+    check(
+        'the meeting\'s own student cannot be posted in as an examiner',
+        (int) $smuggledMeeting->fetchColumn() === 0,
+        $subjectIsAlsoLecturer ? 'subject also holds a lecturer account' : 'subject is a student only'
+    );
 
     $createdMeetingId = $pdo->prepare("SELECT meeting_id FROM meetings WHERE location = :marker LIMIT 1");
     $createdMeetingId->execute(['marker' => $marker]);
