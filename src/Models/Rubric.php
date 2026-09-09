@@ -334,6 +334,83 @@ class Rubric
     }
 
     /**
+     * Released exam outcomes for a student's results page, in the same
+     * shape ExaminationScore::findExamOutcomesForStudent() returns so
+     * the two can sit side by side.
+     *
+     * Deliberately not written into examination_scores as derived
+     * rows: that table is keyed on an exam document, and a concept
+     * presentation may have no document at all. Copying the figure
+     * there would invent a row and give it somewhere to drift from.
+     *
+     * Only approved results appear. Marking, confirming and approving
+     * all happen before this returns anything.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function releasedOutcomesForStudent(string $userId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT m.meeting_id, m.scheduled_at, m.proposal_id,
+                    s.name AS stage_name,
+                    es.exam_type,
+                    pl.average_score, pl.approved_at,
+                    tp.title AS proposal_title,
+                    (SELECT COUNT(DISTINCT rs.examiner_id) FROM rubric_scores rs
+                      WHERE rs.meeting_id = m.meeting_id) AS reviewer_count
+             FROM rubric_panel_leaders pl
+             JOIN meetings m ON m.meeting_id = pl.meeting_id
+             JOIN exam_stages s ON s.stage_id = m.exam_stage_id
+             JOIN thesis_proposals tp ON tp.proposal_id = m.proposal_id
+             JOIN students st ON st.student_id = tp.student_id
+             LEFT JOIN exam_schedule es ON es.exam_schedule_id = m.exam_schedule_id
+             WHERE st.user_id = :user_id
+               AND pl.approved_at IS NOT NULL
+             ORDER BY pl.approved_at DESC"
+        );
+        $stmt->execute(['user_id' => $userId]);
+
+        $outcomes = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $band = GradingPolicy::examOutcome($this->db, (float) $row['average_score']);
+
+            $outcomes[] = [
+                'proposal_id'    => $row['proposal_id'],
+                'proposal_title' => $row['proposal_title'],
+                'doc_type_name'  => $row['stage_name'],
+                'exam_type'      => $row['exam_type'],
+                'exam_date'      => $row['scheduled_at'],
+                'graded_at'      => $row['approved_at'],
+                'reviewer_count' => (int) $row['reviewer_count'],
+                'outcome'        => $band['outcome'],
+                'outcome_label'  => $band['label'],
+                'stamp_class'    => GradingPolicy::stampClass($band['outcome']),
+                'comments'       => $this->remarksFor($row['meeting_id']),
+            ];
+        }
+
+        return $outcomes;
+    }
+
+    /**
+     * Examiner remarks for a meeting, as the student reads them.
+     * Blank remarks are dropped rather than shown as empty lines.
+     *
+     * @return array<int, string>
+     */
+    private function remarksFor(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT remarks FROM rubric_scores
+             WHERE meeting_id = :id AND remarks IS NOT NULL AND TRIM(remarks) <> ''
+             ORDER BY scored_at"
+        );
+        $stmt->execute(['id' => $meetingId]);
+
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
      * The examiner-facing interpretation of a percentage for this
      * scheme. Null when the scheme prints no bands — Table 1 has none,
      * and falls back to the student-facing scale like everything else.

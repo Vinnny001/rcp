@@ -93,6 +93,19 @@ class StudentOutcomesController
             $examOutcomesByProposal[$outcome['proposal_id']][] = $outcome;
         }
 
+        // Rubric-marked stages join the same list rather than being
+        // copied into examination_scores. Only outcomes the coordinator
+        // has released appear at all — a confirmed average that has not
+        // been approved is staff-side working, not a result.
+        foreach ((new \App\Models\Rubric($this->db))->releasedOutcomesForStudent($userId) as $outcome) {
+            $examOutcomesByProposal[$outcome['proposal_id']][] = $outcome;
+        }
+
+        foreach ($examOutcomesByProposal as &$forProposal) {
+            usort($forProposal, static fn (array $a, array $b): int => strcmp((string) $b['graded_at'], (string) $a['graded_at']));
+        }
+        unset($forProposal);
+
         $examOutcomes = [];
         foreach ($this->proposalsFor($student['student_id']) as $proposal) {
             $examinations = $examOutcomesByProposal[$proposal['proposal_id']] ?? [];
