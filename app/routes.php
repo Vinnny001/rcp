@@ -86,6 +86,7 @@ return function (App $app) {
 
     // Student exam & graduation route
     $app->get('/student/exam', [StudentExamController::class, 'show']);
+    $app->post('/student/exam/ready', [StudentExamController::class, 'markReady']);
 
 
 // LECTURER ROUTES
@@ -112,6 +113,10 @@ return function (App $app) {
     $app->post('/coordinator/shortlists/apply', [CoordinatorController::class, 'applyOutcome']);
 
     // Coordinator: exam results waiting to be released to students
+    // Coordinator: students ready to be examined
+    $app->get('/coordinator/exams', [CoordinatorController::class, 'examQueue']);
+    $app->post('/coordinator/exams/schedule', [CoordinatorController::class, 'scheduleExam']);
+
     $app->get('/coordinator/results', [CoordinatorController::class, 'resultsQueue']);
     $app->post('/coordinator/results/approve', [CoordinatorController::class, 'approveAverage']);
 

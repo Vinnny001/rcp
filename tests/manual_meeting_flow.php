@@ -156,14 +156,25 @@ try {
 
     echo "\n--- grading bands ---\n";
 
+    // The exam scale was realigned to the examiner's marking-scheme
+    // bands, so its cut points are now 70 / 60 / 50 / 40 rather than
+    // 75 / 50 / 31. The document scale below is a separate vocabulary
+    // and did not move.
     check('0 is a fail', GradingPolicy::examOutcome($pdo, 0.0)['outcome'] === 'fail');
-    check('30 is a fail', GradingPolicy::examOutcome($pdo, 30.0)['outcome'] === 'fail');
-    check('31 is a resubmit', GradingPolicy::examOutcome($pdo, 31.0)['outcome'] === 'resubmit');
+    check('39 is a fail', GradingPolicy::examOutcome($pdo, 39.0)['outcome'] === 'fail');
+    check('40 is a resubmit', GradingPolicy::examOutcome($pdo, 40.0)['outcome'] === 'resubmit');
     check('49 is a resubmit', GradingPolicy::examOutcome($pdo, 49.0)['outcome'] === 'resubmit');
-    check('50 is a pass', GradingPolicy::examOutcome($pdo, 50.0)['outcome'] === 'pass');
-    check('74 is a pass', GradingPolicy::examOutcome($pdo, 74.0)['outcome'] === 'pass');
-    check('75 is a distinction', GradingPolicy::examOutcome($pdo, 75.0)['outcome'] === 'distinction');
+    check('50 is a pass with corrections', GradingPolicy::examOutcome($pdo, 50.0)['outcome'] === 'pass_with_corrections');
+    check('59 is a pass with corrections', GradingPolicy::examOutcome($pdo, 59.0)['outcome'] === 'pass_with_corrections');
+    check('60 is a pass', GradingPolicy::examOutcome($pdo, 60.0)['outcome'] === 'pass');
+    check('69 is a pass', GradingPolicy::examOutcome($pdo, 69.0)['outcome'] === 'pass');
+    check('70 is a distinction', GradingPolicy::examOutcome($pdo, 70.0)['outcome'] === 'distinction');
     check('100 is a distinction', GradingPolicy::examOutcome($pdo, 100.0)['outcome'] === 'distinction');
+    check('every passing band counts as a pass', array_reduce(
+        [50.0, 60.0, 70.0, 100.0],
+        fn(bool $carry, float $s): bool => $carry && GradingPolicy::isPass(GradingPolicy::examOutcome($pdo, $s)['outcome']),
+        true
+    ));
 
     check('doc 0 is rejected', GradingPolicy::documentOutcome(0.0)['outcome'] === 'rejected');
     check('doc 30 is rejected', GradingPolicy::documentOutcome(30.0)['outcome'] === 'rejected');

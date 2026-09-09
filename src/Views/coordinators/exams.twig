@@ -1,0 +1,100 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Exam Queue{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Exams to schedule</h1>
+    <div class="sub">Students who have settled their fees, submitted their documents, and said they are ready.</div>
+  </div>
+  <div class="ref">EXAM-QUEUE</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not programs %}
+  <div class="notice">You do not coordinate any program yet.</div>
+{% elseif queue %}
+  {% for q in queue %}
+    <div class="card" style="margin-bottom:22px;">
+      <h3>{{ q.student_name }} <span class="meta mono" style="font-size:.72rem;">{{ q.student_number }}</span></h3>
+      <div class="meta">{{ q.stage_name }} · {{ q.proposal_title }}</div>
+      <div class="meta" style="margin-top:4px;">
+        {{ q.program_name }} · {{ q.exam_type|capitalize }} window {{ q.starts_at|date('d M Y') }}
+        · ready since {{ q.marked_ready_at|date('d M Y') }}
+      </div>
+
+      {% if not q.rubric_template_id %}
+        <div class="notice" style="margin-top:14px; border-left-color: var(--rust); background:#f6eae7;">
+          The {{ q.stage_name }} stage has no marking scheme, so examiners would have nothing to score against. Set one under Exam Stages first.
+        </div>
+      {% elseif not q.examiners %}
+        <div class="notice" style="margin-top:14px; border-left-color: var(--rust); background:#f6eae7;">
+          No lecturer is qualified to examine {{ q.program_name }}. An administrator sets that under Examiner Qualifications.
+        </div>
+      {% else %}
+        <form method="POST" action="/coordinator/exams/schedule" style="margin-top:16px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="readiness_id" value="{{ q.readiness_id }}">
+          <input type="hidden" name="program_id" value="{{ q.program_id }}">
+
+          <div class="field-row">
+            <div class="field"><label>Date and time</label><input type="datetime-local" name="scheduled_at" required></div>
+            <div class="field">
+              <label>Mode</label>
+              <select name="mode">
+                <option value="physical">Physical</option>
+                <option value="virtual">Virtual</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Location</label><input type="text" name="location" placeholder="Boardroom"></div>
+            <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" placeholder="https://…"></div>
+          </div>
+
+          <label style="font-size:.8rem; display:block; margin:14px 0 6px;">
+            Panel — only lecturers qualified to examine {{ q.program_name }}
+          </label>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:12px;">
+            {% for e in q.examiners %}
+              <label style="font-size:.82rem; display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" name="examiner_ids[]" value="{{ e.lecturer_id }}">
+                {{ e.lecturer_name }} <span class="meta">({{ e.kind }})</span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <div class="field" style="max-width:320px;">
+            <label>Panel leader <span class="meta">— records the agreed average</span></label>
+            <select name="panel_leader_id">
+              <option value="">None</option>
+              {% for e in q.examiners %}
+                <option value="{{ e.lecturer_id }}">{{ e.lecturer_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="meta" style="margin:6px 0 14px;">
+            The leader has to be one of the examiners you tick above. Leave it empty for a scheme that needs no averaging.
+          </div>
+
+          <button type="submit" class="btn brass">Schedule the exam</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">
+    Nobody is waiting. Students appear here once their fees are confirmed, their documents are in, and they mark themselves ready.
+  </div>
+{% endif %}
+
+{% endblock %}

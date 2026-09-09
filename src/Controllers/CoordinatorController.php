@@ -133,6 +133,77 @@ class CoordinatorController
     }
 
     /**
+     * Students who have declared themselves ready, with the qualified
+     * examiners available for each one's program.
+     */
+    public function examQueue(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $programs = (new ResearchCoordinator($this->db))->programsForUser($_SESSION['user_id']);
+        $queue = (new \App\Models\ExamReadiness($this->db))
+            ->queueForPrograms(array_column($programs, 'program_id'));
+
+        $qualifications = new \App\Models\ExaminerQualification($this->db);
+        foreach ($queue as &$row) {
+            // Only lecturers qualified for this program can be offered.
+            $row['examiners'] = $qualifications->qualifiedForProgram($row['program_id']);
+        }
+        unset($row);
+
+        return $this->twig->render($response, 'coordinators/exams.twig', [
+            'active_page' => 'l-coordinator-exams',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'last_name'   => $_SESSION['last_name'] ?? '',
+            'programs'    => $programs,
+            'queue'       => $queue,
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function scheduleExam(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/coordinator/exams');
+        }
+
+        try {
+            $programId = (string) ($data['program_id'] ?? '');
+            if (!$this->coordinates($programId)) {
+                throw new \RuntimeException('That student is not on a program you coordinate.');
+            }
+
+            (new \App\Models\ExamReadiness($this->db))->scheduleExam(
+                (string) ($data['readiness_id'] ?? ''),
+                $programId,
+                array_values((array) ($data['examiner_ids'] ?? [])),
+                (string) ($data['panel_leader_id'] ?? '') ?: null,
+                (string) ($data['scheduled_at'] ?? ''),
+                (string) ($data['mode'] ?? 'physical'),
+                (string) ($data['location'] ?? ''),
+                (string) ($data['virtual_link'] ?? ''),
+                $_SESSION['user_id']
+            );
+
+            $_SESSION['flash_success'] = 'Exam scheduled and the panel invited.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $this->redirect($response, '/coordinator/exams');
+    }
+
+    /**
      * Exam results the panel leader has confirmed and the coordinator
      * has not yet released to the student.
      */
