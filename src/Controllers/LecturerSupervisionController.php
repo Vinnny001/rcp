@@ -73,6 +73,11 @@ class LecturerSupervisionController
             'staff_number'        => $lecturer['staff_number'] ?? null,
             'students'            => $lecturerModel->findActiveSupervisions($lecturer['lecturer_id']),
             'assignment_requests' => $requestModel->findPendingByLecturerId($lecturer['lecturer_id']),
+            // Requests from the shortlist workflow. The direct
+            // supervision_requests above are deprecated and take no new
+            // rows, so in time this is the only list left.
+            'shortlist_requests'  => (new \App\Models\SupervisorShortlist($this->db))
+                                        ->pendingForLecturer($lecturer['lecturer_id']),
             'request_history'     => $requestModel->findHistoryByLecturerId($lecturer['lecturer_id']),
             'documents'           => $documentModel->findBySupervisorId($lecturer['lecturer_id']),
             'csrf_token'          => $this->csrfToken(),
@@ -134,6 +139,77 @@ class LecturerSupervisionController
         }
 
         return $this->redirect($response, '/lecturer/supervision');
+    }
+
+    /**
+     * Answers a request that came from a student's shortlist.
+     *
+     * Accepting appoints this lecturer and, if the student still has
+     * room, moves the request on to the next name on their list.
+     * Declining moves it on without a new department meeting — the
+     * department approved the whole shortlist, not one lecturer.
+     */
+    public function respondToShortlist(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/lecturer/supervision');
+        }
+
+        $lecturer = (new Lecturer($this->db))->findByUserId($_SESSION['user_id']);
+        if (!$lecturer) {
+            $_SESSION['flash_error'] = 'Your lecturer profile could not be found.';
+            return $this->redirect($response, '/lecturer/supervision');
+        }
+
+        $accept = ($data['decision'] ?? '') === 'accept';
+
+        try {
+            // Ownership is checked here rather than trusting the posted
+            // id: a request belongs to one lecturer, and answering
+            // someone else's would appoint the wrong supervisor.
+            $choiceId = (string) ($data['choice_id'] ?? '');
+            if (!$this->ownsShortlistRequest($choiceId, $lecturer['lecturer_id'])) {
+                throw new \RuntimeException('That request is not addressed to you.');
+            }
+
+            $result = (new \App\Models\SupervisorShortlist($this->db))->respondToRequest(
+                $choiceId,
+                $accept,
+                trim((string) ($data['decline_reason'] ?? '')) ?: null,
+                $_SESSION['user_id']
+            );
+
+            if ($result['outcome'] === 'accepted') {
+                $_SESSION['flash_success'] = $result['role'] === 'main'
+                    ? 'Accepted. You are now their main supervisor.'
+                    : 'Accepted. You are now a co-supervisor.';
+            } else {
+                $_SESSION['flash_success'] = $result['next_contacted']
+                    ? 'Declined. The next supervisor on the student\'s list has been asked.'
+                    : 'Declined. The student has been told they need to submit a new shortlist.';
+            }
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $this->redirect($response, '/lecturer/supervision');
+    }
+
+    private function ownsShortlistRequest(string $choiceId, string $lecturerId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM supervisor_shortlist_choices
+             WHERE choice_id = :choice_id AND lecturer_id = :lecturer_id LIMIT 1"
+        );
+        $stmt->execute(['choice_id' => $choiceId, 'lecturer_id' => $lecturerId]);
+
+        return (bool) $stmt->fetchColumn();
     }
 
     public function validateDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface

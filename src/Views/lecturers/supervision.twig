@@ -52,6 +52,61 @@
 
 <div class="section-title">Assignment requests<div class="rule"></div></div>
 
+{% for r in shortlist_requests %}
+  <div class="card" style="margin-bottom:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+      <div>
+        <h3>{{ r.student_name }} <span class="meta mono" style="font-size:.72rem;">{{ r.student_number }}</span></h3>
+        <div class="meta">"{{ r.proposal_title }}"</div>
+        <div class="meta" style="margin-top:6px;">
+          {% if r.is_preferred_main %}
+            You are their <span class="strong">preferred main supervisor</span>.
+          {% else %}
+            They have you at <span class="strong">position {{ r.rank_position }}</span> for co-supervision.
+          {% endif %}
+          Approved by the department — asked {{ r.sent_at|date('d M Y') }}.
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn ghost" onclick="openModal('declineShortlist-{{ r.choice_id }}')">Decline</button>
+        <form method="POST" action="/lecturer/supervision/shortlist-response" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="choice_id" value="{{ r.choice_id }}">
+          <input type="hidden" name="decision" value="accept">
+          <button type="submit" class="btn brass">Accept</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="declineShortlist-{{ r.choice_id }}" onclick="closeModal(event,'declineShortlist-{{ r.choice_id }}')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button type="button" class="modal-close" onclick="hideModal('declineShortlist-{{ r.choice_id }}')">✕ Close</button>
+      <div class="ref">SUP-{{ staff_number }} · DECLINE REQUEST</div>
+      <h2>Decline supervision request</h2>
+      <div class="sub">{{ r.student_name }} — "{{ r.proposal_title }}"</div>
+
+      <div class="notice" style="margin:14px 0;">
+        The student will not need another department meeting — the next supervisor on their approved list is asked automatically.
+      </div>
+
+      <form method="POST" action="/lecturer/supervision/shortlist-response">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="choice_id" value="{{ r.choice_id }}">
+        <input type="hidden" name="decision" value="decline">
+        <div class="field">
+          <label>Reason (optional)</label>
+          <textarea name="decline_reason" rows="3" placeholder="The student sees this, so a short reason helps them choose better next time..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn ghost" onclick="hideModal('declineShortlist-{{ r.choice_id }}')">Cancel</button>
+          <button type="submit" class="btn brass">Confirm decline</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endfor %}
+
 {% if assignment_requests %}
   {% for r in assignment_requests %}
     <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
@@ -91,7 +146,7 @@
       </div>
     </div>
   {% endfor %}
-{% else %}
+{% elseif not shortlist_requests %}
   <div class="notice">No pending assignment requests.</div>
 {% endif %}
 

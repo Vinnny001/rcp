@@ -95,6 +95,7 @@ return function (App $app) {
     $app->get('/lecturer/supervision', [LecturerSupervisionController::class, 'show']);
     $app->post('/lecturer/supervision/accept', [LecturerSupervisionController::class, 'accept']);
     $app->post('/lecturer/supervision/decline', [LecturerSupervisionController::class, 'decline']);
+    $app->post('/lecturer/supervision/shortlist-response', [LecturerSupervisionController::class, 'respondToShortlist']);
     $app->post('/lecturer/supervision/documents/validate', [LecturerSupervisionController::class, 'validateDocument']);
 
 
