@@ -11,6 +11,7 @@ use Slim\Interfaces\RouteCollectorProxyInterface as Group;
 use App\Controllers\AuthController;
 use App\Controllers\StudentController;
 use App\Controllers\StudentProposalController;
+use App\Controllers\StudentSupervisorsController;
 use App\Controllers\DashboardController;
 
 use App\Controllers\StudentRequirementsController;
@@ -68,6 +69,10 @@ return function (App $app) {
     // Student proposal routes
     $app->get('/student/proposal', [StudentProposalController::class, 'show']);
     $app->post('/student/proposal', [StudentProposalController::class, 'store']);
+
+    // Supervisor shortlist: browse profiles, submit a ranked list, track it
+    $app->get('/student/supervisors', [StudentSupervisorsController::class, 'show']);
+    $app->post('/student/supervisors', [StudentSupervisorsController::class, 'submit']);
 
     // Student requirements routes
     $app->get('/student/requirements', [StudentRequirementsController::class, 'show']);
