@@ -136,9 +136,31 @@ $student = $pdo->query(
 
 $admin = userFor($pdo, 'admin');
 
+// Only internal lecturers supervise, so only they have a supervisor
+// profile to fill in. An external examiner has no internal_lecturers
+// row at all, and must get the page without a half-form on it.
+$externalLecturer = $pdo->query(
+    "SELECT u.user_id, u.first_name, u.last_name
+     FROM users u
+     JOIN lecturers l ON l.user_id = u.user_id
+     LEFT JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+     WHERE il.lecturer_id IS NULL
+     LIMIT 1"
+)->fetch(PDO::FETCH_ASSOC);
+
+$internalLecturer = $pdo->query(
+    "SELECT u.user_id, u.first_name, u.last_name
+     FROM users u
+     JOIN lecturers l ON l.user_id = u.user_id
+     JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+     LIMIT 1"
+)->fetch(PDO::FETCH_ASSOC);
+
 echo "\n--- lecturer pages ---\n";
 $lecturerMeetings = visit('/lecturer/meetings', 'lecturer', $lecturer);
 visit('/lecturer/my-documents', 'lecturer', $lecturer);
+$internalProfile = $internalLecturer ? visit('/lecturer/profile', 'lecturer', $internalLecturer) : null;
+$externalProfile = $externalLecturer ? visit('/lecturer/profile', 'lecturer', $externalLecturer) : null;
 
 $meetingId = $pdo->query(
     "SELECT m.meeting_id FROM meetings m
@@ -274,14 +296,42 @@ if ($studentOutcomes) {
     assertThat('outcomes page shows no percentage column', !str_contains($studentOutcomes, 'score_percentage'));
 }
 
+if ($internalProfile) {
+    assertThat('an internal lecturer can edit their research interests', str_contains($internalProfile, 'name="research_interests"'));
+    assertThat('and can add a link students will read', str_contains($internalProfile, 'action="/lecturer/profile/links/add"'));
+}
+
+if ($externalProfile) {
+    // The section is skipped whole rather than rendered empty — an
+    // external examiner has nowhere to save interests to.
+    assertThat(
+        'an external lecturer is not shown a profile form they cannot save',
+        !str_contains($externalProfile, 'name="research_interests"')
+    );
+    assertThat('but still gets their own page', str_contains($externalProfile, 'Supervision'));
+}
+
 echo "\n--- admin pages ---\n";
 visit('/admin/dashboard', 'admin', $admin);
 visit('/admin/users', 'admin', $admin);
 visit('/admin/programs', 'admin', $admin);
 visit('/admin/thesis-schedules', 'admin', $admin);
-visit('/admin/exam-schedules', 'admin', $admin);
+$examSchedules = visit('/admin/exam-schedules', 'admin', $admin);
+$rubrics = visit('/admin/rubrics', 'admin', $admin);
 visit('/admin/audit', 'admin', $admin);
 visit('/admin/fee-rates', 'admin', $admin);
+
+if ($examSchedules) {
+    // Without this picker no window can be tied to a stage, and a
+    // window with no stage is invisible to every student.
+    assertThat('exam windows can be tagged with the stage they examine', str_contains($examSchedules, 'name="exam_stage_id"'));
+    assertThat('and an untagged window is called out', str_contains($examSchedules, 'invisible to students'));
+}
+
+if ($rubrics) {
+    assertThat('marking scheme rows are editable', str_contains($rubrics, 'action="/admin/rubrics/criteria/save"'));
+    assertThat('and a row can be removed', str_contains($rubrics, 'action="/admin/rubrics/criteria/delete"'));
+}
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);
