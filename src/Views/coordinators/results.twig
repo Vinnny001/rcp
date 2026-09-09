@@ -1,0 +1,76 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Exam Results{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Exam results</h1>
+    <div class="sub">Averages the panel leader has confirmed, waiting on you before the student sees them.</div>
+  </div>
+  <div class="ref">RESULTS</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not programs %}
+  <div class="notice">You do not coordinate any program yet.</div>
+{% elseif pending %}
+  {% for p in pending %}
+    <div class="card" style="margin-bottom:20px;">
+      <h3>{{ p.student_name }} <span class="meta mono" style="font-size:.72rem;">{{ p.student_number }}</span></h3>
+      <div class="meta">{{ p.stage_name }} · {{ p.proposal_title }}</div>
+      <div class="meta" style="margin-top:4px;">
+        {{ p.program_name }} · examined {{ p.scheduled_at|date('d M Y') }}
+      </div>
+
+      <div style="margin:14px 0; padding:12px 14px; background: var(--paper-warm, #f2ede2); border-radius:6px;">
+        <span class="strong" style="font-size:1.1rem;">{{ p.average_score }}%</span>
+        {% if p.band %}
+          — {{ p.band.label }}
+          {% if p.band.description %}<div class="meta" style="margin-top:4px;">{{ p.band.description }}</div>{% endif %}
+        {% endif %}
+        <div class="meta" style="margin-top:6px;">
+          Confirmed by {{ p.leader_name }} on {{ p.confirmed_at|date('d M Y, g:i A') }}
+        </div>
+      </div>
+
+      {% if p.panel %}
+        <div class="meta">The marks behind it</div>
+        <table style="margin-top:6px;">
+          <thead><tr><th>Examiner</th><th>Total</th><th>Percentage</th></tr></thead>
+          <tbody>
+            {% for e in p.panel %}
+              <tr>
+                <td>{{ e.examiner_name }}</td>
+                <td class="mono">{{ e.complete ? e.total|number_format(2)|trim('0')|trim('.') ~ ' / ' ~ e.max|number_format(0) : 'still marking' }}</td>
+                <td class="mono">{{ e.complete ? e.percentage ~ '%' : '—' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+
+      <form method="POST" action="/coordinator/results/approve" style="margin-top:16px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="meeting_id" value="{{ p.meeting_id }}">
+        <button type="submit" class="btn brass"
+                onclick="return confirm('Release {{ p.average_score }}% to {{ p.student_name }}?');">
+          Release to the student
+        </button>
+      </form>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">
+    Nothing waiting. Results appear here once a panel leader confirms an average, and stay hidden from the student until you release them.
+  </div>
+{% endif %}
+
+{% endblock %}

@@ -41,9 +41,15 @@
       <a class="tab {{ active_page == 'l-supervision' ? 'active' : '' }}" href="/lecturer/supervision">
         <span class="num">02</span>Supervision
       </a>
+      <a class="tab {{ active_page == 'l-examining' ? 'active' : '' }}" href="/lecturer/examining">
+        <span class="num">E</span>Examining
+      </a>
       {% if coordinator_programs is defined and coordinator_programs %}
         <a class="tab {{ active_page == 'l-coordinator' ? 'active' : '' }}" href="/coordinator/shortlists">
           <span class="num">C</span>Shortlist Queue
+        </a>
+        <a class="tab {{ active_page == 'l-coordinator-results' ? 'active' : '' }}" href="/coordinator/results">
+          <span class="num">R</span>Exam Results
         </a>
       {% endif %}
       {% if is_department_head is defined and is_department_head %}

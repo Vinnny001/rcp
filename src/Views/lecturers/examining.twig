@@ -1,0 +1,68 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Examining{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Examining</h1>
+    <div class="sub">Students you have been invited to examine, and the marking sheet for each.</div>
+  </div>
+  <div class="ref">EXAMINING</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if meetings %}
+  <table>
+    <thead>
+      <tr><th>Student</th><th>Stage</th><th>Meeting</th><th>Your marking</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for m in meetings %}
+        <tr>
+          <td class="strong">
+            {{ m.student_name }}
+            <div class="meta mono" style="font-size:.7rem;">{{ m.student_number }}</div>
+          </td>
+          <td>
+            {{ m.stage_name }}
+            {% if m.is_leader %}
+              <div class="meta" style="font-size:.72rem;">You lead this panel</div>
+            {% endif %}
+          </td>
+          <td class="meta">{{ m.scheduled_at|date('d M Y, g:i A') }}</td>
+          <td>
+            {% if not m.template_id %}
+              <span class="meta">No marking scheme configured</span>
+            {% elseif m.my_result %}
+              <span class="stamp mini approved">Marked</span>
+              <div class="meta" style="font-size:.72rem;">{{ m.my_result.percentage }}%</div>
+            {% else %}
+              <span class="stamp mini pending">Not marked yet</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            {% if m.template_id %}
+              <a class="btn ghost" style="padding:6px 14px; font-size:.72rem;" href="/lecturer/examining/{{ m.meeting_id }}">
+                {{ m.my_result ? 'Review' : 'Mark' }}
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice">
+    You have not been invited to examine anyone. Coordinators invite examiners when they schedule an exam, and only from the lecturers qualified for that program.
+  </div>
+{% endif %}
+
+{% endblock %}

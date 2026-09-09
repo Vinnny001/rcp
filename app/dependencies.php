@@ -310,5 +310,9 @@ LecturerThesesController::class => function (ContainerInterface $c) {
     return new \App\Controllers\DepartmentHeadController($c->get(PDO::class), $c->get(Twig::class));
 },
 
+\App\Controllers\ExaminerMarkingController::class => function (ContainerInterface $c) {
+    return new \App\Controllers\ExaminerMarkingController($c->get(PDO::class), $c->get(Twig::class));
+},
+
     ]);
 };

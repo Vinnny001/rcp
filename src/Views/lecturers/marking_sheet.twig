@@ -1,0 +1,161 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Marking Sheet{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ meeting.student_name }}</h1>
+    <div class="sub">{{ meeting.stage_name }} · {{ meeting.proposal_title }}</div>
+  </div>
+  <div class="ref mono">{{ meeting.student_number }}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="meta" style="margin-bottom:18px;">
+  {{ meeting.template_name }} — {{ max_total|number_format(0) }} marks.
+  Every row must be scored before the sheet can be submitted.
+</div>
+
+<form method="POST" action="/lecturer/examining/save">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+
+  <table style="margin-bottom:18px;">
+    <thead>
+      <tr>
+        <th style="width:26%;">Area</th>
+        <th>Criterion</th>
+        <th style="width:8%;">Max</th>
+        <th style="width:10%;">Score</th>
+        <th style="width:26%;">Remarks</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set current_section = '' %}
+      {% for c in criteria %}
+        <tr>
+          <td class="strong" style="font-size:.82rem;">
+            {# Only name the section when it changes, so grouped schemes
+               read as sections and flat ones as plain rows. #}
+            {% if c.section_name != current_section %}
+              {{ c.section_name }}
+              {% set current_section = c.section_name %}
+            {% endif %}
+          </td>
+          <td style="font-size:.82rem;">{{ c.criterion_text }}</td>
+          <td class="mono">{{ c.max_score|number_format(0) }}</td>
+          <td>
+            <input type="number" name="score[{{ c.criterion_id }}]"
+                   min="0" max="{{ c.max_score }}" step="0.5" required
+                   style="max-width:80px;"
+                   value="{{ my_scores[c.criterion_id].score is defined ? my_scores[c.criterion_id].score|number_format(2)|trim('0')|trim('.') : '' }}">
+          </td>
+          <td>
+            <input type="text" name="remark[{{ c.criterion_id }}]"
+                   value="{{ my_scores[c.criterion_id].remarks|default('') }}"
+                   placeholder="Optional">
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if my_result %}
+    <div class="meta" style="margin-bottom:14px;">
+      Your marking so far: <span class="strong">{{ my_result.total|number_format(2)|trim('0')|trim('.') }}</span>
+      of {{ my_result.max|number_format(0) }} — {{ my_result.percentage }}%.
+      {% if bands %}
+        {# Bands come back highest-first, so the first one the score
+           reaches is the one it falls into. #}
+        {% set matched = bands|filter(b => my_result.percentage >= b.min_percentage)|first %}
+        {% if matched %}<br>Reads as <span class="strong">{{ matched.label }}</span>.{% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <button type="submit" class="btn brass">{{ my_result ? 'Update my marks' : 'Submit my marks' }}</button>
+</form>
+
+{% if bands %}
+  <div class="section-title" style="margin-top:32px;">Interpretation<div class="rule"></div></div>
+  <table>
+    <thead><tr><th style="width:16%;">From</th><th>Outcome</th></tr></thead>
+    <tbody>
+      {% for b in bands %}
+        <tr>
+          <td class="mono">{{ b.min_percentage|number_format(0) }}%</td>
+          <td><span class="strong">{{ b.label }}</span>{% if b.description %}<div class="meta">{{ b.description }}</div>{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{% if is_leader %}
+  <div class="section-title" style="margin-top:32px;">Panel average<div class="rule"></div></div>
+  <div class="meta" style="margin-bottom:14px;">
+    You lead this panel. The average is calculated from the sheets below — you confirm it rather than typing it, and the coordinator releases it to the student.
+  </div>
+
+  <table style="margin-bottom:16px;">
+    <thead><tr><th>Examiner</th><th>Total</th><th>Percentage</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for p in panel %}
+        <tr>
+          <td class="strong">{{ p.examiner_name }}</td>
+          <td class="mono">{{ p.complete ? p.total|number_format(2)|trim('0')|trim('.') ~ ' / ' ~ p.max|number_format(0) : '—' }}</td>
+          <td class="mono">{{ p.complete ? p.percentage ~ '%' : '—' }}</td>
+          <td>
+            {% if p.complete %}
+              <span class="stamp mini approved">Marked</span>
+            {% else %}
+              <span class="stamp mini pending">Still marking</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if leader.approved_at %}
+    <div class="notice" style="border-left-color: var(--forest); background:#eef3ee;">
+      Average of <span class="strong">{{ leader.average_score }}%</span> approved by the coordinator and released to the student.
+    </div>
+  {% elseif leader.confirmed_at %}
+    <div class="notice">
+      You confirmed <span class="strong">{{ leader.average_score }}%</span>. It reaches the student once the coordinator approves it.
+    </div>
+  {% elseif calculated_average is not null %}
+    <div class="notice" style="margin-bottom:14px;">
+      Calculated average across the examiners who have finished: <span class="strong">{{ calculated_average }}%</span>.
+      {% set outstanding = panel|filter(p => not p.complete)|length %}
+      {% if outstanding %}
+        {{ outstanding }} examiner{{ outstanding != 1 ? 's are' : ' is' }} still marking — confirming now would leave them out.
+      {% endif %}
+    </div>
+    <form method="POST" action="/lecturer/examining/confirm-average">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+      <button type="submit" class="btn brass"
+              onclick="return confirm('Confirm {{ calculated_average }}% as the panel average?');">
+        Confirm {{ calculated_average }}%
+      </button>
+    </form>
+  {% else %}
+    <div class="notice">No examiner has finished marking yet, so there is no average to confirm.</div>
+  {% endif %}
+{% endif %}
+
+<div style="margin-top:26px;">
+  <a class="btn ghost" href="/lecturer/examining">Back to examining</a>
+</div>
+
+{% endblock %}

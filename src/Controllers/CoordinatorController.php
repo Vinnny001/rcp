@@ -132,6 +132,73 @@ class CoordinatorController
         });
     }
 
+    /**
+     * Exam results the panel leader has confirmed and the coordinator
+     * has not yet released to the student.
+     */
+    public function resultsQueue(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $programs = (new ResearchCoordinator($this->db))->programsForUser($_SESSION['user_id']);
+        $pending = (new \App\Models\ExaminerAssignment($this->db))
+            ->awaitingApproval(array_column($programs, 'program_id'));
+
+        $rubric = new \App\Models\Rubric($this->db);
+        foreach ($pending as &$row) {
+            $row['band'] = $row['template_id']
+                ? $rubric->bandFor($row['template_id'], (float) $row['average_score'])
+                : null;
+            $row['panel'] = $row['template_id']
+                ? $rubric->panelResults($row['meeting_id'], $row['template_id'])
+                : [];
+        }
+        unset($row);
+
+        return $this->twig->render($response, 'coordinators/results.twig', [
+            'active_page' => 'l-coordinator-results',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'last_name'   => $_SESSION['last_name'] ?? '',
+            'programs'    => $programs,
+            'pending'     => $pending,
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function approveAverage(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/coordinator/results');
+        }
+
+        try {
+            $meetingId = (string) ($data['meeting_id'] ?? '');
+            $assignments = new \App\Models\ExaminerAssignment($this->db);
+            $programId = $assignments->programForMeeting($meetingId);
+
+            if ($programId === null || !$this->coordinates($programId)) {
+                throw new \RuntimeException('That exam is not on a program you coordinate.');
+            }
+
+            $average = (new \App\Models\Rubric($this->db))->approveAverage($meetingId, $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Released. The student can now see their ' . $average . '% outcome.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $this->redirect($response, '/coordinator/results');
+    }
+
     public function approveMinutes(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {

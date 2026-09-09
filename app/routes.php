@@ -14,6 +14,7 @@ use App\Controllers\StudentProposalController;
 use App\Controllers\StudentSupervisorsController;
 use App\Controllers\CoordinatorController;
 use App\Controllers\DepartmentHeadController;
+use App\Controllers\ExaminerMarkingController;
 use App\Controllers\DashboardController;
 
 use App\Controllers\StudentRequirementsController;
@@ -109,6 +110,16 @@ return function (App $app) {
     $app->post('/coordinator/shortlists/minutes', [CoordinatorController::class, 'saveMinutes']);
     $app->post('/coordinator/shortlists/approve-minutes', [CoordinatorController::class, 'approveMinutes']);
     $app->post('/coordinator/shortlists/apply', [CoordinatorController::class, 'applyOutcome']);
+
+    // Coordinator: exam results waiting to be released to students
+    $app->get('/coordinator/results', [CoordinatorController::class, 'resultsQueue']);
+    $app->post('/coordinator/results/approve', [CoordinatorController::class, 'approveAverage']);
+
+    // Examiner marking sheets
+    $app->get('/lecturer/examining', [ExaminerMarkingController::class, 'index']);
+    $app->get('/lecturer/examining/{id}', [ExaminerMarkingController::class, 'sheet']);
+    $app->post('/lecturer/examining/save', [ExaminerMarkingController::class, 'save']);
+    $app->post('/lecturer/examining/confirm-average', [ExaminerMarkingController::class, 'confirmAverage']);
 
     // Department head: shortlist meetings they are invited to, and their vote
     $app->get('/lecturer/shortlist-meetings', [DepartmentHeadController::class, 'meetings']);
