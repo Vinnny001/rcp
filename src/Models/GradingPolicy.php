@@ -21,6 +21,27 @@ use PDO;
  */
 class GradingPolicy
 {
+    /**
+     * The exam outcome vocabulary, in descending order of result.
+     *
+     * Callers must not keep their own copy of these strings — adding
+     * `pass_with_corrections` to the scale meant a score of 55 stopped
+     * matching any hardcoded ['pass','distinction'] list and silently
+     * fell through to the reject branch. Ask isPass() instead.
+     *
+     * @var array<string, string> outcome => student-facing label
+     */
+    public const EXAM_OUTCOMES = [
+        'distinction'           => 'Distinction',
+        'pass'                  => 'Pass',
+        'pass_with_corrections' => 'Pass with corrections',
+        'resubmit'              => 'Resubmit',
+        'fail'                  => 'Fail',
+    ];
+
+    /** Outcomes that clear the exam — the student progresses. */
+    private const PASSING_OUTCOMES = ['distinction', 'pass', 'pass_with_corrections'];
+
     /** @var array<int, array{0:float, 1:string, 2:string}> [minimum inclusive, outcome, label] */
     private const DOCUMENT_BANDS = [
         [50.0, 'valid',    'Valid'],
@@ -64,7 +85,29 @@ class GradingPolicy
             return ['outcome' => 'fail', 'label' => 'Fail'];
         }
 
-        return ['outcome' => $outcome, 'label' => ucfirst($outcome)];
+        return ['outcome' => $outcome, 'label' => self::labelFor($outcome)];
+    }
+
+    /**
+     * Whether an outcome clears the exam. "Pass with corrections" does —
+     * the student owes corrections, but the work is through.
+     */
+    public static function isPass(string $outcome): bool
+    {
+        return in_array($outcome, self::PASSING_OUTCOMES, true);
+    }
+
+    public static function labelFor(string $outcome): string
+    {
+        return self::EXAM_OUTCOMES[$outcome] ?? ucfirst($outcome);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public static function examOutcomeKeys(): array
+    {
+        return array_keys(self::EXAM_OUTCOMES);
     }
 
     /**
@@ -98,7 +141,7 @@ class GradingPolicy
 
         foreach ($stmt->fetchAll() as $row) {
             $described[] = [
-                'label' => ucfirst($row['outcome']),
+                'label' => self::labelFor($row['outcome']),
                 'range' => self::trimNumber((float) $row['min_score']) . '–' . self::trimNumber((float) $row['max_score']) . '%',
             ];
         }
@@ -127,6 +170,9 @@ class GradingPolicy
     {
         return match ($outcome) {
             'distinction', 'pass', 'valid' => 'approved',
+            // Cleared, but corrections are still owed — amber reads as
+            // "not finished yet", which is the useful signal here.
+            'pass_with_corrections'        => 'pending',
             'resubmit'                     => 'pending',
             default                        => 'rejected',
         };

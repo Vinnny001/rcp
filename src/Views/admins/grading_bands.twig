@@ -7,7 +7,7 @@
 <div class="page-head">
   <div>
     <h1>Grading bands</h1>
-    <div class="sub">Score thresholds that decide an examination's fail / resubmit / pass / distinction outcome.</div>
+    <div class="sub">Score thresholds that decide an examination's outcome. These cut points mirror the examiner's marking-scheme bands, so the two scales agree.</div>
   </div>
   <div class="ref">GRADING-BANDS</div>
 </div>
@@ -32,10 +32,9 @@
         <label>Outcome</label>
         <select name="outcome" required>
           <option value="">-- Select --</option>
-          <option value="fail">Fail</option>
-          <option value="resubmit">Resubmit</option>
-          <option value="pass">Pass</option>
-          <option value="distinction">Distinction</option>
+          {% for value, label in outcomes %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
         </select>
       </div>
     </div>
@@ -56,10 +55,9 @@
               <input type="number" name="min_score" value="{{ b.min_score }}" min="0" max="100" step="0.01" style="max-width:100px;">
               <input type="number" name="max_score" value="{{ b.max_score }}" min="0" max="100" step="0.01" style="max-width:100px;">
               <select name="outcome" style="max-width:150px;">
-                <option value="fail" {{ b.outcome == 'fail' ? 'selected' : '' }}>Fail</option>
-                <option value="resubmit" {{ b.outcome == 'resubmit' ? 'selected' : '' }}>Resubmit</option>
-                <option value="pass" {{ b.outcome == 'pass' ? 'selected' : '' }}>Pass</option>
-                <option value="distinction" {{ b.outcome == 'distinction' ? 'selected' : '' }}>Distinction</option>
+                {% for value, label in outcomes %}
+                  <option value="{{ value }}" {{ b.outcome == value ? 'selected' : '' }}>{{ label }}</option>
+                {% endfor %}
               </select>
               <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
             </form>

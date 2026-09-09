@@ -124,7 +124,7 @@ class ExaminationScore
      * document under an approval_board meeting. Once every eligible
      * examiner has scored it, bands the average via
      * GradingPolicy::examOutcome() and updates thesis_proposals.status
-     * accordingly: pass/distinction approve it, resubmit flags this
+     * accordingly: any passing outcome approves it, resubmit flags this
      * exam_document for reopening on the Requirements page, fail
      * rejects it outright. No-ops if scoring isn't complete yet, or if
      * $eligibleExaminerIds is empty (nobody eligible to examine at all).
@@ -157,7 +157,7 @@ class ExaminationScore
             return;
         }
 
-        if (in_array($band['outcome'], ['pass', 'distinction'], true)) {
+        if (GradingPolicy::isPass($band['outcome'])) {
             $update = $this->db->prepare(
                 "UPDATE thesis_proposals SET status = 'approved', approval_date = CURDATE() WHERE proposal_id = :id"
             );

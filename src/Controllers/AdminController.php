@@ -546,6 +546,7 @@ class AdminController
             'active_page' => 'grading-bands',
             'first_name'  => $_SESSION['first_name'] ?? '',
             'bands'       => (new \App\Models\GradingBand($this->db))->all(),
+            'outcomes'    => \App\Models\GradingPolicy::EXAM_OUTCOMES,
             'csrf_token'  => $this->csrfToken(),
             'error'       => $this->takeFlash('flash_error'),
             'success'     => $this->takeFlash('flash_success'),
@@ -638,7 +639,7 @@ class AdminController
         if ((float) $data['min_score'] > (float) $data['max_score']) {
             return 'The minimum score cannot be greater than the maximum score.';
         }
-        if (!in_array($data['outcome'] ?? null, ['pass', 'fail', 'resubmit', 'distinction'], true)) {
+        if (!in_array($data['outcome'] ?? null, \App\Models\GradingPolicy::examOutcomeKeys(), true)) {
             return 'Please choose a valid outcome.';
         }
         return null;
