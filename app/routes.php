@@ -202,6 +202,12 @@ $app->post('/admin/grading-bands/create', [AdminController::class, 'createGradin
 $app->post('/admin/grading-bands/update', [AdminController::class, 'updateGradingBand']);
 $app->post('/admin/grading-bands/delete', [AdminController::class, 'deleteGradingBand']);
 
+// Admin: exam stages (the configurable middle of the student journey rail)
+$app->get('/admin/exam-stages', [AdminController::class, 'examStages']);
+$app->post('/admin/exam-stages/create', [AdminController::class, 'createExamStage']);
+$app->post('/admin/exam-stages/update', [AdminController::class, 'updateExamStage']);
+$app->post('/admin/exam-stages/archive', [AdminController::class, 'archiveExamStage']);
+
 // Admin: audit log
 $app->get('/admin/audit', [AdminController::class, 'auditLog']);
 

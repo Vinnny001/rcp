@@ -1,0 +1,117 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Exam Stages{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Exam stages</h1>
+    <div class="sub">The examined steps of the student journey. Registration, Requirements Validation and Graduation are structural and always present — everything between them is set here.</div>
+  </div>
+  <div class="ref">EXAM-STAGES</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="notice" style="margin-bottom:22px;">
+  Editing a stage changes the journey for students still in progress. Anyone who has already graduated keeps the track they finished under, under the names it had at the time.
+</div>
+
+<div class="section-title">The journey rail<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:22px;">
+  Registration &rsaquo; Requirements Validation
+  {% for s in stages|filter(s => s.is_active) %}
+    &rsaquo; <span class="strong">{{ s.name }}</span>
+  {% endfor %}
+  &rsaquo; Graduation
+</div>
+
+<div class="section-title">Add a stage<div class="rule"></div></div>
+<div class="form-card" style="margin-bottom:22px;">
+  <form method="POST" action="/admin/exam-stages/create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field-row">
+      <div class="field"><label>Name</label><input type="text" name="name" maxlength="150" placeholder="e.g. Publication" required></div>
+      <div class="field"><label>Position</label><input type="number" name="display_order" min="1" step="1" value="{{ stages|length + 1 }}" required></div>
+      <div class="field">
+        <label>Completed by</label>
+        <select name="evidence_doc_type_id">
+          <option value="">Recorded at the exam meeting</option>
+          {% for d in doc_types %}
+            <option value="{{ d.doc_type_id }}">A passed {{ d.doc_type_name }} exam</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn brass">Add stage</button>
+  </form>
+</div>
+
+<div class="section-title">Existing stages<div class="rule"></div></div>
+
+{% if stages %}
+  <table>
+    <thead>
+      <tr><th>Position</th><th>Name</th><th>Completed by</th><th>Completed&nbsp;by&nbsp;students</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in stages %}
+        <tr{% if not s.is_active %} style="opacity:.55;"{% endif %}>
+          <td colspan="5" style="padding-bottom:0;">
+            <form method="POST" action="/admin/exam-stages/update" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="stage_id" value="{{ s.stage_id }}">
+
+              <input type="number" name="display_order" value="{{ s.display_order }}" min="1" step="1" style="max-width:80px;" title="Position">
+              <input type="text" name="name" value="{{ s.name }}" maxlength="150" style="max-width:220px;" title="Name">
+
+              <select name="evidence_doc_type_id" style="max-width:230px;" title="What marks it complete">
+                <option value="">Recorded at the exam meeting</option>
+                {% for d in doc_types %}
+                  <option value="{{ d.doc_type_id }}" {{ s.evidence_doc_type_id == d.doc_type_id ? 'selected' : '' }}>A passed {{ d.doc_type_name }} exam</option>
+                {% endfor %}
+              </select>
+
+              <span class="mono meta" style="font-size:.7rem;">{{ s.code }}</span>
+
+              <span class="meta" style="font-size:.72rem;">
+                {{ s.completions }} student{{ s.completions != 1 ? 's' : '' }}
+                {%- if not s.is_active %} · archived{% endif %}
+              </span>
+
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="5" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/exam-stages/archive" style="display:inline;"
+                  onsubmit="return confirm({{ s.is_active
+                    ? '\'Archive this stage? It disappears from the rail for students still in progress. Anyone who already completed it keeps it on their record.\''
+                    : '\'Restore this stage to the journey?\'' }});">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="stage_id" value="{{ s.stage_id }}">
+              <input type="hidden" name="restore" value="{{ s.is_active ? '0' : '1' }}">
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem; color: var(--rust);">
+                {{ s.is_active ? 'Archive' : 'Restore' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="meta" style="margin-top:12px;">
+    Stages are archived rather than deleted — a graduated student's record still refers to the stages they passed.
+  </div>
+{% else %}
+  <div class="notice">No stages configured. The journey currently runs straight from Requirements Validation to Graduation.</div>
+{% endif %}
+
+{% endblock %}

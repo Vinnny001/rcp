@@ -553,6 +553,128 @@ class AdminController
         ]);
     }
 
+    public function examStages(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $model = new \App\Models\ExamStage($this->db);
+        $stages = $model->all();
+
+        // Archiving a stage students have already completed is allowed,
+        // but the admin should see the cost before doing it.
+        foreach ($stages as &$stage) {
+            $stage['completions'] = $model->completionCount($stage['stage_id']);
+        }
+        unset($stage);
+
+        return $this->twig->render($response, 'admins/exam_stages.twig', [
+            'active_page' => 'exam-stages',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'stages'      => $stages,
+            'doc_types'   => $this->db->query(
+                "SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name"
+            )->fetchAll(),
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function createExamStage(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamStageWrite($request, $response, function (array $data): string {
+            (new \App\Models\ExamStage($this->db))->create($data);
+            return 'Stage added.';
+        });
+    }
+
+    public function updateExamStage(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamStageWrite($request, $response, function (array $data): string {
+            $stageId = (string) ($data['stage_id'] ?? '');
+            if ($stageId === '') {
+                throw new \RuntimeException('Please choose a stage to update.');
+            }
+            (new \App\Models\ExamStage($this->db))->update($stageId, $data);
+            return 'Stage updated.';
+        });
+    }
+
+    public function archiveExamStage(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/exam-stages')->withStatus(302);
+        }
+
+        $restore = ($data['restore'] ?? '') === '1';
+        (new \App\Models\ExamStage($this->db))->setActive((string) ($data['stage_id'] ?? ''), $restore);
+        $_SESSION['flash_success'] = $restore
+            ? 'Stage restored to the journey.'
+            : 'Stage archived. Students who already completed it keep it on their record.';
+
+        return $response->withHeader('Location', '/admin/exam-stages')->withStatus(302);
+    }
+
+    /**
+     * Create and update differ only in the write itself — the guard,
+     * CSRF check, validation and redirect are identical.
+     */
+    private function handleExamStageWrite(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        callable $write
+    ): ResponseInterface {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/exam-stages')->withStatus(302);
+        }
+
+        if ($error = $this->validateExamStage($data)) {
+            $_SESSION['flash_error'] = $error;
+            return $response->withHeader('Location', '/admin/exam-stages')->withStatus(302);
+        }
+
+        try {
+            $_SESSION['flash_success'] = $write($data);
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = 'Could not save the stage: ' . $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/exam-stages')->withStatus(302);
+    }
+
+    /**
+     * @param array<string, mixed>|null $data
+     */
+    private function validateExamStage(?array $data): ?string
+    {
+        $name = trim((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            return 'Please give the stage a name.';
+        }
+        if (mb_strlen($name) > 150) {
+            return 'That name is too long — keep it under 150 characters.';
+        }
+        if (!is_numeric($data['display_order'] ?? null) || (int) $data['display_order'] < 1) {
+            return 'Position must be a whole number of 1 or more.';
+        }
+
+        return null;
+    }
+
     public function createGradingBand(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireAdmin()) {
