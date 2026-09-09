@@ -97,4 +97,45 @@
   </div>
 {% endif %}
 
+{% if scheduled %}
+  <div class="section-title" style="margin-top:34px;">Scheduled exams<div class="rule"></div></div>
+  <table>
+    <thead>
+      <tr><th>Student</th><th>Stage</th><th>When</th><th>Minutes</th><th>Result</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for e in scheduled %}
+        <tr>
+          <td class="strong">{{ e.student_name }}<div class="meta mono" style="font-size:.7rem;">{{ e.student_number }}</div></td>
+          <td>{{ e.stage_name }}</td>
+          <td class="meta">{{ e.scheduled_at|date('d M Y, g:i A') }}</td>
+          <td>
+            {% if e.minutes_approved_at %}
+              <span class="stamp mini approved">Approved</span>
+            {% elseif e.minutes_finalized_at %}
+              <span class="stamp mini pending">Awaiting your approval</span>
+            {% elseif e.minutes %}
+              <span class="meta">Draft</span>
+            {% else %}
+              <span class="meta">Not written</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if e.approved_at %}
+              <span class="stamp mini approved">Released</span>
+            {% elseif e.confirmed_at %}
+              <span class="stamp mini pending">Awaiting release</span>
+            {% else %}
+              <span class="meta">Not marked</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            <a class="btn ghost" style="padding:6px 14px; font-size:.72rem;" href="/coordinator/exams/{{ e.meeting_id }}">Open</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
 {% endblock %}

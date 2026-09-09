@@ -1,0 +1,196 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Exam Meeting{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ meeting.student_name }}</h1>
+    <div class="sub">{{ meeting.stage_name }} · {{ meeting.proposal_title }}</div>
+  </div>
+  <div class="ref mono">{{ meeting.student_number }}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:22px;">
+  <h3>{{ meeting.scheduled_at|date('d M Y, g:i A') }}</h3>
+  <div class="meta">
+    {{ meeting.mode|capitalize }}{% if meeting.location %} · {{ meeting.location }}{% endif %}
+    {%- if meeting.virtual_link %} · <a href="{{ meeting.virtual_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+  </div>
+  {% if attendees %}
+    <div class="meta" style="margin-top:8px;">
+      Panel: {% for a in attendees %}{{ a.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<div class="section-title">Who runs it<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:12px;">
+  Whoever is secretary writes the minutes. Leave it empty and the lead does.
+</div>
+<div class="form-card" style="margin-bottom:26px;">
+  <form method="POST" action="/coordinator/exams/roles">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Meeting lead</label>
+        <select name="lead_user_id">
+          <option value="">You</option>
+          {% for a in attendees %}
+            <option value="{{ a.user_id }}" {{ meeting.lead_user_id == a.user_id ? 'selected' : '' }}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Secretary <span class="meta">— writes the minutes</span></label>
+        <select name="secretary_user_id">
+          <option value="">None — the lead writes them</option>
+          {% for a in attendees %}
+            <option value="{{ a.user_id }}" {{ meeting.secretary_user_id == a.user_id ? 'selected' : '' }}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save roles</button>
+  </form>
+</div>
+
+<div class="section-title">Documents for this exam<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:12px;">
+  The exam window asks these of every candidate. Anything you add below is asked of {{ meeting.student_name }} alone.
+</div>
+
+{% if documents %}
+  <table style="margin-bottom:16px;">
+    <thead><tr><th>Document</th><th>Required by</th><th>Submitted</th><th></th></tr></thead>
+    <tbody>
+      {% for d in documents %}
+        <tr>
+          <td class="strong">
+            {{ d.doc_type_name }}
+            {% if d.note %}<div class="meta">{{ d.note }}</div>{% endif %}
+          </td>
+          <td class="meta">{{ d.is_extra ? 'You, for this student' : 'The exam window' }}</td>
+          <td>
+            {% if d.is_submitted %}
+              <span class="stamp mini approved">In</span>
+            {% else %}
+              <span class="stamp mini pending">Not yet</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            {% if d.is_extra %}
+              {% set extra = extras|filter(e => e.document_type_id == d.doc_type_id)|first %}
+              {% if extra %}
+                <form method="POST" action="/coordinator/exams/documents/remove" style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+                  <input type="hidden" name="extra_doc_id" value="{{ extra.extra_doc_id }}">
+                  <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">No longer needed</button>
+                </form>
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="notice" style="margin-bottom:16px;">Nothing is required for this exam yet.</div>
+{% endif %}
+
+<div class="form-card" style="margin-bottom:26px;">
+  <form method="POST" action="/coordinator/exams/documents/add">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+    <div class="field-row">
+      <div class="field">
+        <label>Ask for another document</label>
+        <select name="document_type_id" required>
+          <option value="">-- Select --</option>
+          {% for t in doc_types %}<option value="{{ t.doc_type_id }}">{{ t.doc_type_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Why <span class="meta">— the student sees this</span></label>
+        <input type="text" name="note" maxlength="255" placeholder="e.g. Ethics clearance for the fieldwork">
+      </div>
+    </div>
+    <button type="submit" class="btn brass">Add requirement</button>
+  </form>
+</div>
+
+{% if panel %}
+  <div class="section-title">Marking<div class="rule"></div></div>
+  <table style="margin-bottom:26px;">
+    <thead><tr><th>Examiner</th><th>Total</th><th>Percentage</th></tr></thead>
+    <tbody>
+      {% for e in panel %}
+        <tr>
+          <td>{{ e.examiner_name }}</td>
+          <td class="mono">{{ e.complete ? e.total|number_format(2)|trim('0')|trim('.') ~ ' / ' ~ e.max|number_format(0) : 'still marking' }}</td>
+          <td class="mono">{{ e.complete ? e.percentage ~ '%' : '—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+<div class="section-title">Minutes<div class="rule"></div></div>
+<div class="meta" style="margin-bottom:12px;">
+  Led by {{ meeting.lead_name ?: 'you' }}{% if meeting.secretary_name %}, minuted by {{ meeting.secretary_name }}{% endif %}.
+</div>
+
+{% if meeting.minutes_author_id != session_user_id and not meeting.minutes_finalized_at %}
+  <div class="notice" style="margin-bottom:22px;">
+    {{ meeting.secretary_name ?: meeting.lead_name }} writes the minutes for this exam.
+    {% if meeting.minutes %}
+      <p style="font-size:.85rem; line-height:1.6; white-space:pre-wrap; margin-top:10px;">{{ meeting.minutes }}</p>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="form-card" style="margin-bottom:18px;">
+    <form method="POST" action="/coordinator/exams/minutes">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+      <div class="field">
+        <label>What the panel decided</label>
+        <textarea name="minutes" rows="6" {{ meeting.minutes_finalized_at ? 'readonly' : '' }}>{{ meeting.minutes }}</textarea>
+      </div>
+      {% if meeting.minutes_finalized_at %}
+        <div class="meta">Finalised {{ meeting.minutes_finalized_at|date('d M Y, g:i A') }}.</div>
+      {% else %}
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button type="submit" name="finalize" value="0" class="btn ghost">Save draft</button>
+          <button type="submit" name="finalize" value="1" class="btn brass"
+                  onclick="return confirm('Finalise these minutes? They cannot be edited afterwards.');">Finalise minutes</button>
+        </div>
+      {% endif %}
+    </form>
+  </div>
+{% endif %}
+
+{% if meeting.minutes_approved_at %}
+  <div class="notice">Minutes approved {{ meeting.minutes_approved_at|date('d M Y, g:i A') }}.</div>
+{% elseif meeting.minutes_finalized_at %}
+  <form method="POST" action="/coordinator/exams/minutes/approve">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+    <button type="submit" class="btn brass">Approve the minutes</button>
+  </form>
+{% endif %}
+
+<div style="margin-top:26px;">
+  <a class="btn ghost" href="/coordinator/exams">Back to the exam queue</a>
+</div>
+
+{% endblock %}
