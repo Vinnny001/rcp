@@ -80,6 +80,19 @@
     </div>
 
     <div class="field">
+      <label>Examines which stage</label>
+      <select name="exam_stage_id">
+        <option value="">— Not an examined stage —</option>
+        {% for s in exam_stages %}
+          <option value="{{ s.stage_id }}">{{ s.name }}</option>
+        {% endfor %}
+      </select>
+      <div class="meta" style="margin-top:6px;">
+        This is what ties the window to a marking scheme. A window with no stage never appears to students, so nobody can mark themselves ready for it.
+      </div>
+    </div>
+
+    <div class="field">
       <label>Description</label>
       <textarea name="exam_schedule_description" rows="2" placeholder="e.g. Second-semester proposal defence window"></textarea>
     </div>
@@ -96,6 +109,8 @@
       <summary>
         <span class="meta">
           <strong style="color:var(--ink-text); font-weight:600;">{{ es.program_name }}</strong> · {{ es.exam_type|capitalize }}
+          {%- if es.stage_name %} · {{ es.stage_name }}
+          {%- else %} · <span style="color: var(--rust);">no stage — invisible to students</span>{% endif %}
           · {{ es.meeting_count }} meeting{{ es.meeting_count != 1 ? 's' : '' }} scheduled
           · {{ es.document_slot_count }} required document{{ es.document_slot_count != 1 ? 's' : '' }}
         </span>
@@ -134,6 +149,16 @@
           <select name="exam_type" required>
             {% for type in exam_types %}
               <option value="{{ type }}" {{ type == es.exam_type ? 'selected' : '' }}>{{ type|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Examines which stage</label>
+          <select name="exam_stage_id">
+            <option value="">— Not an examined stage —</option>
+            {% for s in exam_stages %}
+              <option value="{{ s.stage_id }}" {{ s.stage_id == es.exam_stage_id ? 'selected' : '' }}>{{ s.name }}</option>
             {% endfor %}
           </select>
         </div>

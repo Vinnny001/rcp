@@ -44,6 +44,93 @@ class Rubric
     }
 
     /**
+     * Every scheme with its derived maximum, for the admin screen.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function allTemplates(): array
+    {
+        return $this->db->query(
+            "SELECT t.*, COALESCE(SUM(c.max_score), 0) AS max_total, COUNT(c.criterion_id) AS criterion_count,
+                    (SELECT COUNT(*) FROM exam_stages s WHERE s.rubric_template_id = t.template_id) AS stage_count,
+                    (SELECT COUNT(*) FROM rubric_scores rs
+                      JOIN rubric_criteria rc ON rc.criterion_id = rs.criterion_id
+                     WHERE rc.template_id = t.template_id) AS score_count
+             FROM rubric_templates t
+             LEFT JOIN rubric_criteria c ON c.template_id = t.template_id
+             GROUP BY t.template_id
+             ORDER BY t.name"
+        )->fetchAll();
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public function saveCriterion(?string $criterionId, string $templateId, array $data): void
+    {
+        $section = trim((string) ($data['section_name'] ?? ''));
+        $text    = trim((string) ($data['criterion_text'] ?? ''));
+
+        if ($section === '' || $text === '') {
+            throw new RuntimeException('A criterion needs both an area and a description.');
+        }
+        if (!is_numeric($data['max_score'] ?? null) || (float) $data['max_score'] <= 0) {
+            throw new RuntimeException('The maximum mark must be a number above zero.');
+        }
+        if (!is_numeric($data['display_order'] ?? null) || (int) $data['display_order'] < 1) {
+            throw new RuntimeException('Position must be a whole number of 1 or more.');
+        }
+
+        if ($criterionId === null || $criterionId === '') {
+            $this->db->prepare(
+                "INSERT INTO rubric_criteria (criterion_id, template_id, section_name, criterion_text, max_score, display_order)
+                 VALUES (UUID(), :template_id, :section, :text, :max, :order)"
+            )->execute([
+                'template_id' => $templateId,
+                'section'     => $section,
+                'text'        => $text,
+                'max'         => (float) $data['max_score'],
+                'order'       => (int) $data['display_order'],
+            ]);
+
+            return;
+        }
+
+        $this->db->prepare(
+            "UPDATE rubric_criteria
+             SET section_name = :section, criterion_text = :text,
+                 max_score = :max, display_order = :order
+             WHERE criterion_id = :id AND template_id = :template_id"
+        )->execute([
+            'id'          => $criterionId,
+            'template_id' => $templateId,
+            'section'     => $section,
+            'text'        => $text,
+            'max'         => (float) $data['max_score'],
+            'order'       => (int) $data['display_order'],
+        ]);
+    }
+
+    /**
+     * Removing a criterion someone has already been marked against
+     * would change their total after the fact, so it is refused once
+     * any score exists.
+     */
+    public function deleteCriterion(string $criterionId): void
+    {
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM rubric_scores WHERE criterion_id = :id");
+        $stmt->execute(['id' => $criterionId]);
+
+        if ((int) $stmt->fetchColumn() > 0) {
+            throw new RuntimeException(
+                'Examiners have already marked against this row. Removing it now would change totals that have been recorded.'
+            );
+        }
+
+        $this->db->prepare("DELETE FROM rubric_criteria WHERE criterion_id = :id")->execute(['id' => $criterionId]);
+    }
+
+    /**
      * The scheme a given exam stage is marked with, or null when the
      * stage has none configured.
      */

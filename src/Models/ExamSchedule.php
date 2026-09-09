@@ -29,6 +29,7 @@ class ExamSchedule
         return $this->db->query(
             "SELECT es.*,
                     p.name AS program_name,
+                    stg.name AS stage_name,
                     ts.enrollment_start_date, ts.enrollment_end_date,
                     (SELECT COUNT(*) FROM meetings m
                       WHERE m.exam_schedule_id = es.exam_schedule_id AND m.status != 'cancelled') AS meeting_count,
@@ -37,6 +38,7 @@ class ExamSchedule
              FROM exam_schedule es
              JOIN thesis_schedules ts ON ts.schedule_id = es.thesis_schedule_id
              JOIN programs p ON p.program_id = ts.program_id
+             LEFT JOIN exam_stages stg ON stg.stage_id = es.exam_stage_id
              ORDER BY es.starts_at DESC"
         )->fetchAll();
     }
@@ -55,9 +57,9 @@ class ExamSchedule
 
         $stmt = $this->db->prepare(
             "INSERT INTO exam_schedule
-                (exam_schedule_id, thesis_schedule_id, starts_at, ends_at, exam_type, exam_schedule_description)
+                (exam_schedule_id, thesis_schedule_id, starts_at, ends_at, exam_type, exam_stage_id, exam_schedule_description)
              VALUES
-                (:exam_schedule_id, :thesis_schedule_id, :starts_at, :ends_at, :exam_type, :description)"
+                (:exam_schedule_id, :thesis_schedule_id, :starts_at, :ends_at, :exam_type, :exam_stage_id, :description)"
         );
         $stmt->execute([
             'exam_schedule_id'   => $examScheduleId,
@@ -65,6 +67,7 @@ class ExamSchedule
             'starts_at'          => $data['starts_at'],
             'ends_at'            => $data['ends_at'],
             'exam_type'          => $data['exam_type'],
+            'exam_stage_id'      => ($data['exam_stage_id'] ?? '') ?: null,
             'description'        => $data['exam_schedule_description'] ?: null,
         ]);
 
@@ -79,6 +82,7 @@ class ExamSchedule
                  starts_at = :starts_at,
                  ends_at = :ends_at,
                  exam_type = :exam_type,
+                 exam_stage_id = :exam_stage_id,
                  exam_schedule_description = :description,
                  updated_at = NOW()
              WHERE exam_schedule_id = :exam_schedule_id"
@@ -88,6 +92,7 @@ class ExamSchedule
             'starts_at'          => $data['starts_at'],
             'ends_at'            => $data['ends_at'],
             'exam_type'          => $data['exam_type'],
+            'exam_stage_id'      => ($data['exam_stage_id'] ?? '') ?: null,
             'description'        => $data['exam_schedule_description'] ?: null,
             'exam_schedule_id'   => $examScheduleId,
         ]);

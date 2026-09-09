@@ -251,6 +251,11 @@ $app->post('/admin/exam-stages/create', [AdminController::class, 'createExamStag
 $app->post('/admin/exam-stages/update', [AdminController::class, 'updateExamStage']);
 $app->post('/admin/exam-stages/archive', [AdminController::class, 'archiveExamStage']);
 
+// Admin: the marking schemes examiners score against
+$app->get('/admin/rubrics', [AdminController::class, 'rubrics']);
+$app->post('/admin/rubrics/criteria/save', [AdminController::class, 'saveRubricCriterion']);
+$app->post('/admin/rubrics/criteria/delete', [AdminController::class, 'deleteRubricCriterion']);
+
 // Admin: research roles (coordinators, department heads) and examiner qualifications
 $app->get('/admin/research-roles', [AdminController::class, 'researchRoles']);
 $app->post('/admin/research-roles/coordinator', [AdminController::class, 'assignCoordinator']);

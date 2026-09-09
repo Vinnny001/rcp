@@ -553,6 +553,77 @@ class AdminController
         ]);
     }
 
+    public function rubrics(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $rubric = new \App\Models\Rubric($this->db);
+        $templates = $rubric->allTemplates();
+
+        foreach ($templates as &$template) {
+            $template['criteria'] = $rubric->criteriaFor($template['template_id']);
+            $template['bands'] = $rubric->bandsFor($template['template_id']);
+        }
+        unset($template);
+
+        return $this->twig->render($response, 'admins/rubrics.twig', [
+            'active_page' => 'rubrics',
+            'first_name'  => $_SESSION['first_name'] ?? '',
+            'templates'   => $templates,
+            'csrf_token'  => $this->csrfToken(),
+            'error'       => $this->takeFlash('flash_error'),
+            'success'     => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function saveRubricCriterion(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleRubricWrite($request, $response, function (array $data, \App\Models\Rubric $rubric): string {
+            $rubric->saveCriterion(
+                (string) ($data['criterion_id'] ?? '') ?: null,
+                (string) ($data['template_id'] ?? ''),
+                $data
+            );
+
+            return 'Criterion saved. The scheme total follows the rows above it.';
+        });
+    }
+
+    public function deleteRubricCriterion(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleRubricWrite($request, $response, function (array $data, \App\Models\Rubric $rubric): string {
+            $rubric->deleteCriterion((string) ($data['criterion_id'] ?? ''));
+
+            return 'Criterion removed.';
+        });
+    }
+
+    private function handleRubricWrite(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        callable $write
+    ): ResponseInterface {
+        if ($redirect = $this->requireAdmin()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $response->withHeader('Location', '/admin/rubrics')->withStatus(302);
+        }
+
+        try {
+            $_SESSION['flash_success'] = $write($data, new \App\Models\Rubric($this->db));
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $response->withHeader('Location', '/admin/rubrics')->withStatus(302);
+    }
+
     public function examStages(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireAdmin()) {
@@ -1508,6 +1579,9 @@ class AdminController
             'thesis_schedules' => (new \App\Models\ThesisSchedule($this->db))->all(),
             'document_types'   => $this->db->query("SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name")->fetchAll(),
             'exam_types'       => \App\Models\ExamSchedule::VALID_EXAM_TYPES,
+            // A window with no stage examines nothing, so it never
+            // reaches a student — tagging it here is what opens it.
+            'exam_stages'      => (new \App\Models\ExamStage($this->db))->allActive(),
             'csrf_token'       => $this->csrfToken(),
             'error'            => $this->takeFlash('flash_error'),
             'success'          => $this->takeFlash('flash_success'),

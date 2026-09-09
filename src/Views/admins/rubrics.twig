@@ -1,0 +1,116 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Marking Schemes{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Marking schemes</h1>
+    <div class="sub">What examiners score against. Each scheme's total is the sum of its rows — change a row and the total follows.</div>
+  </div>
+  <div class="ref">RUBRICS</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="notice" style="margin-bottom:26px;">
+  There is no separate "total" to keep in step — it is always the sum of the rows below it. The printed JKUAT proposal form carried a total of 40 against rows adding to 45; storing one would let that happen here too.
+</div>
+
+{% for t in templates %}
+  <div class="section-title">{{ t.name }}<div class="rule"></div></div>
+
+  <div class="meta" style="margin-bottom:14px;">
+    {{ t.criterion_count }} row{{ t.criterion_count != 1 ? 's' : '' }} ·
+    <span class="strong">{{ t.max_total|number_format(0) }} marks</span> ·
+    used by {{ t.stage_count }} stage{{ t.stage_count != 1 ? 's' : '' }}
+    {%- if t.has_panel_leader %} · a panel leader confirms the average{% endif %}
+    {%- if t.score_count %} · {{ t.score_count }} mark{{ t.score_count != 1 ? 's' : '' }} already recorded{% endif %}
+  </div>
+
+  {% if t.score_count %}
+    <div class="notice" style="margin-bottom:14px;">
+      Examiners have already marked against this scheme. Editing a row changes the maximum, and so the percentage every future mark is measured against — past totals keep the marks they were given. Rows that have been marked cannot be removed.
+    </div>
+  {% endif %}
+
+  <table style="margin-bottom:14px;">
+    <thead>
+      <tr><th style="width:6%;">#</th><th style="width:22%;">Area</th><th>Criterion</th><th style="width:8%;">Max</th><th style="width:12%;"></th></tr>
+    </thead>
+    <tbody>
+      {% for c in t.criteria %}
+        <tr>
+          <td colspan="5" style="padding-bottom:0;">
+            <form method="POST" action="/admin/rubrics/criteria/save" style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="template_id" value="{{ t.template_id }}">
+              <input type="hidden" name="criterion_id" value="{{ c.criterion_id }}">
+              <input type="number" name="display_order" value="{{ c.display_order }}" min="1" step="1" style="max-width:70px;" title="Position">
+              <input type="text" name="section_name" value="{{ c.section_name }}" maxlength="150" style="max-width:200px;" title="Area">
+              <input type="text" name="criterion_text" value="{{ c.criterion_text }}" style="flex:1; min-width:260px;" title="Criterion">
+              <input type="number" name="max_score" value="{{ c.max_score|number_format(2)|trim('0')|trim('.') }}" min="0.5" step="0.5" style="max-width:80px;" title="Maximum mark">
+              <button type="submit" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">Save</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="5" style="text-align:right; padding-top:0;">
+            <form method="POST" action="/admin/rubrics/criteria/delete" style="display:inline;"
+                  onsubmit="return confirm('Remove this row from the scheme?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="criterion_id" value="{{ c.criterion_id }}">
+              <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="form-card" style="margin-bottom:30px;">
+    <form method="POST" action="/admin/rubrics/criteria/save">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="template_id" value="{{ t.template_id }}">
+      <div class="field-row">
+        <div class="field"><label>Position</label><input type="number" name="display_order" min="1" step="1" value="{{ t.criterion_count + 1 }}" required></div>
+        <div class="field"><label>Area</label><input type="text" name="section_name" maxlength="150" placeholder="e.g. Literature Review" required></div>
+        <div class="field"><label>Maximum mark</label><input type="number" name="max_score" min="0.5" step="0.5" required></div>
+      </div>
+      <div class="field">
+        <label>Criterion</label>
+        <input type="text" name="criterion_text" placeholder="What the examiner is judging" required>
+      </div>
+      <button type="submit" class="btn brass">Add a row</button>
+    </form>
+  </div>
+
+  {% if t.bands %}
+    <div class="meta" style="margin-bottom:8px;">How examiners read a percentage on this scheme</div>
+    <table style="margin-bottom:34px;">
+      <thead><tr><th style="width:12%;">From</th><th>Outcome</th></tr></thead>
+      <tbody>
+        {% for b in t.bands %}
+          <tr>
+            <td class="mono">{{ b.min_percentage|number_format(0) }}%</td>
+            <td><span class="strong">{{ b.label }}</span>{% if b.description %}<div class="meta">{{ b.description }}</div>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="meta" style="margin-bottom:34px;">
+      This scheme prints no interpretation bands, so results fall back to the student scale under Grading Bands.
+    </div>
+  {% endif %}
+{% else %}
+  <div class="notice">No marking schemes are configured.</div>
+{% endfor %}
+
+{% endblock %}
