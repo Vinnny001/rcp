@@ -69,6 +69,20 @@ class NotificationBadgeMiddleware
             $showChat = (bool) $hasLiveRelationship || $chatModel->hasAnyThreadForUser($userId, $role);
             $this->twig->getEnvironment()->addGlobal('show_chat', $showChat);
 
+            // Coordinator and department-head duties are scoped roles a
+            // lecturer holds on top of being a lecturer, so the sidebar
+            // has to ask for them rather than read the session role.
+            if ($role === 'lecturer') {
+                $coordinatorPrograms = (new \App\Models\ResearchCoordinator($this->db))->programsForUser($userId);
+                $this->twig->getEnvironment()->addGlobal('coordinator_programs', $coordinatorPrograms);
+
+                $headStmt = $this->db->prepare(
+                    "SELECT COUNT(*) FROM department_heads WHERE user_id = :user_id AND is_active = 1"
+                );
+                $headStmt->execute(['user_id' => $userId]);
+                $this->twig->getEnvironment()->addGlobal('is_department_head', (bool) $headStmt->fetchColumn());
+            }
+
             if ($showChat) {
                 $this->twig->getEnvironment()->addGlobal('unread_chats_count', $chatModel->countUnreadForUser($userId, $role));
                 $this->twig->getEnvironment()->addGlobal('ws_url', $_ENV['WS_URL'] ?? '');

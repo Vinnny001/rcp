@@ -1,0 +1,82 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Shortlist Meetings{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Supervision review</h1>
+    <div class="sub">Shortlists your department has been asked to decide on. One vote each, on the list as a whole.</div>
+  </div>
+  <div class="ref">PANEL</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if meetings %}
+  {% for m in meetings %}
+    <div class="card" style="margin-bottom:22px;">
+      <h3>{{ m.student_name }} <span class="meta mono" style="font-size:.72rem;">{{ m.student_number }}</span></h3>
+      <div class="meta">{{ m.proposal_title }}</div>
+      <div class="meta" style="margin-top:6px;">
+        Meeting {{ m.scheduled_at|date('d M Y, g:i A') }} · {{ m.mode|capitalize }}
+        {%- if m.location %} · {{ m.location }}{% endif %}
+        {%- if m.virtual_link %} · <a href="{{ m.virtual_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+      </div>
+
+      <div class="meta" style="margin-top:14px;">Proposed supervisors</div>
+      <ol style="font-size:.85rem; margin:6px 0 0 18px; padding:0;">
+        {% for c in m.choices %}
+          <li>{{ c.lecturer_name }}{% if c.is_preferred_main %} <span class="meta">— preferred main</span>{% endif %}</li>
+        {% endfor %}
+      </ol>
+
+      {% if m.minutes %}
+        <div class="meta" style="margin-top:14px;">
+          Minutes{% if not m.minutes_finalized_at %} <span style="color: var(--rust);">(draft)</span>{% endif %}
+        </div>
+        <p style="font-size:.85rem; line-height:1.6; white-space:pre-wrap; margin-top:4px;">{{ m.minutes }}</p>
+      {% else %}
+        <div class="meta" style="margin-top:14px;">The coordinator has not written minutes yet.</div>
+      {% endif %}
+
+      <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--hairline, #e2dccd);">
+        {% if m.vote %}
+          <div class="meta">
+            You voted
+            <span class="stamp mini {{ m.vote == 'approve' ? 'approved' : 'rejected' }}">{{ m.vote|capitalize }}</span>
+            {%- if m.comment %} — {{ m.comment }}{% endif %}
+          </div>
+          <div class="meta" style="font-size:.72rem; margin-top:4px;">You can change your vote until the coordinator applies the decision.</div>
+        {% endif %}
+
+        {% if m.status in ['pending_coordinator','meeting_scheduled'] %}
+          <form method="POST" action="/lecturer/shortlist-meetings/vote" style="margin-top:10px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="meeting_id" value="{{ m.meeting_id }}">
+            <div class="field">
+              <label>Comment (optional)</label>
+              <input type="text" name="comment" value="{{ m.comment }}" placeholder="Reason, if you want it in the record">
+            </div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button type="submit" name="vote" value="approve" class="btn brass">Approve</button>
+              <button type="submit" name="vote" value="reject" class="btn ghost" style="color: var(--rust);">Reject</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="meta">Decided — recorded as {{ m.status }}.</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">No shortlists have been sent to you. Coordinators invite heads when they convene a review.</div>
+{% endif %}
+
+{% endblock %}

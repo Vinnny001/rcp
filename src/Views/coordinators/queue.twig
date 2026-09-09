@@ -1,0 +1,63 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Shortlist Queue{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Supervisor shortlists</h1>
+    <div class="sub">Students waiting on a department decision, across the programs you coordinate.</div>
+  </div>
+  <div class="ref">COORDINATOR</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not programs %}
+  <div class="notice">You do not coordinate any program yet. An administrator assigns coordinators per program.</div>
+{% else %}
+  <div class="meta" style="margin-bottom:18px;">
+    Coordinating:
+    {% for p in programs %}<span class="strong">{{ p.program_name }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+
+  {% if shortlists %}
+    <table>
+      <thead>
+        <tr><th>Student</th><th>Proposal</th><th>Program</th><th>Waiting on</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for s in shortlists %}
+          <tr>
+            <td class="strong">{{ s.student_name }}<div class="meta mono" style="font-size:.7rem;">{{ s.student_number }}</div></td>
+            <td>{{ s.proposal_title }}</td>
+            <td class="meta">{{ s.program_name }}</td>
+            <td>
+              {% if s.status == 'pending_coordinator' %}
+                <span class="stamp mini pending">Needs a meeting</span>
+              {% elseif not s.minutes_finalized_at %}
+                <span class="stamp mini pending">Minutes not final</span>
+                <div class="meta" style="font-size:.72rem;">Met {{ s.scheduled_at|date('d M Y') }}</div>
+              {% else %}
+                <span class="stamp mini approved">Ready to apply</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right;">
+              <a class="btn ghost" style="padding:6px 14px; font-size:.72rem;" href="/coordinator/shortlists/{{ s.shortlist_id }}">Open</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="notice">Nothing waiting. Shortlists appear here as soon as students submit them.</div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}

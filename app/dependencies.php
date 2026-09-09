@@ -302,5 +302,13 @@ LecturerThesesController::class => function (ContainerInterface $c) {
     return new \App\Controllers\StudentSupervisorsController($c->get(PDO::class), $c->get(Twig::class));
 },
 
+\App\Controllers\CoordinatorController::class => function (ContainerInterface $c) {
+    return new \App\Controllers\CoordinatorController($c->get(PDO::class), $c->get(Twig::class));
+},
+
+\App\Controllers\DepartmentHeadController::class => function (ContainerInterface $c) {
+    return new \App\Controllers\DepartmentHeadController($c->get(PDO::class), $c->get(Twig::class));
+},
+
     ]);
 };

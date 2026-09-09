@@ -1,0 +1,163 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Shortlist Review{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ shortlist.student_name }}</h1>
+    <div class="sub">{{ shortlist.proposal_title }} · {{ shortlist.program_name }}</div>
+  </div>
+  <div class="ref mono">{{ shortlist.student_number }}</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">The shortlist<div class="rule"></div></div>
+<table style="margin-bottom:28px;">
+  <thead><tr><th>#</th><th>Supervisor</th><th>Requested as</th><th>Status</th></tr></thead>
+  <tbody>
+    {% for c in choices %}
+      <tr>
+        <td class="mono">{{ c.rank_position }}</td>
+        <td class="strong">{{ c.lecturer_name }}</td>
+        <td>{{ c.is_preferred_main ? 'Preferred main' : 'Co-supervisor' }}</td>
+        <td class="meta">{{ c.request_status|replace({'_': ' '})|capitalize }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{# ---------- no meeting yet ---------- #}
+{% if not shortlist.meeting_id %}
+  <div class="section-title">Convene the department<div class="rule"></div></div>
+  <div class="meta" style="margin-bottom:14px;">
+    Heads vote on the shortlist as a whole. Nothing is sent to any supervisor until you finalise the minutes and apply the decision.
+  </div>
+
+  {% if heads %}
+    <div class="form-card">
+      <form method="POST" action="/coordinator/shortlists/schedule">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+        <div class="field-row">
+          <div class="field"><label>Date and time</label><input type="datetime-local" name="scheduled_at" required></div>
+          <div class="field">
+            <label>Mode</label>
+            <select name="mode">
+              <option value="physical">Physical</option>
+              <option value="virtual">Virtual</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Location</label><input type="text" name="location" placeholder="Boardroom"></div>
+          <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" placeholder="https://…"></div>
+        </div>
+
+        <label style="font-size:.8rem; display:block; margin:12px 0 6px;">Invite heads of {{ shortlist.department_name }}</label>
+        <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
+          {% for h in heads %}
+            <label style="font-size:.82rem; display:flex; gap:8px; align-items:center;">
+              <input type="checkbox" name="dept_head_ids[]" value="{{ h.dept_head_id }}" checked>
+              {{ h.head_name }} <span class="meta">({{ h.position_name }})</span>
+            </label>
+          {% endfor %}
+        </div>
+
+        <button type="submit" class="btn brass">Schedule meeting</button>
+      </form>
+    </div>
+  {% else %}
+    <div class="notice" style="border-left-color: var(--rust); background:#f6eae7;">
+      {{ shortlist.department_name }} has no serving heads, so there is nobody to vote. An administrator adds them under Research Roles.
+    </div>
+  {% endif %}
+
+{# ---------- meeting exists ---------- #}
+{% else %}
+  <div class="section-title">Meeting<div class="rule"></div></div>
+  <div class="card" style="margin-bottom:18px;">
+    <h3>{{ shortlist.scheduled_at|date('d M Y, g:i A') }}</h3>
+    <div class="meta">
+      {{ shortlist.mode|capitalize }}{% if shortlist.location %} · {{ shortlist.location }}{% endif %}
+      {% if shortlist.virtual_link %} · <a href="{{ shortlist.virtual_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="section-title">Votes<div class="rule"></div></div>
+  <table style="margin-bottom:18px;">
+    <thead><tr><th>Head</th><th>Position</th><th>Vote</th><th>Comment</th></tr></thead>
+    <tbody>
+      {% for v in voters %}
+        <tr>
+          <td class="strong">{{ v.head_name }}</td>
+          <td class="meta">{{ v.position_name }}</td>
+          <td>
+            {% if v.vote == 'approve' %}<span class="stamp mini approved">Approve</span>
+            {% elseif v.vote == 'reject' %}<span class="stamp mini rejected">Reject</span>
+            {% else %}<span class="meta">Not yet voted</span>{% endif %}
+          </td>
+          <td class="meta">{{ v.comment }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="meta" style="margin-bottom:24px;">
+    {{ tally.approve }} approve · {{ tally.reject }} reject · {{ tally.invited - tally.approve - tally.reject }} yet to vote.
+    {% if tally.approve + tally.reject > 0 %}
+      As it stands this carries as <span class="strong">{{ tally.outcome == 'approved' ? 'approved' : 'not approved' }}</span>{% if tally.approve == tally.reject %} — a tie does not carry{% endif %}.
+    {% endif %}
+  </div>
+
+  <div class="section-title">Minutes<div class="rule"></div></div>
+  <div class="meta" style="margin-bottom:12px;">
+    Heads can read these as soon as you save them. Finalising is what unlocks the decision — and cannot be undone.
+  </div>
+
+  <div class="form-card" style="margin-bottom:22px;">
+    <form method="POST" action="/coordinator/shortlists/minutes">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+      <div class="field">
+        <label>What the meeting decided{% if shortlist.status == 'rejected' %} — this is what the student is shown as the reason{% endif %}</label>
+        <textarea name="minutes" rows="6" {{ shortlist.minutes_finalized_at ? 'readonly' : '' }}>{{ shortlist.minutes }}</textarea>
+      </div>
+
+      {% if shortlist.minutes_finalized_at %}
+        <div class="meta">Finalised {{ shortlist.minutes_finalized_at|date('d M Y, g:i A') }}.</div>
+      {% else %}
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button type="submit" name="finalize" value="0" class="btn ghost">Save draft</button>
+          <button type="submit" name="finalize" value="1" class="btn brass"
+                  onclick="return confirm('Finalise these minutes? They cannot be edited afterwards.');">Finalise minutes</button>
+        </div>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if shortlist.status in ['approved','rejected','exhausted'] %}
+    <div class="notice">
+      Decision already applied — recorded as <span class="strong">{{ shortlist.status }}</span>.
+    </div>
+  {% elseif shortlist.minutes_finalized_at %}
+    <form method="POST" action="/coordinator/shortlists/apply">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+      <button type="submit" class="btn brass"
+              onclick="return confirm('Apply the department decision?');">Apply the decision</button>
+    </form>
+  {% else %}
+    <div class="notice">Finalise the minutes to apply the decision.</div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}

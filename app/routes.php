@@ -12,6 +12,8 @@ use App\Controllers\AuthController;
 use App\Controllers\StudentController;
 use App\Controllers\StudentProposalController;
 use App\Controllers\StudentSupervisorsController;
+use App\Controllers\CoordinatorController;
+use App\Controllers\DepartmentHeadController;
 use App\Controllers\DashboardController;
 
 use App\Controllers\StudentRequirementsController;
@@ -100,6 +102,17 @@ return function (App $app) {
     $app->post('/lecturer/meetings/schedule', [LecturerMeetingsController::class, 'schedule']);
     $app->post('/lecturer/meetings/grade', [LecturerMeetingsController::class, 'grade']);
     // Lecturer documents route
+    // Coordinator: the supervisor shortlist queue and its meetings
+    $app->get('/coordinator/shortlists', [CoordinatorController::class, 'queue']);
+    $app->get('/coordinator/shortlists/{id}', [CoordinatorController::class, 'showShortlist']);
+    $app->post('/coordinator/shortlists/schedule', [CoordinatorController::class, 'scheduleMeeting']);
+    $app->post('/coordinator/shortlists/minutes', [CoordinatorController::class, 'saveMinutes']);
+    $app->post('/coordinator/shortlists/apply', [CoordinatorController::class, 'applyOutcome']);
+
+    // Department head: shortlist meetings they are invited to, and their vote
+    $app->get('/lecturer/shortlist-meetings', [DepartmentHeadController::class, 'meetings']);
+    $app->post('/lecturer/shortlist-meetings/vote', [DepartmentHeadController::class, 'vote']);
+
     $app->get('/lecturer/documents', [LecturerDocumentsController::class, 'show']);
     $app->post('/lecturer/documents/validate', [LecturerDocumentsController::class, 'validateDocument']);
     $app->get('/lecturer/my-documents', [LecturerDocumentsController::class, 'myDocuments']);

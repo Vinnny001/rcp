@@ -177,6 +177,97 @@ class SupervisorShortlist
     }
 
     /**
+     * One shortlist with everything the coordinator screen needs, plus
+     * the program and department it belongs to — which is also what
+     * authorises the coordinator to act on it at all.
+     */
+    public function findWithContext(string $shortlistId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT s.*, st.student_number,
+                    CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                    tp.title AS proposal_title, tp.synopsis,
+                    p.program_id, p.name AS program_name,
+                    d.department_id, d.name AS department_name,
+                    m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
+                    m.minutes, m.minutes_finalized_at
+             FROM supervisor_shortlists s
+             JOIN students st ON st.student_id = s.student_id
+             JOIN users u ON u.user_id = st.user_id
+             JOIN thesis_proposals tp ON tp.proposal_id = s.proposal_id
+             JOIN student_thesis_registrations str ON str.student_id = st.student_id
+             JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+             JOIN programs p ON p.program_id = ts.program_id
+             JOIN departments d ON d.department_id = p.department_id
+             LEFT JOIN shortlist_meetings m ON m.shortlist_id = s.shortlist_id
+             WHERE s.shortlist_id = :id
+             LIMIT 1"
+        );
+        $stmt->execute(['id' => $shortlistId]);
+
+        return $stmt->fetch() ?: null;
+    }
+
+    /**
+     * Who was invited to a meeting and how they voted, for the tally
+     * the coordinator reads before applying the outcome.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function meetingVoters(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT i.dept_head_id, dp.name AS position_name,
+                    CONCAT(u.first_name, ' ', u.last_name) AS head_name,
+                    v.vote, v.comment, v.voted_at
+             FROM shortlist_meeting_invitees i
+             JOIN department_heads dh ON dh.dept_head_id = i.dept_head_id
+             JOIN department_positions dp ON dp.position_id = dh.position_id
+             JOIN users u ON u.user_id = dh.user_id
+             LEFT JOIN shortlist_meeting_votes v
+                    ON v.meeting_id = i.meeting_id AND v.dept_head_id = i.dept_head_id
+             WHERE i.meeting_id = :id
+             ORDER BY dp.display_order, u.last_name"
+        );
+        $stmt->execute(['id' => $meetingId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Shortlist meetings a department head has been invited to, with
+     * how they voted if they have.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function meetingsForHead(string $userId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
+                    m.minutes, m.minutes_finalized_at,
+                    s.shortlist_id, s.status,
+                    i.dept_head_id, v.vote, v.comment,
+                    st.student_number,
+                    CONCAT(su.first_name, ' ', su.last_name) AS student_name,
+                    tp.title AS proposal_title
+             FROM shortlist_meeting_invitees i
+             JOIN department_heads dh ON dh.dept_head_id = i.dept_head_id
+             JOIN shortlist_meetings m ON m.meeting_id = i.meeting_id
+             JOIN supervisor_shortlists s ON s.shortlist_id = m.shortlist_id
+             JOIN students st ON st.student_id = s.student_id
+             JOIN users su ON su.user_id = st.user_id
+             JOIN thesis_proposals tp ON tp.proposal_id = s.proposal_id
+             LEFT JOIN shortlist_meeting_votes v
+                    ON v.meeting_id = m.meeting_id AND v.dept_head_id = i.dept_head_id
+             WHERE dh.user_id = :user_id AND dh.is_active = 1
+             ORDER BY m.scheduled_at DESC"
+        );
+        $stmt->execute(['user_id' => $userId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
      * @param array<int, string> $deptHeadIds
      */
     public function scheduleMeeting(
@@ -292,7 +383,7 @@ class SupervisorShortlist
      * are the boundary between "the meeting happened" and "the
      * decision takes effect".
      */
-    public function recordOutcome(string $meetingId, string $appointedBy): string
+    public function recordOutcome(string $meetingId): string
     {
         $stmt = $this->db->prepare(
             "SELECT shortlist_id, minutes, minutes_finalized_at FROM shortlist_meetings WHERE meeting_id = :id LIMIT 1"
