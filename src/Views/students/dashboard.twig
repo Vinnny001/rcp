@@ -12,13 +12,17 @@
     <div class="ref">FILE {{ student_number }}</div>
   </div>
 
+  {# Steps come from StudentJourney: fixed bookends around whatever
+     exam stages are configured. A finished student's rail is built
+     from their own snapshots, so it never shifts under them. #}
   <div class="rail">
-    <div class="rail-step {{ rail_step > 1 ? 'done' : (rail_step == 1 ? 'current' : '') }}"><div class="line"></div><div class="dot">1</div><div class="label">Registration</div></div>
-    <div class="rail-step {{ rail_step > 2 ? 'done' : (rail_step == 2 ? 'current' : '') }}"><div class="line"></div><div class="dot">2</div><div class="label">Requirements<br>Validation</div></div>
-    <div class="rail-step {{ rail_step > 3 ? 'done' : (rail_step == 3 ? 'current' : '') }}"><div class="line"></div><div class="dot">3</div><div class="label">Proposal<br>Approval</div></div>
-    <div class="rail-step {{ rail_step > 4 ? 'done' : (rail_step == 4 ? 'current' : '') }}"><div class="line"></div><div class="dot">4</div><div class="label">Concept<br>Presentation</div></div>
-    <div class="rail-step {{ rail_step > 5 ? 'done' : (rail_step == 5 ? 'current' : '') }}"><div class="line"></div><div class="dot">5</div><div class="label">Examination</div></div>
-    <div class="rail-step {{ rail_step > 6 ? 'done' : (rail_step == 6 ? 'current' : '') }}"><div class="line"></div><div class="dot">6</div><div class="label">Graduation</div></div>
+    {% for step in rail %}
+      <div class="rail-step {{ step.status == 'done' ? 'done' : (step.status == 'current' ? 'current' : '') }}">
+        <div class="line"></div>
+        <div class="dot">{{ loop.index }}</div>
+        <div class="label">{{ step.label }}</div>
+      </div>
+    {% endfor %}
   </div>
 
   {% if not registration.registered %}
