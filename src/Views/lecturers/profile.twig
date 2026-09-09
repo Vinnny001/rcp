@@ -31,6 +31,80 @@
   <div class="strong">{{ user.phone ?? '—' }}</div>
 </div>
 
+{% if profile %}
+  <div class="section-title">Your supervisor profile<div class="rule"></div></div>
+  <div class="meta" style="margin-bottom:14px;">
+    This is what a student reads before putting you on their shortlist.
+    {{ profile.department_name }}{% if profile.specialization %} · {{ profile.specialization }}{% endif %}
+  </div>
+
+  <div class="form-card" style="margin-bottom:20px;">
+    <form method="POST" action="/lecturer/profile/interests">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label>Research interests</label>
+        <textarea name="research_interests" rows="4"
+                  placeholder="The areas you supervise in, and the kind of work you take on.">{{ profile.research_interests }}</textarea>
+      </div>
+      <button type="submit" class="btn brass">Save interests</button>
+    </form>
+  </div>
+
+  <div class="meta" style="margin-bottom:8px;">Where your work can be read</div>
+
+  {% if links %}
+    <table style="margin-bottom:14px;">
+      <thead><tr><th>Profile</th><th>Address</th><th></th></tr></thead>
+      <tbody>
+        {% for l in links %}
+          <tr>
+            <td class="strong">{{ l.label ?: link_platforms[l.platform]|default(l.platform) }}</td>
+            <td class="meta" style="word-break:break-all;">
+              <a href="{{ l.url }}" target="_blank" rel="noopener noreferrer">{{ l.url }}</a>
+            </td>
+            <td style="text-align:right;">
+              <form method="POST" action="/lecturer/profile/links/remove" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="link_id" value="{{ l.link_id }}">
+                <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Remove</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="notice" style="margin-bottom:14px;">
+      No links yet. Students shortlist on what they can read about you, so a Scholar or ResearchGate profile helps them choose well.
+    </div>
+  {% endif %}
+
+  <div class="form-card" style="margin-bottom:32px;">
+    <form method="POST" action="/lecturer/profile/links/add">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field-row">
+        <div class="field">
+          <label>Where</label>
+          <select name="platform" required>
+            {% for value, label in link_platforms %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>Name <span class="meta">— required for "Other"</span></label>
+          <input type="text" name="label" maxlength="100" placeholder="e.g. Departmental page">
+        </div>
+      </div>
+      <div class="field">
+        <label>Address</label>
+        <input type="url" name="url" maxlength="500" placeholder="https://scholar.google.com/citations?user=…" required>
+      </div>
+      <button type="submit" class="btn brass">Add link</button>
+    </form>
+  </div>
+{% endif %}
+
 <div class="section-title">Supervision &amp; examination<div class="rule"></div></div>
 
 {% if lecturer %}

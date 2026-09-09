@@ -274,6 +274,9 @@ $app->get('/lecturer/theses/{id}', [LecturerThesesController::class, 'detail']);
 
 // Lecturer & student profile pages
 $app->get('/lecturer/profile', [LecturerProfileController::class, 'show']);
+$app->post('/lecturer/profile/interests', [LecturerProfileController::class, 'updateResearchInterests']);
+$app->post('/lecturer/profile/links/add', [LecturerProfileController::class, 'addPublicationLink']);
+$app->post('/lecturer/profile/links/remove', [LecturerProfileController::class, 'removePublicationLink']);
 $app->post('/lecturer/profile/availability', [LecturerProfileController::class, 'toggleAvailability']);
 $app->get('/student/profile', [StudentProfileController::class, 'account']);
 
