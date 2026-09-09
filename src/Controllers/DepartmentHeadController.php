@@ -48,6 +48,7 @@ class DepartmentHeadController
             'first_name'  => $_SESSION['first_name'] ?? '',
             'last_name'   => $_SESSION['last_name'] ?? '',
             'meetings'    => $meetings,
+            'session_user_id' => $_SESSION['user_id'],
             'csrf_token'  => $this->csrfToken(),
             'error'       => $this->takeFlash('flash_error'),
             'success'     => $this->takeFlash('flash_success'),
@@ -83,6 +84,45 @@ class DepartmentHeadController
             );
 
             $_SESSION['flash_success'] = 'Your vote has been recorded.';
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $this->redirect($response, '/lecturer/shortlist-meetings');
+    }
+
+    /**
+     * A head who was appointed secretary — or lead, with no secretary —
+     * writes that meeting's minutes, so they need the form too. The
+     * coordinator screen is not reachable by a head who does not also
+     * coordinate the program.
+     */
+    public function saveMinutes(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/lecturer/shortlist-meetings');
+        }
+
+        try {
+            $model = new SupervisorShortlist($this->db);
+            $meetingId = (string) ($data['meeting_id'] ?? '');
+
+            if ($model->minutesAuthorId($meetingId) !== $_SESSION['user_id']) {
+                throw new \RuntimeException('You are not the one writing the minutes for that meeting.');
+            }
+
+            $finalize = ($data['finalize'] ?? '') === '1';
+            $model->saveMinutes($meetingId, (string) ($data['minutes'] ?? ''), $finalize);
+
+            $_SESSION['flash_success'] = $finalize
+                ? 'Minutes finalised. The coordinator can now apply the decision.'
+                : 'Minutes saved as a draft.';
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = $e->getMessage();
         }

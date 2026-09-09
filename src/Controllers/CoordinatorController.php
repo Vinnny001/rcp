@@ -77,6 +77,7 @@ class CoordinatorController
             'voters'      => $shortlist['meeting_id'] ? $model->meetingVoters($shortlist['meeting_id']) : [],
             'tally'       => $shortlist['meeting_id'] ? $model->tally($shortlist['meeting_id']) : null,
             'heads'       => (new DepartmentHead($this->db))->activeForDepartment($shortlist['department_id']),
+            'session_user_id' => $_SESSION['user_id'],
             'csrf_token'  => $this->csrfToken(),
             'error'       => $this->takeFlash('flash_error'),
             'success'     => $this->takeFlash('flash_success'),
@@ -95,7 +96,9 @@ class CoordinatorController
                 (string) ($data['location'] ?? ''),
                 (string) ($data['virtual_link'] ?? ''),
                 (array) ($data['dept_head_ids'] ?? []),
-                $_SESSION['user_id']
+                $_SESSION['user_id'],
+                (string) ($data['lead_user_id'] ?? '') ?: null,
+                (string) ($data['secretary_user_id'] ?? '') ?: null
             );
 
             return 'Meeting scheduled and heads invited.';
@@ -108,6 +111,16 @@ class CoordinatorController
             $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
             if (!$shortlist['meeting_id']) {
                 throw new \RuntimeException('Schedule the meeting before writing minutes.');
+            }
+
+            // Coordinating the program is not enough on its own: the
+            // minutes belong to the meeting's secretary, or its lead
+            // when no secretary was appointed.
+            if ($shortlist['minutes_author_id'] !== $_SESSION['user_id']) {
+                throw new \RuntimeException(
+                    'The minutes for this meeting are written by ' .
+                    ($shortlist['secretary_name'] ?: $shortlist['lead_name']) . '.'
+                );
             }
 
             $finalize = ($data['finalize'] ?? '') === '1';

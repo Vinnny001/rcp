@@ -190,7 +190,11 @@ class SupervisorShortlist
                     p.program_id, p.name AS program_name,
                     d.department_id, d.name AS department_name,
                     m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
-                    m.minutes, m.minutes_finalized_at
+                    m.minutes, m.minutes_finalized_at,
+                    m.lead_user_id, m.secretary_user_id,
+                    COALESCE(m.secretary_user_id, m.lead_user_id) AS minutes_author_id,
+                    CONCAT(lu.first_name, ' ', lu.last_name) AS lead_name,
+                    CONCAT(su.first_name, ' ', su.last_name) AS secretary_name
              FROM supervisor_shortlists s
              JOIN students st ON st.student_id = s.student_id
              JOIN users u ON u.user_id = st.user_id
@@ -200,6 +204,8 @@ class SupervisorShortlist
              JOIN programs p ON p.program_id = ts.program_id
              JOIN departments d ON d.department_id = p.department_id
              LEFT JOIN shortlist_meetings m ON m.shortlist_id = s.shortlist_id
+             LEFT JOIN users lu ON lu.user_id = m.lead_user_id
+             LEFT JOIN users su ON su.user_id = m.secretary_user_id
              WHERE s.shortlist_id = :id
              LIMIT 1"
         );
@@ -245,6 +251,7 @@ class SupervisorShortlist
         $stmt = $this->db->prepare(
             "SELECT m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
                     m.minutes, m.minutes_finalized_at,
+                    COALESCE(m.secretary_user_id, m.lead_user_id) AS minutes_author_id,
                     s.shortlist_id, s.status,
                     i.dept_head_id, v.vote, v.comment,
                     st.student_number,
@@ -277,7 +284,9 @@ class SupervisorShortlist
         ?string $location,
         ?string $virtualLink,
         array $deptHeadIds,
-        string $createdBy
+        string $createdBy,
+        ?string $leadUserId = null,
+        ?string $secretaryUserId = null
     ): string {
         if ($deptHeadIds === []) {
             throw new RuntimeException('Invite at least one department head — the shortlist needs votes.');
@@ -286,16 +295,22 @@ class SupervisorShortlist
         $meetingId = $this->uuid();
         $this->db->prepare(
             "INSERT INTO shortlist_meetings
-                (meeting_id, shortlist_id, scheduled_at, mode, location, virtual_link, created_by)
-             VALUES (:id, :shortlist_id, :scheduled_at, :mode, :location, :virtual_link, :created_by)"
+                (meeting_id, shortlist_id, scheduled_at, mode, location, virtual_link,
+                 created_by, lead_user_id, secretary_user_id)
+             VALUES (:id, :shortlist_id, :scheduled_at, :mode, :location, :virtual_link,
+                     :created_by, :lead_user_id, :secretary_user_id)"
         )->execute([
-            'id'           => $meetingId,
-            'shortlist_id' => $shortlistId,
-            'scheduled_at' => $scheduledAt,
-            'mode'         => $mode,
-            'location'     => $location ?: null,
-            'virtual_link' => $virtualLink ?: null,
-            'created_by'   => $createdBy,
+            'id'                => $meetingId,
+            'shortlist_id'      => $shortlistId,
+            'scheduled_at'      => $scheduledAt,
+            'mode'              => $mode,
+            'location'          => $location ?: null,
+            'virtual_link'      => $virtualLink ?: null,
+            'created_by'        => $createdBy,
+            // Somebody always has to be able to write the minutes, so
+            // the scheduler leads unless another lead was named.
+            'lead_user_id'      => $leadUserId ?: $createdBy,
+            'secretary_user_id' => $secretaryUserId ?: null,
         ]);
 
         $invite = $this->db->prepare(
@@ -311,6 +326,23 @@ class SupervisorShortlist
         )->execute(['id' => $shortlistId]);
 
         return $meetingId;
+    }
+
+    /**
+     * Who is responsible for the minutes of this meeting: the
+     * secretary if one was appointed, otherwise the lead. Returns null
+     * only if the meeting has vanished.
+     */
+    public function minutesAuthorId(string $meetingId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COALESCE(secretary_user_id, lead_user_id) AS author
+             FROM shortlist_meetings WHERE meeting_id = :id LIMIT 1"
+        );
+        $stmt->execute(['id' => $meetingId]);
+        $author = $stmt->fetchColumn();
+
+        return $author ? (string) $author : null;
     }
 
     public function saveMinutes(string $meetingId, string $minutes, bool $finalize): void

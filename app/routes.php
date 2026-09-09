@@ -102,7 +102,6 @@ return function (App $app) {
     $app->get('/lecturer/meetings', [LecturerMeetingsController::class, 'show']);
     $app->post('/lecturer/meetings/schedule', [LecturerMeetingsController::class, 'schedule']);
     $app->post('/lecturer/meetings/grade', [LecturerMeetingsController::class, 'grade']);
-    // Lecturer documents route
     // Coordinator: the supervisor shortlist queue and its meetings
     $app->get('/coordinator/shortlists', [CoordinatorController::class, 'queue']);
     $app->get('/coordinator/shortlists/{id}', [CoordinatorController::class, 'showShortlist']);
@@ -113,7 +112,9 @@ return function (App $app) {
     // Department head: shortlist meetings they are invited to, and their vote
     $app->get('/lecturer/shortlist-meetings', [DepartmentHeadController::class, 'meetings']);
     $app->post('/lecturer/shortlist-meetings/vote', [DepartmentHeadController::class, 'vote']);
+    $app->post('/lecturer/shortlist-meetings/minutes', [DepartmentHeadController::class, 'saveMinutes']);
 
+    // Lecturer documents route
     $app->get('/lecturer/documents', [LecturerDocumentsController::class, 'show']);
     $app->post('/lecturer/documents/validate', [LecturerDocumentsController::class, 'validateDocument']);
     $app->get('/lecturer/my-documents', [LecturerDocumentsController::class, 'myDocuments']);
