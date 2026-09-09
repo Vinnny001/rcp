@@ -107,6 +107,7 @@ return function (App $app) {
     $app->get('/coordinator/shortlists/{id}', [CoordinatorController::class, 'showShortlist']);
     $app->post('/coordinator/shortlists/schedule', [CoordinatorController::class, 'scheduleMeeting']);
     $app->post('/coordinator/shortlists/minutes', [CoordinatorController::class, 'saveMinutes']);
+    $app->post('/coordinator/shortlists/approve-minutes', [CoordinatorController::class, 'approveMinutes']);
     $app->post('/coordinator/shortlists/apply', [CoordinatorController::class, 'applyOutcome']);
 
     // Department head: shortlist meetings they are invited to, and their vote

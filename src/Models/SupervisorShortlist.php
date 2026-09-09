@@ -190,7 +190,7 @@ class SupervisorShortlist
                     p.program_id, p.name AS program_name,
                     d.department_id, d.name AS department_name,
                     m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
-                    m.minutes, m.minutes_finalized_at,
+                    m.minutes, m.minutes_finalized_at, m.minutes_approved_at,
                     m.lead_user_id, m.secretary_user_id,
                     COALESCE(m.secretary_user_id, m.lead_user_id) AS minutes_author_id,
                     CONCAT(lu.first_name, ' ', lu.last_name) AS lead_name,
@@ -250,7 +250,7 @@ class SupervisorShortlist
     {
         $stmt = $this->db->prepare(
             "SELECT m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
-                    m.minutes, m.minutes_finalized_at,
+                    m.minutes, m.minutes_finalized_at, m.minutes_approved_at,
                     COALESCE(m.secretary_user_id, m.lead_user_id) AS minutes_author_id,
                     s.shortlist_id, s.status,
                     i.dept_head_id, v.vote, v.comment,
@@ -356,6 +356,35 @@ class SupervisorShortlist
         $stmt->execute(['id' => $meetingId, 'minutes' => $minutes, 'finalize' => $finalize ? 1 : 0]);
     }
 
+    /**
+     * The coordinator accepts the finalised minutes on behalf of
+     * the program. Separate from finalising, which is the author
+     * saying what happened rather than anyone accepting it.
+     */
+    public function approveMinutes(string $meetingId, string $approvedBy): void
+    {
+        $stmt = $this->db->prepare(
+            "SELECT minutes_finalized_at, minutes_approved_at FROM shortlist_meetings WHERE meeting_id = :id LIMIT 1"
+        );
+        $stmt->execute(['id' => $meetingId]);
+        $meeting = $stmt->fetch();
+
+        if (!$meeting) {
+            throw new RuntimeException('That meeting no longer exists.');
+        }
+        if ($meeting['minutes_finalized_at'] === null) {
+            throw new RuntimeException('These minutes have not been finalised yet.');
+        }
+        if ($meeting['minutes_approved_at'] !== null) {
+            return; // already approved; approving again changes nothing
+        }
+
+        $this->db->prepare(
+            "UPDATE shortlist_meetings SET minutes_approved_at = NOW(), minutes_approved_by = :by
+             WHERE meeting_id = :id"
+        )->execute(['id' => $meetingId, 'by' => $approvedBy]);
+    }
+
     public function castVote(string $meetingId, string $deptHeadId, string $vote, ?string $comment = null): void
     {
         if (!in_array($vote, ['approve', 'reject'], true)) {
@@ -418,7 +447,8 @@ class SupervisorShortlist
     public function recordOutcome(string $meetingId): string
     {
         $stmt = $this->db->prepare(
-            "SELECT shortlist_id, minutes, minutes_finalized_at FROM shortlist_meetings WHERE meeting_id = :id LIMIT 1"
+            "SELECT shortlist_id, minutes, minutes_finalized_at, minutes_approved_at
+             FROM shortlist_meetings WHERE meeting_id = :id LIMIT 1"
         );
         $stmt->execute(['id' => $meetingId]);
         $meeting = $stmt->fetch();
@@ -428,6 +458,12 @@ class SupervisorShortlist
         }
         if ($meeting['minutes_finalized_at'] === null) {
             throw new RuntimeException('Finalise the minutes before applying the decision.');
+        }
+        // Finalising is the author saying "this is what happened".
+        // Approving is the coordinator accepting it on behalf of the
+        // program. The decision waits on the second, not the first.
+        if ($meeting['minutes_approved_at'] === null) {
+            throw new RuntimeException('The minutes need coordinator approval before the decision can be applied.');
         }
 
         $tally = $this->tally($meetingId);

@@ -103,6 +103,7 @@ try {
 }
 check('unfinalised minutes still block the decision', $blocked);
 $m->saveMinutes($meeting, 'Approved by the panel.', true);
+$m->approveMinutes($meeting, $admin);
 check('and finalising unlocks it', $m->recordOutcome($meeting) === 'approved');
 
 echo "\n=== A missing meeting ===\n";

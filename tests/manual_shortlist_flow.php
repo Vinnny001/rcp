@@ -98,15 +98,25 @@ $scheduleAndVote = function (string $sid, array $votes) use ($m, $headIds, $admi
     return $meeting;
 };
 
-echo "\n=== 2. Minutes gate the outcome ===\n";
+echo "\n=== 2. Minutes gate the outcome, in two steps ===\n";
 $sid = $makeShortlist();
 $meeting = $scheduleAndVote($sid, ['approve', 'approve', 'reject']);
 $err = throws(fn() => $m->recordOutcome($meeting));
 check('refuses to apply the vote before minutes are finalised', $err !== null, $err ?? '');
+
 $m->saveMinutes($meeting, 'Panel discussed and approved the shortlist.', false);
 check('saving a draft does not unlock it', throws(fn() => $m->recordOutcome($meeting)) !== null);
+
+check('minutes cannot be approved while still a draft',
+    throws(fn() => $m->approveMinutes($meeting, $admin)) !== null);
+
 $m->saveMinutes($meeting, 'Panel discussed and approved the shortlist.', true);
-check('applies once minutes are final', throws(fn() => $m->recordOutcome($meeting)) === null);
+$err = throws(fn() => $m->recordOutcome($meeting));
+check('finalising alone is not enough — the coordinator must approve', $err !== null, $err ?? '');
+
+$m->approveMinutes($meeting, $admin);
+check('applies once approved', throws(fn() => $m->recordOutcome($meeting)) === null);
+check('approving twice is harmless', throws(fn() => $m->approveMinutes($meeting, $admin)) === null);
 
 echo "\n=== 3. Voting rules ===\n";
 $sid2 = $makeShortlist();
@@ -123,6 +133,7 @@ check('re-voting replaces rather than stacks', $t['approve'] + $t['reject'] === 
 
 echo "\n=== 4. Rejection carries the minutes as the reason ===\n";
 $m->saveMinutes($meeting2, 'Panel felt the shortlist lacked methodological fit.', true);
+$m->approveMinutes($meeting2, $admin);
 $outcome = $m->recordOutcome($meeting2);
 $row = $pdo->query("SELECT status, rejection_reason FROM supervisor_shortlists WHERE shortlist_id='$sid2'")->fetch();
 check('rejected shortlist records the reason', $outcome === 'rejected' && str_contains((string) $row['rejection_reason'], 'methodological'), $row['status']);
@@ -131,6 +142,7 @@ echo "\n=== 5. Preferred main is approached first, whatever their rank ===\n";
 $sid3 = $makeShortlist();
 $meeting3 = $scheduleAndVote($sid3, ['approve', 'approve', 'reject']);
 $m->saveMinutes($meeting3, 'Approved.', true);
+$m->approveMinutes($meeting3, $admin);
 $m->recordOutcome($meeting3);
 $contacted = $pdo->query("SELECT lecturer_id, rank_position, is_preferred_main FROM supervisor_shortlist_choices
                           WHERE shortlist_id='$sid3' AND request_status='pending'")->fetchAll();
@@ -164,6 +176,7 @@ $pdo->prepare("DELETE FROM supervision_assignments WHERE proposal_id = ?")->exec
 $sid4 = $makeShortlist();
 $meeting4 = $scheduleAndVote($sid4, ['approve', 'approve', 'approve']);
 $m->saveMinutes($meeting4, 'Approved.', true);
+$m->approveMinutes($meeting4, $admin);
 $m->recordOutcome($meeting4);
 $pref = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid4' AND request_status='pending'")->fetchColumn();
 $res = $m->respondToRequest($pref, false, 'Supervision load is full this semester.', $admin);
@@ -179,6 +192,7 @@ $pdo->prepare("DELETE FROM supervision_assignments WHERE proposal_id = ?")->exec
 $sid5 = $makeShortlist();
 $meeting5 = $scheduleAndVote($sid5, ['approve', 'approve', 'approve']);
 $m->saveMinutes($meeting5, 'Approved.', true);
+$m->approveMinutes($meeting5, $admin);
 $m->recordOutcome($meeting5);
 $last = null;
 while ($c = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid5' AND request_status='pending'")->fetchColumn()) {
@@ -193,6 +207,7 @@ echo "\n=== 10. A request can only be answered once ===\n";
 $sid6 = $makeShortlist();
 $meeting6 = $scheduleAndVote($sid6, ['approve', 'approve', 'approve']);
 $m->saveMinutes($meeting6, 'Approved.', true);
+$m->approveMinutes($meeting6, $admin);
 $m->recordOutcome($meeting6);
 $c6 = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid6' AND request_status='pending'")->fetchColumn();
 $m->respondToRequest($c6, false, 'No.', $admin);

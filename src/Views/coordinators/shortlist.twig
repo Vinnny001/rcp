@@ -178,15 +178,37 @@
     <div class="notice">
       Decision already applied — recorded as <span class="strong">{{ shortlist.status }}</span>.
     </div>
-  {% elseif shortlist.minutes_finalized_at %}
+
+  {% elseif not shortlist.minutes_finalized_at %}
+    <div class="notice">
+      {{ shortlist.minutes_author_id == session_user_id
+         ? 'Finalise the minutes to move this forward.'
+         : (shortlist.secretary_name ?: shortlist.lead_name) ~ ' needs to finalise the minutes first.' }}
+    </div>
+
+  {% elseif not shortlist.minutes_approved_at %}
+    {# Finalised is the author's word for what happened; approving is
+       the coordinator accepting it for the program. #}
+    <div class="notice" style="margin-bottom:14px;">
+      The minutes are finalised and waiting on your approval.
+      {% if shortlist.minutes_author_id == session_user_id %}
+        You wrote them — approving records that you accept them on behalf of the program.
+      {% endif %}
+    </div>
+    <form method="POST" action="/coordinator/shortlists/approve-minutes">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+      <button type="submit" class="btn brass">Approve the minutes</button>
+    </form>
+
+  {% else %}
+    <div class="meta" style="margin-bottom:12px;">Minutes approved {{ shortlist.minutes_approved_at|date('d M Y, g:i A') }}.</div>
     <form method="POST" action="/coordinator/shortlists/apply">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
       <button type="submit" class="btn brass"
               onclick="return confirm('Apply the department decision?');">Apply the decision</button>
     </form>
-  {% else %}
-    <div class="notice">Finalise the minutes to apply the decision.</div>
   {% endif %}
 {% endif %}
 

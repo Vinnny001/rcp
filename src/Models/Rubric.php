@@ -291,6 +291,49 @@ class Rubric
     }
 
     /**
+     * The coordinator accepts the leader's confirmed average, which is
+     * what releases the result to the student. Confirming and
+     * approving are different acts by different people: the leader
+     * attests that the mark is what the panel gave, the coordinator
+     * accepts it on behalf of the program.
+     */
+    public function approveAverage(string $meetingId, string $approvedBy): float
+    {
+        $leader = $this->panelLeader($meetingId);
+
+        if (!$leader) {
+            throw new RuntimeException('No panel leader has been named for this meeting.');
+        }
+        if ($leader['confirmed_at'] === null) {
+            throw new RuntimeException($leader['leader_name'] . ' has not confirmed the average yet.');
+        }
+        if ($leader['approved_at'] !== null) {
+            return (float) $leader['average_score'];
+        }
+
+        $this->db->prepare(
+            "UPDATE rubric_panel_leaders SET approved_at = NOW(), approved_by = :by
+             WHERE meeting_id = :id"
+        )->execute(['id' => $meetingId, 'by' => $approvedBy]);
+
+        return (float) $leader['average_score'];
+    }
+
+    /**
+     * Whether this meeting's result may be shown to the student.
+     *
+     * Marking, confirming and approving are three separate steps, and
+     * a result is only the student's business after the last of them.
+     * Staff see the working; students see the outcome.
+     */
+    public function isReleasedToStudent(string $meetingId): bool
+    {
+        $leader = $this->panelLeader($meetingId);
+
+        return $leader !== null && $leader['approved_at'] !== null;
+    }
+
+    /**
      * The examiner-facing interpretation of a percentage for this
      * scheme. Null when the scheme prints no bands — Table 1 has none,
      * and falls back to the student-facing scale like everything else.

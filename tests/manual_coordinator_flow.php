@@ -90,6 +90,9 @@ $coordVars = fn(array $c) => [
     'voters' => $c['meeting_id'] ? $m->meetingVoters($c['meeting_id']) : [],
     'tally' => $c['meeting_id'] ? $m->tally($c['meeting_id']) : null,
     'heads' => $dh->activeForDepartment($c['department_id']),
+    // The coordinator scheduled the meeting, so they lead it and hold
+    // the pen — the view branches on that.
+    'session_user_id' => $coordUser,
     'csrf_token' => 't', 'error' => null, 'success' => null,
 ];
 $h = $render('coordinators/shortlist.twig', $coordVars($ctx));
@@ -104,7 +107,8 @@ $m->castVote($meeting, $headIds[1], 'approve', 'Good fit.');
 $ctx = $m->findWithContext($sid);
 $h = $render('coordinators/shortlist.twig', $coordVars($ctx));
 check('votes show on the coordinator view', str_contains($h, '2 approve'), '2 approve · 1 reject expected 0');
-check('and it blocks applying until minutes are final', str_contains($h, 'Finalise the minutes to apply'));
+check('and it blocks applying until minutes are final', str_contains($h, 'Finalise the minutes to move this forward'));
+check('with no apply button offered yet', !str_contains($h, 'Apply the decision'));
 
 echo "\n=== Department head view ===\n";
 $headUserId = $pdo->query("SELECT user_id FROM department_heads WHERE dept_head_id = '{$headIds[0]}'")->fetchColumn();
@@ -125,6 +129,17 @@ check('a lecturer who is not a head sees nothing', $stranger === false || count(
 
 echo "\n=== Applying the outcome ===\n";
 $m->saveMinutes($meeting, 'Panel approved the shortlist as submitted.', true);
+
+// Finalised but not yet approved: the view should ask for approval,
+// not offer to apply the decision.
+$h = $render('coordinators/shortlist.twig', $coordVars($m->findWithContext($sid)));
+check('once finalised, the view asks for approval', str_contains($h, 'Approve the minutes'));
+check('and still withholds the apply button', !str_contains($h, 'Apply the decision'));
+
+$m->approveMinutes($meeting, $coordUser);
+$h = $render('coordinators/shortlist.twig', $coordVars($m->findWithContext($sid)));
+check('after approval the apply button appears', str_contains($h, 'Apply the decision'));
+
 $outcome = $m->recordOutcome($meeting);
 check('outcome is approved', $outcome === 'approved');
 $pending = $pdo->query("SELECT c.choice_id, c.is_preferred_main FROM supervisor_shortlist_choices c

@@ -132,6 +132,20 @@ class CoordinatorController
         });
     }
 
+    public function approveMinutes(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {
+            $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
+            if (!$shortlist['meeting_id']) {
+                throw new \RuntimeException('There is no meeting to approve minutes for.');
+            }
+
+            $model->approveMinutes($shortlist['meeting_id'], $_SESSION['user_id']);
+
+            return 'Minutes approved. You can now apply the decision.';
+        });
+    }
+
     public function applyOutcome(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {

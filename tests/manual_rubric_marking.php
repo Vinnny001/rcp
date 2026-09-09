@@ -147,6 +147,25 @@ check('and clears the previous confirmation', $leader['confirmed_at'] === null);
 check('there is still only one leader row',
     (int) $pdo->query("SELECT COUNT(*) FROM rubric_panel_leaders WHERE meeting_id='$meeting'")->fetchColumn() === 1);
 
+echo "\n=== The coordinator releases the result ===\n";
+// Fresh leader from the reassignment above, so re-confirm first.
+check('a confirmed average is not yet the student\'s business',
+    $r->isReleasedToStudent($meeting) === false);
+check('and cannot be approved before it is confirmed',
+    throws(fn() => $r->approveAverage($meeting, $examiners[0])) !== null);
+
+$r->confirmAverage($meeting, $examiners[1], $oral['template_id']);
+check('still withheld after confirmation alone', $r->isReleasedToStudent($meeting) === false);
+
+$approved = $r->approveAverage($meeting, $examiners[2]);
+check('the coordinator approves the confirmed figure', $approved === 75.0, (string) $approved);
+check('and only then does it reach the student', $r->isReleasedToStudent($meeting) === true);
+$leader = $r->panelLeader($meeting);
+check('the approver is recorded separately from the confirmer',
+    $leader['approved_by'] === $examiners[2] && $leader['examiner_id'] === $examiners[1]);
+check('approving twice is harmless',
+    throws(fn() => $r->approveAverage($meeting, $examiners[2])) === null);
+
 echo "\n=== Interpretation bands ===\n";
 check('the thesis scheme has five', count($r->bandsFor($thesis['template_id'])) === 5);
 foreach ([[85, 'typographical'], [65, 'minor'], [55, 'major'], [45, 'resubmit'], [20, 'Rejected']] as [$pct, $expect]) {
