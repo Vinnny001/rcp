@@ -156,6 +156,30 @@ $internalLecturer = $pdo->query(
      LIMIT 1"
 )->fetch(PDO::FETCH_ASSOC);
 
+// The meetings page lists only what is still ahead (scheduled_at >=
+// NOW()), so the attendance-code assertions below depend on this
+// lecturer having a future meeting. Seed data drifts into the past as
+// real time moves, which quietly turned those assertions into a
+// failure rather than a skip — so one meeting is pushed forward for
+// the duration of this run and put back afterwards, including if the
+// script dies partway.
+$shiftedMeeting = $pdo->query(
+    "SELECT meeting_id, scheduled_at FROM meetings
+     WHERE created_by = " . $pdo->quote($lecturer['user_id']) . "
+       AND status <> 'cancelled' AND secure_code IS NOT NULL
+     ORDER BY scheduled_at DESC LIMIT 1"
+)->fetch(PDO::FETCH_ASSOC);
+
+if ($shiftedMeeting) {
+    $pdo->prepare("UPDATE meetings SET scheduled_at = DATE_ADD(NOW(), INTERVAL 7 DAY) WHERE meeting_id = :id")
+        ->execute(['id' => $shiftedMeeting['meeting_id']]);
+
+    register_shutdown_function(static function () use ($pdo, $shiftedMeeting): void {
+        $pdo->prepare("UPDATE meetings SET scheduled_at = :at WHERE meeting_id = :id")
+            ->execute(['at' => $shiftedMeeting['scheduled_at'], 'id' => $shiftedMeeting['meeting_id']]);
+    });
+}
+
 echo "\n--- lecturer pages ---\n";
 $lecturerMeetings = visit('/lecturer/meetings', 'lecturer', $lecturer);
 visit('/lecturer/my-documents', 'lecturer', $lecturer);
