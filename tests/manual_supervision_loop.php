@@ -79,7 +79,9 @@ $headIds = array_column($dh->activeForDepartment($program['department_id']), 'de
 
 // Four internal lecturers; the preferred main is ranked third on purpose.
 $lects = $pdo->query(
-    "SELECT l.lecturer_id FROM lecturers l JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id LIMIT 4"
+    "SELECT l.lecturer_id FROM lecturers l
+     JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+     WHERE l.user_id <> '{$student['user_id']}' LIMIT 4"
 )->fetchAll(PDO::FETCH_COLUMN);
 
 echo "\n=== Student submits ===\n";

@@ -44,6 +44,7 @@ class SupervisorShortlist
     public function submit(string $studentId, string $proposalId, array $choices): string
     {
         $this->assertValidChoices($choices);
+        $this->assertNotSelf($studentId, array_column($choices, 'lecturer_id'));
 
         // Any earlier shortlist is replaced. Supervisors already
         // appointed from it are untouched — those live in
@@ -107,6 +108,37 @@ class SupervisorShortlist
         $ranks = array_column($choices, 'rank');
         if (count(array_unique($ranks)) !== count($ranks)) {
             throw new RuntimeException('Each supervisor needs a different position in your ranking.');
+        }
+    }
+
+    /**
+     * Refuses a student who shortlists their own lecturer account.
+     *
+     * Staff studying for their own degree hold both a student and a
+     * lecturer record against one user, and the browse page lists every
+     * internal lecturer without knowing who is reading it — so this is
+     * reachable from the form rather than theoretical. The retired
+     * direct-request path grew the same check late, but not before a
+     * student had already put a request to themselves on file.
+     *
+     * @param array<int, string> $lecturerIds
+     */
+    private function assertNotSelf(string $studentId, array $lecturerIds): void
+    {
+        if ($lecturerIds === []) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($lecturerIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM lecturers l
+             JOIN students s ON s.user_id = l.user_id
+             WHERE s.student_id = ? AND l.lecturer_id IN ($placeholders)"
+        );
+        $stmt->execute(array_merge([$studentId], array_values($lecturerIds)));
+
+        if ((int) $stmt->fetchColumn() > 0) {
+            throw new RuntimeException('You cannot shortlist yourself as your own supervisor.');
         }
     }
 

@@ -72,10 +72,12 @@ class LecturerSupervisionController
             'first_name'          => $_SESSION['first_name'] ?? '',
             'staff_number'        => $lecturer['staff_number'] ?? null,
             'students'            => $lecturerModel->findActiveSupervisions($lecturer['lecturer_id']),
+            // Direct requests made before the changeover. The table
+            // takes no new rows now and these can only be declined —
+            // appointing from one would skip the department vote.
             'assignment_requests' => $requestModel->findPendingByLecturerId($lecturer['lecturer_id']),
-            // Requests from the shortlist workflow. The direct
-            // supervision_requests above are deprecated and take no new
-            // rows, so in time this is the only list left.
+            // Requests from the shortlist workflow: the only route by
+            // which a supervisor is appointed.
             'shortlist_requests'  => (new \App\Models\SupervisorShortlist($this->db))
                                         ->pendingForLecturer($lecturer['lecturer_id']),
             'request_history'     => $requestModel->findHistoryByLecturerId($lecturer['lecturer_id']),
@@ -86,32 +88,6 @@ class LecturerSupervisionController
         ]);
     }
 
-    public function accept(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
-    {
-        if ($redirect = $this->requireLecturer()) {
-            return $this->redirect($response, $redirect);
-        }
-
-        $data = $request->getParsedBody();
-
-        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
-            $_SESSION['flash_error'] = 'Your session expired — please try again.';
-            return $this->redirect($response, '/lecturer/supervision');
-        }
-
-        $requestId = $data['request_id'] ?? '';
-        $lecturerModel = new Lecturer($this->db);
-        $requestModel = new SupervisionRequest($this->db);
-        $lecturer = $lecturerModel->findByUserId($_SESSION['user_id']);
-
-        if ($lecturer && $requestId && $requestModel->accept($requestId, $lecturer['lecturer_id'], $_SESSION['user_id'])) {
-            $_SESSION['flash_success'] = 'Supervision request accepted.';
-        } else {
-            $_SESSION['flash_error'] = 'That request could not be accepted — it may already be resolved.';
-        }
-
-        return $this->redirect($response, '/lecturer/supervision');
-    }
 
     public function decline(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {

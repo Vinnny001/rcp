@@ -116,16 +116,9 @@ class StudentController
         $proposalModel = new Proposal($this->db);
         $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
 
-        // Lazy substitute for a cron: there's no scheduler in this app,
-        // so an unresponsive-supervisor auto-assignment is checked and
-        // (if eligible) performed right here, on every dossier load —
-        // cheap, since every condition inside is a no-op fast exit for
-        // the common case. Re-fetch afterward so the rest of this page
-        // reflects a just-performed assignment immediately.
-        if ($proposal && empty($proposal['assigned_supervisor_id'])) {
-            $proposalModel->autoAssignSupervisorIfEligible($proposal['proposal_id']);
-            $proposal = $proposalModel->findActiveByStudentId($student['student_id']);
-        }
+        // No auto-assignment here any more: a supervisor is appointed
+        // from a shortlist the department voted on, never picked by the
+        // system on a student's behalf.
 
         $meetingModel = new Meeting($this->db);
         $upcomingMeetings = $meetingModel->findUpcomingForStudent($student['student_id'], $userId);

@@ -7,9 +7,7 @@ namespace App\Controllers;
 use Slim\Views\Twig;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use App\Models\Lecturer;
 use App\Models\Proposal;
-use App\Models\SupervisionRequest;
 use App\Models\Document;
 use PDO;
 
@@ -68,7 +66,6 @@ class StudentProposalController
         $student = $this->getStudentRecord($_SESSION['user_id']);
 
         $proposalModel = new Proposal($this->db);
-        $lecturerModel = new Lecturer($this->db);
         $documentModel = new Document($this->db);
 
         $proposal = $student ? $proposalModel->findActiveByStudentId($student['student_id']) : null;
@@ -91,7 +88,6 @@ class StudentProposalController
             'first_name'     => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
             'proposal'       => $proposal,
-            'supervisors'    => $lecturerModel->listAvailableSupervisors($_SESSION['user_id']),
             'synopsis_doc'   => $synopsisDoc,
             'proposal_doc'   => $proposalDoc,
             'csrf_token'     => $this->csrfToken(),
@@ -126,9 +122,8 @@ class StudentProposalController
         $action = $data['action'] ?? 'submit';
         $submitting = $action === 'submit';
 
-        $title              = trim((string) ($data['title'] ?? ''));
-        $synopsis           = trim((string) ($data['synopsis'] ?? ''));
-        $proposedSupervisor = trim((string) ($data['proposed_supervisor_id'] ?? ''));
+        $title    = trim((string) ($data['title'] ?? ''));
+        $synopsis = trim((string) ($data['synopsis'] ?? ''));
 
         $errors = [];
         if ($title === '' || mb_strlen($title) > 255) {
@@ -139,21 +134,11 @@ class StudentProposalController
                 ? 'Please provide a synopsis of at least 50 characters before submitting.'
                 : 'Please provide a synopsis.';
         }
-        if ($submitting && $proposedSupervisor === '') {
-            $errors[] = 'Please propose a supervisor before submitting.';
-        }
 
-        // Trusted only if it's actually a lecturer_id from this student's
-        // own eligible list — closes both a self-supervision loophole (a
-        // student who also holds a lecturer account) and a pre-existing
-        // gap where any posted value was accepted with no lookup at all.
-        if ($proposedSupervisor !== '') {
-            $lecturerModel = new Lecturer($this->db);
-            $validSupervisorIds = array_column($lecturerModel->listAvailableSupervisors($_SESSION['user_id']), 'lecturer_id');
-            if (!in_array($proposedSupervisor, $validSupervisorIds, true)) {
-                $errors[] = 'Please choose a valid supervisor.';
-            }
-        }
+        // A proposal no longer names a supervisor. The student submits
+        // the work first, then shortlists supervisors for the
+        // department to vote on, so anything posted under the old
+        // field name is ignored rather than trusted.
 
         $proposalModel = new Proposal($this->db);
         $existing = $proposalModel->findActiveByStudentId($student['student_id']);
@@ -177,7 +162,6 @@ class StudentProposalController
             $_SESSION['old_input'] = [
                 'title' => $title,
                 'synopsis' => $synopsis,
-                'proposed_supervisor_id' => $proposedSupervisor,
             ];
             return $this->redirect($response, '/student/proposal');
         }
@@ -190,13 +174,8 @@ class StudentProposalController
                 $proposalModel->updateDraft($proposalId, [
                     'title' => $title,
                     'synopsis' => $synopsis,
-                    'proposed_supervisor_id' => $proposedSupervisor ?: null,
+                    'proposed_supervisor_id' => null,
                 ], $submitting);
-
-                if ($submitting && $proposedSupervisor !== '') {
-                    $requestModel = new SupervisionRequest($this->db);
-                    $requestModel->create($proposalId, $student['student_id'], $proposedSupervisor);
-                }
             } elseif ($existing) {
                 $_SESSION['flash_error'] = 'You already have an active proposal under review.';
                 return $this->redirect($response, '/student/proposal');
@@ -204,13 +183,8 @@ class StudentProposalController
                 $proposalId = $proposalModel->create($student['student_id'], [
                     'title' => $title,
                     'synopsis' => $synopsis,
-                    'proposed_supervisor_id' => $proposedSupervisor ?: null,
+                    'proposed_supervisor_id' => null,
                 ], $submitting);
-
-                if ($submitting && $proposedSupervisor !== '') {
-                    $requestModel = new SupervisionRequest($this->db);
-                    $requestModel->create($proposalId, $student['student_id'], $proposedSupervisor);
-                }
             }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = 'Submission failed: ' . $e->getMessage();

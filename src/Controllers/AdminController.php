@@ -1433,21 +1433,10 @@ class AdminController
         $regModel = new \App\Models\ThesisRegistration($this->db);
         $students = $regModel->findStudentsByScheduleId($scheduleId);
 
-        // Same lazy substitute for a cron as StudentController::dashboard() —
-        // viewing a schedule's roster is a natural, cheap place to also
-        // settle any proposal left dangling by an unresponsive supervisor
-        // once that schedule's enrollment window has closed.
-        $proposalModel = new \App\Models\Proposal($this->db);
-        $needsRefresh = false;
-        foreach ($students as $s) {
-            if (!empty($s['proposal_id']) && empty($s['assigned_supervisor_id'])) {
-                $proposalModel->autoAssignSupervisorIfEligible($s['proposal_id']);
-                $needsRefresh = true;
-            }
-        }
-        if ($needsRefresh) {
-            $students = $regModel->findStudentsByScheduleId($scheduleId);
-        }
+        // A proposal left without a supervisor is no longer settled
+        // here. Appointment runs through the department-voted
+        // shortlist, and a lecturer who never answers is handled by the
+        // coordinator moving to the next name on the student's list.
 
         return $this->twig->render($response, 'admins/thesis_schedule_students.twig', [
             'active_page' => 'thesis-schedules',

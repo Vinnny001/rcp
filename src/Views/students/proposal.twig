@@ -111,16 +111,12 @@
                   placeholder="Describe the problem, approach, and expected contribution...">{{ old.synopsis|default(proposal.synopsis|default('')) }}</textarea>
       </div>
 
-      <div class="field">
-        <label>Propose a supervisor</label>
-        <select name="proposed_supervisor_id">
-          <option value="" {% if not (old.proposed_supervisor_id|default(proposal.proposed_supervisor_id|default(''))) %}selected{% endif %}>Select a lecturer</option>
-          {% for s in supervisors %}
-            <option value="{{ s.lecturer_id }}" {% if old.proposed_supervisor_id|default(proposal.proposed_supervisor_id|default('')) == s.lecturer_id %}selected{% endif %}>
-              {{ s.name }} — {{ s.department }}
-            </option>
-          {% endfor %}
-        </select>
+      <div class="notice">
+        <span class="strong">Supervisors come next, not here.</span>
+        Once this proposal is in, you shortlist the supervisors you would
+        like from <a href="/student/supervisors">Supervisors</a>, and the
+        department votes on your list. Asking a lecturer directly is no
+        longer how the appointment is made.
       </div>
 
       <div class="field">

@@ -45,7 +45,8 @@ $m = new SupervisorShortlist($pdo);
 $student  = $pdo->query("SELECT s.student_id, s.user_id FROM students s
                          JOIN thesis_proposals tp ON tp.student_id = s.student_id LIMIT 1")->fetch();
 $proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' LIMIT 1")->fetchColumn();
-$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 5")->fetchAll(PDO::FETCH_COLUMN);
+$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers
+                          WHERE user_id <> '{$student['user_id']}' LIMIT 5")->fetchAll(PDO::FETCH_COLUMN);
 $admin = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
 $dept = $pdo->query("SELECT department_id FROM departments LIMIT 1")->fetchColumn();
 $pos  = $pdo->query("SELECT position_id FROM department_positions LIMIT 1")->fetchColumn();

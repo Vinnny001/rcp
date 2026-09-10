@@ -44,7 +44,7 @@ $dh = new DepartmentHead($pdo);
 
 $admin   = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
 $student = $pdo->query(
-    "SELECT s.student_id FROM students s
+    "SELECT s.student_id, s.user_id FROM students s
      JOIN thesis_proposals tp ON tp.student_id = s.student_id
      JOIN student_thesis_registrations str ON str.student_id = s.student_id LIMIT 1"
 )->fetch();
@@ -58,7 +58,8 @@ foreach ([$headA, $headB] as $uid) {
     $dh->assign($dept, $uid, $pos, $admin);
 }
 $headIds = array_column($dh->activeForDepartment($dept), 'dept_head_id');
-$lects = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
+$lects = $pdo->query("SELECT lecturer_id FROM lecturers
+                      WHERE user_id <> '{$student['user_id']}' LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
 
 $newMeeting = function (?string $lead, ?string $secretary) use ($m, $student, $proposal, $lects, $headIds, $coordinator): string {
     $sid = $m->submit($student['student_id'], $proposal, [

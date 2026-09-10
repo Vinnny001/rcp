@@ -108,19 +108,20 @@
 {% endfor %}
 
 {% if assignment_requests %}
+  <div class="notice" style="margin-bottom:14px;">
+    These requests were made before supervisors were appointed from a
+    department-approved shortlist. They can only be declined now —
+    accepting one would appoint you without the department's vote. If
+    the student still wants you, they can put you on their shortlist.
+  </div>
   {% for r in assignment_requests %}
     <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
       <div>
         <h3>{{ r.student_name }}</h3>
-        <div class="meta">Proposes you as {{ r.role == 'main' ? 'main supervisor' : 'co-supervisor' }} — "{{ r.title }}"</div>
+        <div class="meta">Proposed you as {{ r.role == 'main' ? 'main supervisor' : 'co-supervisor' }} — "{{ r.title }}"</div>
       </div>
       <div style="display:flex; gap:10px;">
         <button type="button" class="btn ghost" onclick="openModal('declineModal-{{ r.request_id }}')">Decline</button>
-        <form method="POST" action="/lecturer/supervision/accept" style="display:inline;">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="request_id" value="{{ r.request_id }}">
-          <button type="submit" class="btn brass">Accept</button>
-        </form>
       </div>
     </div>
 

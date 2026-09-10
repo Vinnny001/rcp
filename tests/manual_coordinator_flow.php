@@ -61,7 +61,12 @@ $headUsers = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.us
 foreach ($headUsers as $uid) { $dh->assign($program['department_id'], $uid, $pos, $admin); }
 $headIds = array_column($dh->activeForDepartment($program['department_id']), 'dept_head_id');
 
-$lects = $pdo->query("SELECT l.lecturer_id FROM lecturers l JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+// Excludes this student's own lecturer account: staff studying for
+// their own degree hold both records, and a shortlist may not name
+// the student on it.
+$lects = $pdo->query("SELECT l.lecturer_id FROM lecturers l
+                      JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
+                      WHERE l.user_id <> '{$student['user_id']}' LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
 $sid = $m->submit($student['student_id'], $proposal, [
     ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => false],
     ['lecturer_id' => $lects[1], 'rank' => 2, 'preferred_main' => true],
