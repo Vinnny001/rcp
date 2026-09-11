@@ -88,6 +88,8 @@ function get(string $path, array $session): string
 $marker = 'HTTP-TEST-' . bin2hex(random_bytes(6));
 $createdMeetingId = null;
 $createdDocumentId = null;
+$draftedProposalId = null;
+$draftedProposalStatus = null;
 $uploadedFixturePath = null;
 
 try {
@@ -247,11 +249,25 @@ try {
 
     $shortlistBefore = (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists")->fetchColumn();
 
+    // Rather than hoping a draft happens to be on file — seed data
+    // drifts as the app gets used — one proposal is put into draft for
+    // the length of this check and restored straight afterwards.
     $draftStudent = $pdo->query(
-        "SELECT s.student_id, s.user_id FROM students s
+        "SELECT s.student_id, s.user_id, tp.proposal_id, tp.status
+         FROM students s
          JOIN thesis_proposals tp ON tp.student_id = s.student_id
-         WHERE tp.status = 'draft' LIMIT 1"
+         WHERE tp.status <> 'rejected'
+           AND NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl
+                            WHERE sl.student_id = s.student_id AND sl.status <> 'superseded')
+         LIMIT 1"
     )->fetch(PDO::FETCH_ASSOC);
+
+    if ($draftStudent) {
+        $draftedProposalId = $draftStudent['proposal_id'];
+        $draftedProposalStatus = $draftStudent['status'];
+        $pdo->prepare("UPDATE thesis_proposals SET status = 'draft' WHERE proposal_id = :id")
+            ->execute(['id' => $draftedProposalId]);
+    }
 
     $someLecturer = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 1")->fetchColumn();
 
@@ -269,8 +285,13 @@ try {
         check('a student whose proposal is still a draft cannot submit a shortlist',
             str_contains((string) ($_SESSION['flash_error'] ?? ''), 'Submit your thesis proposal'),
             (string) ($_SESSION['flash_error'] ?? 'no error set'));
+
+        // Put it back before anything else reads the same rows.
+        $pdo->prepare("UPDATE thesis_proposals SET status = :s WHERE proposal_id = :id")
+            ->execute(['s' => $draftedProposalStatus, 'id' => $draftedProposalId]);
+        $draftedProposalId = null;
     } else {
-        echo "  SKIP  no student with a draft proposal on file\n";
+        echo "  SKIP  no student to put into draft for this check\n";
     }
 
     $liveStudent = $pdo->query(
@@ -310,6 +331,10 @@ try {
 } finally {
     // Real cleanup — not a transaction rollback, since the writes above
     // did not happen on this script's own connection.
+    if ($draftedProposalId) {
+        $pdo->prepare("UPDATE thesis_proposals SET status = :s WHERE proposal_id = :id")
+            ->execute(['s' => $draftedProposalStatus, 'id' => $draftedProposalId]);
+    }
     if ($createdMeetingId) {
         $pdo->prepare("DELETE FROM meeting_resources WHERE meeting_id = :id")->execute(['id' => $createdMeetingId]);
         $pdo->prepare("DELETE FROM meeting_attendees WHERE meeting_id = :id")->execute(['id' => $createdMeetingId]);

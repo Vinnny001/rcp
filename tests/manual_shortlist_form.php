@@ -5,7 +5,7 @@
  *
  *   - a draft proposal is not something the department can act on, so
  *     it carries no shortlist
- *   - the order the names are asked in is stated, not implied
+ *   - the order is a list they arrange, not a number they type
  *   - naming a preferred main is optional, and undoable
  *
  * Run: php tests/manual_shortlist_form.php
@@ -82,8 +82,8 @@ $draftPage = render($twig, [
     'proposal_submitted' => false,
     'supervisors' => $profiles,
 ]);
-check('a student with only a draft is offered no supervisors to rank',
-    !str_contains($draftPage, 'name="rank['));
+check('a student with only a draft is offered no supervisors to pick',
+    !str_contains($draftPage, 'js-add'));
 check('and is told to submit the proposal first',
     str_contains($draftPage, 'still a draft') && str_contains($draftPage, '/student/proposal'));
 
@@ -96,25 +96,40 @@ $livePage = render($twig, [
     'proposal_submitted' => true,
     'supervisors' => $profiles,
 ]);
-check('once submitted, the form appears', str_contains($livePage, 'name="rank['));
+check('once submitted, the form appears', str_contains($livePage, 'js-add'));
 
-echo "\n=== The order is explained, not guessed at ===\n";
+echo "\n=== Ordering is a list you arrange, not a number you type ===\n";
 
 check('the page says they are asked one at a time in the student\'s order',
     str_contains($livePage, 'one at a time, in your'));
-check('the control says what it does rather than saying "Position"',
-    str_contains($livePage, 'Ask them') && !str_contains($livePage, '>Position'));
-check('and not choosing someone is a readable option',
-    str_contains($livePage, '>not at all<'));
-check('positions read as an order', str_contains($livePage, '>1st<') && str_contains($livePage, '>2nd<'));
+// Nobody types or picks a position, so two supervisors sharing one is
+// not something a student can express in the first place.
+check('no position is typed or picked anywhere',
+    !str_contains($livePage, 'name="rank[') && !str_contains($livePage, '>1st<'));
+check('the chosen list is what carries the order',
+    str_contains($livePage, 'id="chosenList"'));
+check('and it can be dragged or nudged with arrows',
+    str_contains($livePage, 'draggable') && str_contains($livePage, 'Move up'));
+check('supervisors are added to it rather than ranked in place',
+    str_contains($livePage, 'Add to shortlist'));
+
+echo "\n=== Profiles open on demand, not inline ===\n";
+
+check('each card offers a profile to open',
+    str_contains($livePage, 'data-profile="' . $profiles[0]['lecturer_id'] . '"'));
+check('the profile dialog carries the long detail instead',
+    str_contains($livePage, 'id="profile-' . $profiles[0]['lecturer_id'] . '"')
+    && str_contains($livePage, 'Research interests'));
+check('and a supervisor can be added straight from it',
+    str_contains($livePage, 'js-add-from-profile'));
 
 echo "\n=== Preferred main is optional and undoable ===\n";
 
 check('the page says naming one is optional', str_contains($livePage, 'optional'));
 check('there is a way back to no preference',
-    str_contains($livePage, 'name="preferred_main" value=""'));
+    str_contains($livePage, 'id="noPreferred"'));
 check('and it is the state the form opens in',
-    (bool) preg_match('/name="preferred_main" value=""[^>]*checked/', $livePage));
+    (bool) preg_match('/id="noPreferred"[^>]*checked/', $livePage));
 
 $student = $pdo->query(
     "SELECT s.student_id, s.user_id FROM students s
@@ -157,7 +172,7 @@ $err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
 ]));
 check('and naming exactly one still works', $err === null, $err ?? '');
 
-echo "\n=== A rejected attempt keeps what was typed ===\n";
+echo "\n=== A refused attempt keeps what was picked ===\n";
 
 $retry = render($twig, [
     'proposal' => ['proposal_id' => 'p', 'status' => 'submitted'],
@@ -166,12 +181,12 @@ $retry = render($twig, [
     'error' => 'Each supervisor needs a different position in your ranking.',
     'old' => ['rank' => [$profiles[0]['lecturer_id'] => 2], 'preferred_main' => $profiles[0]['lecturer_id']],
 ]);
-check('the position they chose is still selected',
-    (bool) preg_match('/value="2" selected/', $retry));
-check('and so is their preferred main',
-    (bool) preg_match('/value="' . preg_quote($profiles[0]['lecturer_id'], '/') . '"[^>]*checked/', $retry));
+check('the supervisor they picked comes back with its place in the order',
+    (bool) preg_match('/data-id="' . preg_quote($profiles[0]['lecturer_id'], '/') . '"[^>]*data-rank="2"/s', $retry));
+check('and their preferred main is restored too',
+    str_contains($retry, 'value="' . $profiles[0]['lecturer_id'] . '"'));
 check('so the no-preference option is no longer the checked one',
-    !preg_match('/name="preferred_main" value=""[^>]*checked/', $retry));
+    !preg_match('/id="noPreferred"[^>]*checked/', $retry));
 
 $pdo->rollBack();
 

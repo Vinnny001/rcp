@@ -105,79 +105,331 @@
     </div>
 
     {% if supervisors %}
-      <form method="POST" action="/student/supervisors">
+      <form method="POST" action="/student/supervisors" id="shortlistForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        {# Radios cannot be cleared once set, so the group carries its own
-           "none" option — otherwise changing your mind means reloading. #}
-        <label class="card" style="display:flex; gap:8px; align-items:center; margin-bottom:16px; padding:10px 14px; font-size:.78rem;">
-          <input type="radio" name="preferred_main" value=""
-                 {{ old.preferred_main|default('') == '' ? 'checked' : '' }}>
-          No preferred main — ask them in the order I set below
-        </label>
-
-        <div class="grid cols-2" style="margin-bottom:20px;">
-          {% for s in supervisors %}
-            <div class="card">
-              <h3>{{ s.name }}</h3>
-              <div class="meta">{{ s.department_name }}{% if s.specialization %} · {{ s.specialization }}{% endif %}</div>
-
-              {% if s.research_interests %}
-                <p style="font-size:.85rem; line-height:1.6; margin-top:10px;">{{ s.research_interests }}</p>
-              {% endif %}
-
-              {% if s.links %}
-                <div class="meta" style="margin-top:8px;">
-                  {% for link in s.links %}
-                    <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label ?: link.platform|replace({'_': ' '})|capitalize }}</a>{% if not loop.last %} · {% endif %}
-                  {% endfor %}
+        <div class="picker">
+          {# ---- left: who is available ---- #}
+          <div>
+            <div class="meta" style="margin-bottom:10px;">Supervisors in your department</div>
+            <div class="pick-grid">
+              {% for s in supervisors %}
+                <div class="card pick-card" data-id="{{ s.lecturer_id }}" data-name="{{ s.name }}"
+                     data-rank="{{ old.rank[s.lecturer_id]|default('') }}">
+                  <h3 style="margin-bottom:2px;">{{ s.name }}</h3>
+                  <div class="meta" style="margin-bottom:8px;">
+                    {{ s.department_name }}{% if s.specialization %} · {{ s.specialization }}{% endif %}
+                  </div>
+                  <div class="meta" style="margin-bottom:12px;">
+                    Supervising {{ s.current_load }} of {{ s.max_load }}
+                    {%- if not s.has_capacity %} <span style="color: var(--rust);">· at capacity</span>{% endif %}
+                  </div>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn ghost btn-sm" data-profile="{{ s.lecturer_id }}">View profile</button>
+                    <button type="button" class="btn brass btn-sm js-add">Add to shortlist</button>
+                  </div>
                 </div>
-              {% endif %}
-
-              {% if s.theses %}
-                <div class="meta" style="margin-top:10px;">Previously supervised</div>
-                <ul style="font-size:.8rem; margin:4px 0 0 16px; padding:0;">
-                  {% for t in s.theses|slice(0, 3) %}
-                    <li>{{ t.title }}</li>
-                  {% endfor %}
-                </ul>
-                {% if s.theses|length > 3 %}
-                  <div class="meta" style="font-size:.72rem;">and {{ s.theses|length - 3 }} more</div>
-                {% endif %}
-              {% else %}
-                <div class="meta" style="margin-top:10px;">No completed supervisions on record yet</div>
-              {% endif %}
-
-              <div class="meta" style="margin-top:10px;">
-                Current load {{ s.current_load }} of {{ s.max_load }}
-                {% if not s.has_capacity %}
-                  <span style="color: var(--rust);">· at capacity</span>
-                {% endif %}
-              </div>
-
-              {% set my_rank = old.rank[s.lecturer_id]|default('') %}
-              <div style="display:flex; gap:14px; align-items:center; margin-top:12px; flex-wrap:wrap;">
-                <label style="font-size:.78rem; display:flex; gap:6px; align-items:center;">
-                  Ask them
-                  <select name="rank[{{ s.lecturer_id }}]" style="max-width:110px;">
-                    <option value="">not at all</option>
-                    {% for i in 1..max_choices %}
-                      <option value="{{ i }}" {{ my_rank == i ? 'selected' : '' }}>{{ i }}{{ i == 1 ? 'st' : (i == 2 ? 'nd' : (i == 3 ? 'rd' : 'th')) }}</option>
-                    {% endfor %}
-                  </select>
-                </label>
-                <label style="font-size:.78rem; display:flex; gap:6px; align-items:center;">
-                  <input type="radio" name="preferred_main" value="{{ s.lecturer_id }}"
-                         {{ old.preferred_main|default('') == s.lecturer_id ? 'checked' : '' }}>
-                  Preferred main
-                </label>
-              </div>
+              {% endfor %}
             </div>
-          {% endfor %}
-        </div>
+          </div>
 
-        <button type="submit" class="btn brass">Submit shortlist</button>
+          {# ---- right: the list they are building ---- #}
+          <div>
+            <div class="chosen-panel">
+              <div class="meta" style="margin-bottom:4px;">Your shortlist</div>
+              <div class="meta" style="font-size:.72rem; margin-bottom:12px;">
+                Drag to reorder, or use the arrows. Number 1 is asked first.
+              </div>
+
+              <ol id="chosenList" class="chosen-list"></ol>
+
+              <p id="chosenEmpty" class="meta" style="font-size:.78rem;">
+                Nothing chosen yet. Add up to {{ max_choices }} supervisors from the left.
+              </p>
+
+              <label class="chosen-none">
+                <input type="radio" name="preferred_main" value="" id="noPreferred"
+                       {{ old.preferred_main|default('') == '' ? 'checked' : '' }}>
+                No preferred main — ask them in this order
+              </label>
+
+              <button type="submit" class="btn brass" style="width:100%; margin-top:14px;">Submit shortlist</button>
+            </div>
+          </div>
+        </div>
       </form>
+
+      {# ---- one profile per supervisor, opened from the cards ---- #}
+      {% for s in supervisors %}
+        <div class="modal-overlay" id="profile-{{ s.lecturer_id }}">
+          <div class="modal">
+            <button type="button" class="modal-close" data-close="profile-{{ s.lecturer_id }}">✕ Close</button>
+            <h2 style="margin-top:0;">{{ s.name }}</h2>
+            <div class="meta">{{ s.department_name }}{% if s.specialization %} · {{ s.specialization }}{% endif %}</div>
+
+            <div class="meta" style="margin-top:14px;">Research interests</div>
+            {% if s.research_interests %}
+              <p style="font-size:.88rem; line-height:1.65;">{{ s.research_interests }}</p>
+            {% else %}
+              <p class="meta" style="font-size:.8rem;">Not filled in yet.</p>
+            {% endif %}
+
+            {% if s.links %}
+              <div class="meta" style="margin-top:12px;">Where their work can be read</div>
+              <div style="font-size:.84rem; line-height:1.9;">
+                {% for link in s.links %}
+                  <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label ?: link.platform|replace({'_': ' '})|capitalize }}</a>{% if not loop.last %} · {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
+
+            <div class="meta" style="margin-top:12px;">Previously supervised</div>
+            {% if s.theses %}
+              <ul style="font-size:.84rem; line-height:1.6; margin:4px 0 0 18px; padding:0;">
+                {% for t in s.theses %}<li>{{ t.title }}</li>{% endfor %}
+              </ul>
+            {% else %}
+              <p class="meta" style="font-size:.8rem;">Nothing on record yet.</p>
+            {% endif %}
+
+            <div class="meta" style="margin-top:14px;">
+              Supervising {{ s.current_load }} of {{ s.max_load }}
+              {%- if not s.has_capacity %} <span style="color: var(--rust);">· at capacity</span>{% endif %}
+            </div>
+
+            <div class="modal-actions">
+              <button type="button" class="btn ghost" data-close="profile-{{ s.lecturer_id }}">Close</button>
+              <button type="button" class="btn brass js-add-from-profile" data-id="{{ s.lecturer_id }}">Add to shortlist</button>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+
+      <style>
+        .picker{ display:grid; grid-template-columns:1fr 300px; gap:22px; align-items:start; }
+        .pick-grid{ display:grid; gap:14px; }
+        .pick-card{ padding:16px 18px; }
+        .pick-card.is-chosen{ border-color:var(--brass); background:#fdfaf2; }
+        .btn-sm{ padding:6px 12px; font-size:.74rem; }
+
+        .chosen-panel{ position:sticky; top:20px; background:#fbf8f1; border:1px solid var(--paper-line);
+                       border-radius:var(--radius); padding:18px 20px; }
+        .chosen-list{ list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; gap:8px; }
+        .chosen-item{ display:flex; align-items:center; gap:8px; background:var(--paper); cursor:grab;
+                      border:1px solid var(--paper-line); border-radius:var(--radius); padding:8px 10px; font-size:.8rem; }
+        .chosen-item.dragging{ opacity:.4; }
+        .chosen-item .pos{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; color:var(--brass-deep);
+                           min-width:16px; font-weight:600; }
+        .chosen-item .who{ flex:1; line-height:1.3; }
+        .chosen-item .mainpick{ display:flex; align-items:center; gap:3px; font-size:.68rem; color:var(--slate); cursor:pointer; }
+        .chosen-item .mainpick input{ margin:0; }
+        .chosen-item button{ border:none; background:none; cursor:pointer; padding:2px 4px; font-size:.8rem;
+                             color:var(--slate); line-height:1; }
+        .chosen-item button:hover{ color:var(--ink-text); }
+        .chosen-item .drop{ color:var(--rust); }
+        .chosen-none{ display:flex; gap:7px; align-items:flex-start; font-size:.74rem; color:var(--slate);
+                      padding-top:10px; border-top:1px solid var(--paper-line); }
+
+        .modal-overlay{ display:none; position:fixed; inset:0; background:rgba(16,22,31,.55);
+                        z-index:60; align-items:center; justify-content:center; padding:20px; }
+        .modal-overlay.open{ display:flex; }
+        .modal{ background:var(--paper); border-radius:var(--radius); padding:26px 28px; max-width:560px;
+                width:100%; max-height:82vh; overflow-y:auto; position:relative; }
+        .modal-close{ position:absolute; top:12px; right:14px; border:none; background:none; cursor:pointer;
+                      font-size:.74rem; color:var(--slate); }
+        .modal-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+
+        @media (max-width:900px){ .picker{ grid-template-columns:1fr; } .chosen-panel{ position:static; } }
+      </style>
+
+      <script>
+        (function () {
+          var MAX = {{ max_choices }};
+          var list = document.getElementById('chosenList');
+          var empty = document.getElementById('chosenEmpty');
+          var none = document.getElementById('noPreferred');
+          var form = document.getElementById('shortlistForm');
+
+          function cardFor(id) {
+            return document.querySelector('.pick-card[data-id="' + id + '"]');
+          }
+
+          function chosenIds() {
+            return Array.prototype.map.call(list.children, function (li) { return li.dataset.id; });
+          }
+
+          // The list order IS the ranking, so positions are rewritten from
+          // it after every change. Two supervisors cannot share a position
+          // because no one types a position at all.
+          function renumber() {
+            var ids = chosenIds();
+            Array.prototype.forEach.call(list.children, function (li, i) {
+              li.querySelector('.pos').textContent = (i + 1) + '.';
+              li.querySelector('input[type=hidden]').value = String(i + 1);
+              li.querySelector('.up').disabled = i === 0;
+              li.querySelector('.down').disabled = i === ids.length - 1;
+            });
+            empty.style.display = ids.length ? 'none' : '';
+            document.querySelectorAll('.pick-card').forEach(function (card) {
+              var inList = ids.indexOf(card.dataset.id) !== -1;
+              var addBtn = card.querySelector('.js-add');
+              card.classList.toggle('is-chosen', inList);
+              addBtn.textContent = inList ? 'Added' : 'Add to shortlist';
+              addBtn.disabled = inList || ids.length >= MAX;
+              addBtn.classList.toggle('ghost', inList);
+              addBtn.classList.toggle('brass', !inList);
+            });
+            if (!list.querySelector('input[type=radio]:checked')) {
+              none.checked = true;
+            }
+          }
+
+          function add(id) {
+            if (!id || chosenIds().indexOf(id) !== -1 || chosenIds().length >= MAX) {
+              return;
+            }
+            var card = cardFor(id);
+            if (!card) { return; }
+
+            var li = document.createElement('li');
+            li.className = 'chosen-item';
+            li.draggable = true;
+            li.dataset.id = id;
+            li.innerHTML =
+              '<span class="pos"></span>' +
+              '<span class="who"><span class="nm"></span></span>' +
+              '<label class="mainpick" title="Ask them first, and make them your main supervisor">' +
+                '<input type="radio" name="preferred_main"> main</label>' +
+              '<button type="button" class="up" title="Move up">▲</button>' +
+              '<button type="button" class="down" title="Move down">▼</button>' +
+              '<button type="button" class="drop" title="Remove">✕</button>' +
+              '<input type="hidden">';
+            li.querySelector('.nm').textContent = card.dataset.name;
+            li.querySelector('input[type=radio]').value = id;
+            li.querySelector('input[type=hidden]').name = 'rank[' + id + ']';
+            list.appendChild(li);
+            renumber();
+          }
+
+          function remove(li) {
+            li.remove();
+            renumber();
+          }
+
+          document.querySelectorAll('.js-add').forEach(function (btn) {
+            btn.addEventListener('click', function () { add(btn.closest('.pick-card').dataset.id); });
+          });
+
+          document.querySelectorAll('.js-add-from-profile').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              add(btn.dataset.id);
+              btn.closest('.modal-overlay').classList.remove('open');
+            });
+          });
+
+          list.addEventListener('click', function (e) {
+            var li = e.target.closest('.chosen-item');
+            if (!li) { return; }
+            if (e.target.classList.contains('drop')) { remove(li); }
+            if (e.target.classList.contains('up') && li.previousElementSibling) {
+              list.insertBefore(li, li.previousElementSibling);
+              renumber();
+            }
+            if (e.target.classList.contains('down') && li.nextElementSibling) {
+              list.insertBefore(li.nextElementSibling, li);
+              renumber();
+            }
+          });
+
+          list.addEventListener('change', renumber);
+
+          // ---- drag to reorder ----
+          var dragging = null;
+
+          list.addEventListener('dragstart', function (e) {
+            dragging = e.target.closest('.chosen-item');
+            if (dragging) {
+              dragging.classList.add('dragging');
+              e.dataTransfer.effectAllowed = 'move';
+            }
+          });
+
+          list.addEventListener('dragend', function () {
+            if (dragging) {
+              dragging.classList.remove('dragging');
+              dragging = null;
+              renumber();
+            }
+          });
+
+          list.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            if (!dragging) { return; }
+            var after = null;
+            var closest = Number.NEGATIVE_INFINITY;
+            Array.prototype.forEach.call(list.children, function (li) {
+              if (li === dragging) { return; }
+              var box = li.getBoundingClientRect();
+              var offset = e.clientY - box.top - box.height / 2;
+              if (offset < 0 && offset > closest) {
+                closest = offset;
+                after = li;
+              }
+            });
+            if (after) {
+              list.insertBefore(dragging, after);
+            } else {
+              list.appendChild(dragging);
+            }
+          });
+
+          // ---- profile dialogs ----
+          document.querySelectorAll('[data-profile]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              document.getElementById('profile-' + btn.dataset.profile).classList.add('open');
+            });
+          });
+
+          document.querySelectorAll('[data-close]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              document.getElementById(btn.dataset.close).classList.remove('open');
+            });
+          });
+
+          document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+            overlay.addEventListener('click', function (e) {
+              if (e.target === overlay) { overlay.classList.remove('open'); }
+            });
+          });
+
+          document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+              document.querySelectorAll('.modal-overlay.open').forEach(function (o) { o.classList.remove('open'); });
+            }
+          });
+
+          form.addEventListener('submit', function (e) {
+            if (!chosenIds().length) {
+              e.preventDefault();
+              alert('Add at least one supervisor to your shortlist.');
+            }
+          });
+
+          // Rebuild whatever was chosen before a refused submission, in
+          // the order it was in.
+          Array.prototype.slice.call(document.querySelectorAll('.pick-card'))
+            .filter(function (c) { return c.dataset.rank !== ''; })
+            .sort(function (a, b) { return Number(a.dataset.rank) - Number(b.dataset.rank); })
+            .forEach(function (c) { add(c.dataset.id); });
+
+          {% if old.preferred_main|default('') %}
+            var wanted = list.querySelector('input[type=radio][value="{{ old.preferred_main }}"]');
+            if (wanted) { wanted.checked = true; }
+          {% endif %}
+
+          renumber();
+        }());
+      </script>
     {% else %}
       <div class="notice">No supervisors are listed for your department yet. Your coordinator can help.</div>
     {% endif %}
