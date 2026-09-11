@@ -141,7 +141,7 @@ $outcome = $m->recordOutcome($meeting2);
 $row = $pdo->query("SELECT status, rejection_reason FROM supervisor_shortlists WHERE shortlist_id='$sid2'")->fetch();
 check('rejected shortlist records the reason', $outcome === 'rejected' && str_contains((string) $row['rejection_reason'], 'methodological'), $row['status']);
 
-echo "\n=== 5. Preferred main is approached first, whatever their rank ===\n";
+echo "\n=== 5. Preferred main goes to the front of the list ===\n";
 $sid3 = $makeShortlist();
 $meeting3 = $scheduleAndVote($sid3, ['approve', 'approve', 'reject']);
 $m->saveMinutes($meeting3, 'Approved.', true);
@@ -150,7 +150,12 @@ $m->recordOutcome($meeting3);
 $contacted = $pdo->query("SELECT lecturer_id, rank_position, is_preferred_main FROM supervisor_shortlist_choices
                           WHERE shortlist_id='$sid3' AND request_status='pending'")->fetchAll();
 check('exactly one lecturer is holding a request', count($contacted) === 1, count($contacted) . ' pending');
-check('and it is the preferred main (ranked 3rd)', (int) $contacted[0]['is_preferred_main'] === 1 && (int) $contacted[0]['rank_position'] === 3);
+// Submitted third, but a preferred main is asked before anyone else,
+// so they are stored at position 1 rather than left at 3 — otherwise
+// the student's tracker would show "#3" beside the person asked first.
+check('and it is the preferred main', (int) $contacted[0]['is_preferred_main'] === 1);
+check('who was moved to position 1 despite being picked third',
+    (int) $contacted[0]['rank_position'] === 1, 'rank ' . $contacted[0]['rank_position']);
 
 echo "\n=== 6. Preferred main accepts -> becomes main ===\n";
 $choice = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' AND request_status='pending'")->fetchColumn();

@@ -78,8 +78,12 @@ $queue = $m->queueForPrograms([$program['program_id']]);
 check('the new shortlist appears in the coordinator queue', count($queue) === 1, count($queue) . ' item(s)');
 check('and carries the student and program', ($queue[0]['student_number'] ?? '') !== '' && ($queue[0]['program_name'] ?? '') !== '');
 
+// Scoped to the shortlist this test made, not to the queue being
+// empty: the database is shared, and real shortlists live here too.
 $other = $pdo->query("SELECT program_id FROM programs WHERE program_id <> '{$program['program_id']}' LIMIT 1")->fetchColumn();
-check('a coordinator of another program sees nothing', count($m->queueForPrograms([$other])) === 0);
+$otherQueue = array_column($m->queueForPrograms([$other]), 'shortlist_id');
+check('a coordinator of another program does not see this one',
+    !in_array($sid, $otherQueue, true), count($otherQueue) . ' item(s) in that queue');
 
 echo "\n=== Coordinator shortlist view renders ===\n";
 $ctx = $m->findWithContext($sid);
@@ -120,7 +124,9 @@ $headUserId = $pdo->query("SELECT user_id FROM department_heads WHERE dept_head_
 $meetings = $m->meetingsForHead($headUserId);
 foreach ($meetings as &$mm) { $mm['choices'] = $m->choicesFor($mm['shortlist_id']); }
 unset($mm);
-check('the head sees the meeting they were invited to', count($meetings) === 1);
+check('the head sees the meeting they were invited to',
+    in_array($meeting, array_column($meetings, 'meeting_id'), true),
+    count($meetings) . ' meeting(s) visible to them');
 $h = $render('lecturers/shortlist_meetings.twig', [
     'active_page' => 'l-panel', 'first_name' => 'H', 'last_name' => 'Ead',
     'meetings' => $meetings, 'csrf_token' => 't', 'error' => null, 'success' => null,

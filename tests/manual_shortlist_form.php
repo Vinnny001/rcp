@@ -172,6 +172,42 @@ $err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
 ]));
 check('and naming exactly one still works', $err === null, $err ?? '');
 
+echo "\n=== A preferred main is asked first, wherever they were dropped ===\n";
+
+// Marked preferred but dragged to the bottom. They are approached
+// before anyone else regardless, so storing them at rank 4 would leave
+// the student's tracker showing "#4" against the person asked first.
+$err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
+    ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => false],
+    ['lecturer_id' => $lects[1], 'rank' => 2, 'preferred_main' => false],
+    ['lecturer_id' => $lects[2], 'rank' => 3, 'preferred_main' => true],
+]));
+check('a preferred main placed last is accepted', $err === null, $err ?? '');
+
+$sid2 = $model->findActiveForStudent($student['student_id'])['shortlist_id'];
+$ordered = $model->choicesFor($sid2);
+usort($ordered, fn($a, $b) => $a['rank_position'] <=> $b['rank_position']);
+
+check('they are stored at position 1, not where they were dropped',
+    $ordered[0]['lecturer_id'] === $lects[2] && (int) $ordered[0]['rank_position'] === 1,
+    'rank ' . $ordered[0]['rank_position']);
+check('and everyone else keeps their relative order behind them',
+    $ordered[1]['lecturer_id'] === $lects[0] && $ordered[2]['lecturer_id'] === $lects[1]);
+check('positions are a clean 1..n with no gaps or ties',
+    array_map(fn($c) => (int) $c['rank_position'], $ordered) === [1, 2, 3]);
+
+// The stored order and the asked order are now the same thing.
+$pdo->prepare("UPDATE supervisor_shortlists SET status = 'approved' WHERE shortlist_id = ?")->execute([$sid2]);
+$firstAsked = $pdo->query(
+    "SELECT lecturer_id FROM supervisor_shortlist_choices WHERE choice_id = "
+    . $pdo->quote((string) $model->contactNext($sid2))
+)->fetchColumn();
+check('and the one approached first is that same preferred main',
+    $firstAsked === $lects[2]);
+
+check('the picker explains that naming one moves them to the top',
+    str_contains($livePage, 'move') && str_contains($livePage, 'top of your list'));
+
 echo "\n=== A refused attempt keeps what was picked ===\n";
 
 $retry = render($twig, [

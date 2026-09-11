@@ -45,6 +45,7 @@ class SupervisorShortlist
     {
         $this->assertValidChoices($choices);
         $this->assertNotSelf($studentId, array_column($choices, 'lecturer_id'));
+        $choices = $this->withPreferredMainFirst($choices);
 
         // Any earlier shortlist is replaced. Supervisors already
         // appointed from it are untouched — those live in
@@ -115,6 +116,34 @@ class SupervisorShortlist
         if (count(array_unique($ranks)) !== count($ranks)) {
             throw new RuntimeException('Each supervisor needs a different position in your ranking.');
         }
+    }
+
+    /**
+     * Puts the preferred main at the head of the list and renumbers
+     * from there.
+     *
+     * A preferred main is approached before anybody else — contactNext()
+     * sorts on that flag ahead of rank_position — so storing them at,
+     * say, rank 4 would leave the student's tracker showing "#4" beside
+     * the person who was in fact asked first. Normalising here keeps the
+     * stored order and the order people are actually asked in the same
+     * thing, which is also what the picker shows while it is being
+     * built.
+     *
+     * @param array<int, array{lecturer_id: string, rank: int, preferred_main: bool}> $choices
+     * @return array<int, array{lecturer_id: string, rank: int, preferred_main: bool}>
+     */
+    private function withPreferredMainFirst(array $choices): array
+    {
+        usort($choices, static function (array $a, array $b): int {
+            return [$b['preferred_main'], $a['rank']] <=> [$a['preferred_main'], $b['rank']];
+        });
+
+        foreach ($choices as $i => $choice) {
+            $choices[$i]['rank'] = $i + 1;
+        }
+
+        return $choices;
     }
 
     /**

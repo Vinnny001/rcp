@@ -99,9 +99,10 @@
       supervisor.
     </div>
     <div class="meta" style="margin-bottom:16px;">
-      Naming a preferred main supervisor is optional. Name one and they are
-      asked before anyone else; name none and the order below decides, with
-      whoever accepts first becoming your main supervisor.
+      Naming a preferred main supervisor is optional. Name one and they move
+      to the top of your list, because the main supervisor is the first
+      person asked; name none and your own order decides, with whoever
+      accepts first becoming your main supervisor.
     </div>
 
     {% if supervisors %}
@@ -138,7 +139,8 @@
             <div class="chosen-panel">
               <div class="meta" style="margin-bottom:4px;">Your shortlist</div>
               <div class="meta" style="font-size:.72rem; margin-bottom:12px;">
-                Drag to reorder, or use the arrows. Number 1 is asked first.
+                Drag to reorder, or use the arrows. Number 1 is asked first,
+                and only if they decline is number 2 approached.
               </div>
 
               <ol id="chosenList" class="chosen-list"></ol>
@@ -221,6 +223,8 @@
         .chosen-item .pos{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; color:var(--brass-deep);
                            min-width:16px; font-weight:600; }
         .chosen-item .who{ flex:1; line-height:1.3; }
+        .chosen-item.is-main{ border-color:var(--brass); background:#fdfaf2; cursor:default; }
+        .chosen-item.is-main .pos{ color:var(--brass); }
         .chosen-item .mainpick{ display:flex; align-items:center; gap:3px; font-size:.68rem; color:var(--slate); cursor:pointer; }
         .chosen-item .mainpick input{ margin:0; }
         .chosen-item button{ border:none; background:none; cursor:pointer; padding:2px 4px; font-size:.8rem;
@@ -261,13 +265,32 @@
           // The list order IS the ranking, so positions are rewritten from
           // it after every change. Two supervisors cannot share a position
           // because no one types a position at all.
+          // A preferred main is approached before anyone else, so the
+          // list would otherwise be able to show an order that is not the
+          // order people are actually asked in. Pinning them to the top
+          // keeps the two the same thing.
+          function pinPreferred() {
+            var checked = list.querySelector('input[type=radio]:checked');
+            var li = checked && checked.closest('.chosen-item');
+            if (li && li !== list.firstElementChild) {
+              list.insertBefore(li, list.firstElementChild);
+            }
+            return li;
+          }
+
           function renumber() {
+            var pinned = pinPreferred();
             var ids = chosenIds();
             Array.prototype.forEach.call(list.children, function (li, i) {
+              var isPinned = li === pinned;
               li.querySelector('.pos').textContent = (i + 1) + '.';
               li.querySelector('input[type=hidden]').value = String(i + 1);
-              li.querySelector('.up').disabled = i === 0;
-              li.querySelector('.down').disabled = i === ids.length - 1;
+              li.classList.toggle('is-main', isPinned);
+              li.draggable = !isPinned;
+              // Nothing may move above the preferred main, and they are
+              // already as high as they go.
+              li.querySelector('.up').disabled = isPinned || i <= (pinned ? 1 : 0);
+              li.querySelector('.down').disabled = isPinned || i === ids.length - 1;
             });
             empty.style.display = ids.length ? 'none' : '';
             document.querySelectorAll('.pick-card').forEach(function (card) {
@@ -342,6 +365,10 @@
           });
 
           list.addEventListener('change', renumber);
+          // Lives outside the list, so its change does not reach the
+          // handler above — without this the row just unpinned would
+          // keep its pinned styling and stay undraggable.
+          none.addEventListener('change', renumber);
 
           // ---- drag to reorder ----
           var dragging = null;
@@ -376,6 +403,10 @@
                 after = li;
               }
             });
+            var pinned = list.querySelector('.chosen-item.is-main');
+            if (pinned && after === pinned) {
+              after = pinned.nextElementSibling;
+            }
             if (after) {
               list.insertBefore(dragging, after);
             } else {
