@@ -15,6 +15,19 @@ class Proposal
         $this->db = $db;
     }
 
+    /**
+     * Whether this proposal has actually been handed in.
+     *
+     * A draft is a private working copy — it has a row, so anything
+     * testing for a proposal at all treats it as real. Shortlisting
+     * hangs off a proposal the department can see, so it asks this
+     * instead.
+     */
+    public static function isSubmitted(?array $proposal): bool
+    {
+        return $proposal !== null && ($proposal['status'] ?? 'draft') !== 'draft';
+    }
+
     public function findActiveByStudentId(string $studentId): ?array
     {
         $stmt = $this->db->prepare(

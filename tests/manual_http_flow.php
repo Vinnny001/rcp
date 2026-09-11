@@ -236,6 +236,74 @@ try {
 
     $myDocsPage = get('/lecturer/my-documents', $session);
     check('the uploaded document appears on My Documents', str_contains($myDocsPage, $fixtureFileName));
+
+    // ---- the shortlist form's server-side refusals ----
+    //
+    // Both of these are rejected before anything is written, so there
+    // is nothing to clean up. Posted directly rather than through the
+    // page, because the point is that the server refuses them even when
+    // the form did not.
+    echo "\n--- shortlist form refusals over real HTTP ---\n";
+
+    $shortlistBefore = (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists")->fetchColumn();
+
+    $draftStudent = $pdo->query(
+        "SELECT s.student_id, s.user_id FROM students s
+         JOIN thesis_proposals tp ON tp.student_id = s.student_id
+         WHERE tp.status = 'draft' LIMIT 1"
+    )->fetch(PDO::FETCH_ASSOC);
+
+    $someLecturer = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 1")->fetchColumn();
+
+    if ($draftStudent) {
+        $draftSession = [
+            'user_id' => $draftStudent['user_id'], 'role' => 'student',
+            'first_name' => 'D', 'last_name' => 'S', 'csrf_token' => str_repeat('a', 64),
+        ];
+        post('/student/supervisors', [
+            'csrf_token' => str_repeat('a', 64),
+            'rank' => [$someLecturer => '1'],
+            'preferred_main' => $someLecturer,
+        ], [], $draftSession);
+
+        check('a student whose proposal is still a draft cannot submit a shortlist',
+            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'Submit your thesis proposal'),
+            (string) ($_SESSION['flash_error'] ?? 'no error set'));
+    } else {
+        echo "  SKIP  no student with a draft proposal on file\n";
+    }
+
+    $liveStudent = $pdo->query(
+        "SELECT s.student_id, s.user_id FROM students s
+         JOIN thesis_proposals tp ON tp.student_id = s.student_id
+         WHERE tp.status <> 'draft'
+           AND NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl
+                            WHERE sl.student_id = s.student_id AND sl.status <> 'superseded')
+         LIMIT 1"
+    )->fetch(PDO::FETCH_ASSOC);
+
+    if ($liveStudent) {
+        $liveSession = [
+            'user_id' => $liveStudent['user_id'], 'role' => 'student',
+            'first_name' => 'L', 'last_name' => 'S', 'csrf_token' => str_repeat('a', 64),
+        ];
+        // Preferred main named, but never given a position — which would
+        // otherwise drop them from the list and read as "no preference".
+        post('/student/supervisors', [
+            'csrf_token' => str_repeat('a', 64),
+            'rank' => [$someLecturer => ''],
+            'preferred_main' => $someLecturer,
+        ], [], $liveSession);
+
+        check('naming a preferred main with no position is refused, not silently dropped',
+            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'did not say when to ask them'),
+            (string) ($_SESSION['flash_error'] ?? 'no error set'));
+    } else {
+        echo "  SKIP  no student without a live shortlist to post as\n";
+    }
+
+    check('neither refusal wrote a shortlist',
+        (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists")->fetchColumn() === $shortlistBefore);
 } catch (\Throwable $e) {
     $fail++;
     echo "\n  ERROR  " . $e->getMessage() . "\n         " . $e->getFile() . ':' . $e->getLine() . "\n";

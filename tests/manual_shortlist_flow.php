@@ -66,10 +66,12 @@ check('rejects more than 5 choices',
         fn($i) => ['lecturer_id' => $lecturers[$i % 5], 'rank' => $i + 1, 'preferred_main' => $i === 0],
         range(0, 5)))) !== null);
 
-check('rejects zero preferred mains',
+// Naming a preferred main is optional: without one the list is worked
+// in the student's own order and whoever accepts first becomes main.
+check('accepts zero preferred mains',
     ($e = throws(fn() => $m->submit($student['student_id'], $proposal, [
         ['lecturer_id' => $lecturers[0], 'rank' => 1, 'preferred_main' => false],
-    ]))) !== null, $e ?? '');
+    ]))) === null, $e ?? '');
 
 check('rejects two preferred mains',
     throws(fn() => $m->submit($student['student_id'], $proposal, [

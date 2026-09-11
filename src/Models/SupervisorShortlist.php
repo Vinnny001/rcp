@@ -95,9 +95,15 @@ class SupervisorShortlist
             throw new RuntimeException('You can shortlist at most ' . self::MAX_CHOICES . ' supervisors.');
         }
 
+        // Naming a preferred main is optional. With one, they are
+        // approached before anybody else; without one, the list is
+        // worked in the student's own order and whoever accepts first
+        // becomes the main supervisor — contactNext() already orders by
+        // is_preferred_main before rank_position, so both cases fall out
+        // of the same query. More than one is the only nonsense.
         $preferred = array_filter($choices, static fn (array $c): bool => $c['preferred_main']);
-        if (count($preferred) !== 1) {
-            throw new RuntimeException('Mark exactly one supervisor as your preferred main supervisor.');
+        if (count($preferred) > 1) {
+            throw new RuntimeException('Only one supervisor can be marked as your preferred main supervisor.');
         }
 
         $lecturerIds = array_column($choices, 'lecturer_id');

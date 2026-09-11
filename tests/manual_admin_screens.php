@@ -205,6 +205,8 @@ check('and so does the link', $mine !== null && count($mine['links']) === 1);
 $studentHtml = (string) $twig->render(new \Slim\Psr7\Response(), 'students/supervisors.twig', [
     'active_page' => 'supervisors', 'first_name' => 'S', 'student_number' => 'X',
     'proposal' => ['proposal_id' => 'p', 'status' => 'submitted'],
+    'proposal_submitted' => true,
+    'old' => [],
     'shortlist' => null, 'choices' => [], 'supervisors' => $profiles, 'can_resubmit' => true,
     'max_choices' => 5, 'max_supervisors' => 3,
     'csrf_token' => 't', 'error' => null, 'success' => null,

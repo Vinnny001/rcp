@@ -60,6 +60,9 @@ class StudentSupervisorsController
             'first_name'    => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
             'proposal'      => $proposal,
+            // A draft is not yet a proposal the department can act on,
+            // so it cannot carry a shortlist.
+            'proposal_submitted' => Proposal::isSubmitted($proposal),
             'shortlist'     => $shortlist,
             'choices'       => $shortlist ? $shortlistModel->choicesFor($shortlist['shortlist_id']) : [],
             'supervisors'   => $canResubmit ? (new SupervisorProfile($this->db))->browsable() : [],
@@ -67,6 +70,9 @@ class StudentSupervisorsController
             'max_choices'   => SupervisorShortlist::MAX_CHOICES,
             'max_supervisors' => SupervisorShortlist::MAX_SUPERVISORS,
             'csrf_token'    => $this->csrfToken(),
+            // What they picked last time, when a submission bounced —
+            // a rejected shortlist should not cost them the whole form.
+            'old'           => $this->takeFlash('old_choices') ?? [],
             'error'         => $this->takeFlash('flash_error'),
             'success'       => $this->takeFlash('flash_success'),
         ]);
@@ -88,8 +94,24 @@ class StudentSupervisorsController
         $student = $this->studentRecord($userId);
         $proposal = $student ? (new Proposal($this->db))->findActiveByStudentId($student['student_id']) : null;
 
-        if (!$student || !$proposal) {
+        if (!$student || !Proposal::isSubmitted($proposal)) {
             $_SESSION['flash_error'] = 'Submit your thesis proposal before choosing supervisors.';
+            return $this->redirect($response, '/student/supervisors');
+        }
+
+        $choices = $this->readChoices($data);
+        $preferred = (string) ($data['preferred_main'] ?? '');
+
+        // Marking someone preferred main but never saying when to ask
+        // them drops them from the list entirely. That used to surface
+        // as "mark exactly one", but a shortlist with no preferred main
+        // is legitimate now, so it would otherwise pass silently as one.
+        if ($preferred !== '' && !in_array($preferred, array_column($choices, 'lecturer_id'), true)) {
+            $_SESSION['flash_error'] = 'You marked a preferred main supervisor but did not say when to ask them. Give them a position, or choose "No preferred main".';
+            $_SESSION['old_choices'] = [
+                'rank'           => is_array($data['rank'] ?? null) ? $data['rank'] : [],
+                'preferred_main' => $preferred,
+            ];
             return $this->redirect($response, '/student/supervisors');
         }
 
@@ -97,11 +119,15 @@ class StudentSupervisorsController
             (new SupervisorShortlist($this->db))->submit(
                 $student['student_id'],
                 $proposal['proposal_id'],
-                $this->readChoices($data)
+                $choices
             );
             $_SESSION['flash_success'] = 'Shortlist submitted. Your research coordinator will take it to the department.';
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = $e->getMessage();
+            $_SESSION['old_choices'] = [
+                'rank'           => is_array($data['rank'] ?? null) ? $data['rank'] : [],
+                'preferred_main' => (string) ($data['preferred_main'] ?? ''),
+            ];
         }
 
         return $this->redirect($response, '/student/supervisors');
@@ -175,7 +201,14 @@ class StudentSupervisorsController
         return !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
     }
 
-    private function takeFlash(string $key): ?string
+    /**
+     * Reads a one-shot session value and clears it. Carries the posted
+     * choices as well as the message strings, so the return is not
+     * narrowed to a string.
+     *
+     * @return mixed
+     */
+    private function takeFlash(string $key)
     {
         $value = $_SESSION[$key] ?? null;
         unset($_SESSION[$key]);

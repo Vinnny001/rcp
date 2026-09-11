@@ -162,6 +162,7 @@ check('the student sees one declined and three accepted',
 $studentHtml = (string) $twig->render(new \Slim\Psr7\Response(), 'students/supervisors.twig', [
     'active_page' => 'supervisors', 'first_name' => 'S', 'student_number' => 'X',
     'proposal' => ['proposal_id' => $proposal, 'status' => 'submitted'],
+    'proposal_submitted' => true, 'old' => [],
     'shortlist' => $m->findActiveForStudent($student['student_id']),
     'choices' => $choices, 'supervisors' => [], 'can_resubmit' => false,
     'max_choices' => 5, 'max_supervisors' => 3,

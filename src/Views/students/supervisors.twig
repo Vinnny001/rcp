@@ -19,8 +19,18 @@
   <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
-{% if not proposal %}
-  <div class="notice">Submit your thesis proposal first — a shortlist is attached to it.</div>
+{% if not proposal_submitted %}
+  <div class="notice">
+    {% if proposal %}
+      Your proposal is still a draft. A shortlist goes to the department
+      attached to a proposal they can read, so
+      <a href="/student/proposal">submit your proposal</a> first — you can
+      come straight back here afterwards.
+    {% else %}
+      <a href="/student/proposal">Write your thesis proposal</a> first — a
+      shortlist is attached to it.
+    {% endif %}
+  </div>
 {% else %}
 
   {# ---------- tracker: only once something has been submitted ---------- #}
@@ -80,14 +90,31 @@
   {# ---------- builder: only when there is nothing live ---------- #}
   {% if can_resubmit %}
     <div class="section-title">{{ shortlist ? 'Submit a new shortlist' : 'Build your shortlist' }}<div class="rule"></div></div>
+    <div class="meta" style="margin-bottom:10px;">
+      Choose up to {{ max_choices }} supervisors and say what order you would
+      like them asked in. The department votes on the whole list at once;
+      after that they are approached <span class="strong">one at a time, in your
+      order</span> — the next is only asked if the one before says no. You end up
+      with at most {{ max_supervisors }} supervisors, one of them your main
+      supervisor.
+    </div>
     <div class="meta" style="margin-bottom:16px;">
-      Give a position to each supervisor you want, 1 being your first choice, and mark one as your preferred main supervisor.
-      You will end up with at most {{ max_supervisors }} supervisors, one of them main.
+      Naming a preferred main supervisor is optional. Name one and they are
+      asked before anyone else; name none and the order below decides, with
+      whoever accepts first becoming your main supervisor.
     </div>
 
     {% if supervisors %}
       <form method="POST" action="/student/supervisors">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        {# Radios cannot be cleared once set, so the group carries its own
+           "none" option — otherwise changing your mind means reloading. #}
+        <label class="card" style="display:flex; gap:8px; align-items:center; margin-bottom:16px; padding:10px 14px; font-size:.78rem;">
+          <input type="radio" name="preferred_main" value=""
+                 {{ old.preferred_main|default('') == '' ? 'checked' : '' }}>
+          No preferred main — ask them in the order I set below
+        </label>
 
         <div class="grid cols-2" style="margin-bottom:20px;">
           {% for s in supervisors %}
@@ -128,16 +155,20 @@
                 {% endif %}
               </div>
 
+              {% set my_rank = old.rank[s.lecturer_id]|default('') %}
               <div style="display:flex; gap:14px; align-items:center; margin-top:12px; flex-wrap:wrap;">
                 <label style="font-size:.78rem; display:flex; gap:6px; align-items:center;">
-                  Position
-                  <select name="rank[{{ s.lecturer_id }}]" style="max-width:80px;">
-                    <option value="">—</option>
-                    {% for i in 1..max_choices %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+                  Ask them
+                  <select name="rank[{{ s.lecturer_id }}]" style="max-width:110px;">
+                    <option value="">not at all</option>
+                    {% for i in 1..max_choices %}
+                      <option value="{{ i }}" {{ my_rank == i ? 'selected' : '' }}>{{ i }}{{ i == 1 ? 'st' : (i == 2 ? 'nd' : (i == 3 ? 'rd' : 'th')) }}</option>
+                    {% endfor %}
                   </select>
                 </label>
                 <label style="font-size:.78rem; display:flex; gap:6px; align-items:center;">
-                  <input type="radio" name="preferred_main" value="{{ s.lecturer_id }}">
+                  <input type="radio" name="preferred_main" value="{{ s.lecturer_id }}"
+                         {{ old.preferred_main|default('') == s.lecturer_id ? 'checked' : '' }}>
                   Preferred main
                 </label>
               </div>
