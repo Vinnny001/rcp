@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\DepartmentHead;
+use App\Models\Lecturer;
 use App\Models\ResearchCoordinator;
+use App\Models\SupervisorProfile;
 use App\Models\SupervisorShortlist;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -40,8 +42,10 @@ class CoordinatorController
         }
 
         $programs = (new ResearchCoordinator($this->db))->programsForUser($_SESSION['user_id']);
-        $shortlists = (new SupervisorShortlist($this->db))
-            ->queueForPrograms(array_column($programs, 'program_id'));
+        $model = new SupervisorShortlist($this->db);
+        // No scheduler: windows that closed unseen are settled here.
+        $model->resolveDue();
+        $shortlists = $model->queueForPrograms(array_column($programs, 'program_id'));
 
         return $this->twig->render($response, 'coordinators/queue.twig', [
             'active_page' => 'l-coordinator',
@@ -61,19 +65,47 @@ class CoordinatorController
         }
 
         $model = new SupervisorShortlist($this->db);
+        $model->resolveDue();
         $shortlist = $model->findWithContext((string) $args['id']);
 
         if (!$shortlist || !$this->coordinates($shortlist['program_id'])) {
-            $_SESSION['flash_error'] = 'That shortlist is not on a program you coordinate.';
+            $_SESSION['flash_error'] = 'That request is not on a program you coordinate.';
             return $this->redirect($response, '/coordinator/shortlists');
         }
 
+        $choices = $model->choicesFor($shortlist['shortlist_id']);
+        $decision = $model->decisionState($shortlist);
+
+        // Who on the list could not be asked if it were sent now, so the
+        // coordinator sees it before pressing Send rather than after.
+        $lecturers = new Lecturer($this->db);
+        foreach ($choices as &$choice) {
+            $choice['has_capacity'] = $lecturers->hasSupervisionCapacity($choice['lecturer_id']);
+        }
+        unset($choice);
+
+        $picked = [];
+        $pickedMain = '';
+        foreach ($choices as $choice) {
+            $picked[$choice['lecturer_id']] = (int) $choice['rank_position'];
+            if ($choice['is_preferred_main']) {
+                $pickedMain = $choice['lecturer_id'];
+            }
+        }
+
         return $this->twig->render($response, 'coordinators/shortlist.twig', [
-            'active_page' => 'l-coordinator',
-            'first_name'  => $_SESSION['first_name'] ?? '',
-            'last_name'   => $_SESSION['last_name'] ?? '',
-            'shortlist'   => $shortlist,
-            'choices'     => $model->choicesFor($shortlist['shortlist_id']),
+            'active_page'   => 'l-coordinator',
+            'first_name'    => $_SESSION['first_name'] ?? '',
+            'last_name'     => $_SESSION['last_name'] ?? '',
+            'shortlist'     => $shortlist,
+            'choices'       => $choices,
+            'decision'      => $decision,
+            'previous'      => $shortlist['previous_shortlist_id'] ? $model->findWithContext($shortlist['previous_shortlist_id']) : null,
+            'supervisors'   => $decision['can_decide'] ? (new SupervisorProfile($this->db))->browsable() : [],
+            'picked'        => $picked,
+            'picked_main'   => $pickedMain,
+            'max_choices'   => SupervisorShortlist::MAX_CHOICES,
+            'response_days' => SupervisorShortlist::RESPONSE_DAYS,
             'voters'      => $shortlist['meeting_id'] ? $model->meetingVoters($shortlist['meeting_id']) : [],
             'tally'       => $shortlist['meeting_id'] ? $model->tally($shortlist['meeting_id']) : null,
             'heads'       => (new DepartmentHead($this->db))->activeForDepartment($shortlist['department_id']),
@@ -462,9 +494,107 @@ class CoordinatorController
             }
 
             return $model->recordOutcome($shortlist['meeting_id']) === 'approved'
-                ? 'Approved. The preferred main supervisor has been sent the request.'
-                : 'Recorded as not approved. The student has been told why and can submit a new shortlist.';
+                ? 'Approved. Nobody has been contacted yet — send the request to the supervisors when you are ready.'
+                : 'Recorded as not approved. It stays on record; decide below what happens next.';
         });
+    }
+
+    /**
+     * Sends an approved request to every supervisor on the list at once.
+     */
+    public function sendRequests(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {
+            $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
+            $result = $model->sendRequests($shortlist['shortlist_id'], $_SESSION['user_id']);
+
+            $message = $result['sent'] . ' supervisor' . ($result['sent'] === 1 ? '' : 's')
+                . ' asked, with ' . SupervisorShortlist::RESPONSE_DAYS . ' days to answer.';
+            if ($result['unavailable'] > 0) {
+                $message .= ' ' . $result['unavailable'] . ' at full supervision load '
+                    . ($result['unavailable'] === 1 ? 'was' : 'were') . ' passed over.';
+            }
+            if ($result['outcome'] === 'exhausted') {
+                $message .= ' Nobody on the list could be asked, so it is recorded as unsuccessful.';
+            }
+
+            return $message;
+        });
+    }
+
+    /**
+     * After a failed request, hands the proposal, the list, or both back
+     * to the student to revise.
+     */
+    public function grantEdit(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {
+            $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
+
+            $model->grantEdit(
+                $shortlist['shortlist_id'],
+                ($data['edit_proposal'] ?? '') === '1',
+                ($data['edit_shortlist'] ?? '') === '1',
+                $_SESSION['user_id']
+            );
+
+            return 'Handed back to the student. Nothing more can happen until they revise and send it.';
+        });
+    }
+
+    /**
+     * After a failed request, the coordinator changes the supervisor list
+     * themselves. The proposal is never theirs to change.
+     */
+    public function reviseList(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/coordinator/shortlists');
+        }
+
+        $model = new SupervisorShortlist($this->db);
+        $back = '/coordinator/shortlists/' . ($data['shortlist_id'] ?? '');
+
+        try {
+            $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
+            $newId = $model->reviseList($shortlist['shortlist_id'], $this->readChoices($data), $_SESSION['user_id']);
+            $_SESSION['flash_success'] = 'Revised list saved as a new request. Schedule a department meeting for it.';
+            $back = '/coordinator/shortlists/' . $newId;
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $this->redirect($response, $back);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<int, array{lecturer_id: string, rank: int, preferred_main: bool}>
+     */
+    private function readChoices(array $data): array
+    {
+        $ranks = is_array($data['rank'] ?? null) ? $data['rank'] : [];
+        $preferred = (string) ($data['preferred_main'] ?? '');
+
+        $choices = [];
+        foreach ($ranks as $lecturerId => $rank) {
+            if (trim((string) $rank) === '') {
+                continue;
+            }
+            $choices[] = [
+                'lecturer_id'    => (string) $lecturerId,
+                'rank'           => (int) $rank,
+                'preferred_main' => (string) $lecturerId === $preferred,
+            ];
+        }
+
+        return $choices;
     }
 
     /**
@@ -477,7 +607,7 @@ class CoordinatorController
     {
         $shortlist = $model->findWithContext($shortlistId);
         if (!$shortlist || !$this->coordinates($shortlist['program_id'])) {
-            throw new \RuntimeException('That shortlist is not on a program you coordinate.');
+            throw new \RuntimeException('That request is not on a program you coordinate.');
         }
 
         return $shortlist;

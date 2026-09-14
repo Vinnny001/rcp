@@ -258,6 +258,29 @@ class Lecturer
         $stmt->execute(['lecturer_id' => $lecturerId]);
     }
 
+    /**
+     * Whether this lecturer can take on one more student.
+     *
+     * The single definition of "full load": a request to a lecturer who
+     * is full is rejected before it is sent, a full lecturer cannot
+     * accept, and an acceptance is not acted on if the load filled up
+     * before the outcome was decided. lecturers.max_supervision_load is
+     * the authoritative limit — it is the one the admin Users page edits.
+     */
+    public function hasSupervisionCapacity(string $lecturerId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT l.max_supervision_load > (
+                        SELECT COUNT(*) FROM supervision_assignments sa
+                        WHERE sa.supervisor_id = l.lecturer_id AND sa.is_active = 1
+                    )
+             FROM lecturers l WHERE l.lecturer_id = :id"
+        );
+        $stmt->execute(['id' => $lecturerId]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
     public function countActiveSupervisions(string $lecturerId): int
     {
         $stmt = $this->db->prepare(

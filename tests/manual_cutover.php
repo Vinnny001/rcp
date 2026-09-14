@@ -142,8 +142,8 @@ echo "\n=== The forms match the rules ===\n";
 $proposalForm = file_get_contents(__DIR__ . '/../src/Views/students/proposal.twig');
 check('the proposal form no longer asks for a supervisor',
     !str_contains($proposalForm, 'name="proposed_supervisor_id"'));
-check('and points the student at their shortlist instead',
-    str_contains($proposalForm, '/student/supervisors'));
+check('supervisors are chosen on the same page and sent with it instead',
+    str_contains($proposalForm, "include 'partials/supervisor_picker.twig'"));
 
 $supervisionPage = file_get_contents(__DIR__ . '/../src/Views/lecturers/supervision.twig');
 check('the lecturer page offers no way to accept a legacy request',

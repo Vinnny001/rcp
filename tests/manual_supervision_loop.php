@@ -5,9 +5,10 @@
  * against the real database and the real templates, wrapped in a
  * transaction that is always rolled back.
  *
- * Student submits -> coordinator convenes -> heads vote -> minutes
- * finalised -> decision applied -> lecturers accept and decline ->
- * supervisors appointed. This is the path a real cohort walks, rather
+ * Student sends -> coordinator convenes -> heads vote -> minutes
+ * finalised and approved -> decision applied -> coordinator sends to
+ * every supervisor at once -> they answer -> supervisors appointed by
+ * the student's order. This is the path a real cohort walks, rather
  * than any single unit of it.
  *
  * Run: php tests/manual_supervision_loop.php
@@ -55,10 +56,12 @@ $dh = new DepartmentHead($pdo);
 $admin   = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
 $student = $pdo->query(
     "SELECT s.student_id, s.user_id FROM students s
-     JOIN thesis_proposals tp ON tp.student_id = s.student_id
-     JOIN student_thesis_registrations str ON str.student_id = s.student_id LIMIT 1"
+     JOIN thesis_proposals tp ON tp.student_id = s.student_id AND tp.status NOT IN ('draft', 'rejected')
+     JOIN student_thesis_registrations str ON str.student_id = s.student_id
+     WHERE NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl WHERE sl.student_id = s.student_id)
+     LIMIT 1"
 )->fetch();
-$proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' LIMIT 1")->fetchColumn();
+$proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' AND status NOT IN ('draft', 'rejected') LIMIT 1")->fetchColumn();
 $program = $pdo->query(
     "SELECT p.program_id, p.department_id FROM programs p
      JOIN thesis_schedules ts ON ts.program_id = p.program_id
@@ -66,7 +69,8 @@ $program = $pdo->query(
      WHERE str.student_id = '{$student['student_id']}' LIMIT 1"
 )->fetch();
 
-$pdo->prepare("DELETE FROM supervision_assignments WHERE proposal_id = ?")->execute([$proposal]);
+// All three places open, so the outcome is decided by this request alone.
+$pdo->prepare("DELETE FROM supervision_assignments WHERE student_id = ?")->execute([$student['student_id']]);
 
 $coordUser = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id LIMIT 1")->fetchColumn();
 $rc->assign($program['program_id'], $coordUser, $admin);
@@ -83,6 +87,13 @@ $lects = $pdo->query(
      JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id
      WHERE l.user_id <> '{$student['user_id']}' LIMIT 4"
 )->fetchAll(PDO::FETCH_COLUMN);
+foreach ($lects as $id) {
+    $pdo->prepare(
+        "UPDATE lecturers SET max_supervision_load =
+            (SELECT COUNT(*) FROM supervision_assignments sa WHERE sa.supervisor_id = lecturers.lecturer_id AND sa.is_active = 1) + 3
+         WHERE lecturer_id = ?"
+    )->execute([$id]);
+}
 
 echo "\n=== Student submits ===\n";
 $sid = $m->submit($student['student_id'], $proposal, [
@@ -105,43 +116,58 @@ $m->saveMinutes($meeting, 'Approved 2-1.', true);
 $m->approveMinutes($meeting, $coordUser);
 check('decision applies', $m->recordOutcome($meeting) === 'approved');
 
+echo "\n=== Sent to everyone at once ===\n";
+check('approval on its own asks nobody',
+    (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlist_choices WHERE shortlist_id='$sid' AND request_status<>'not_sent'")->fetchColumn() === 0);
+$sent = $m->sendRequests($sid, $coordUser);
+check('the coordinator sends it to all four together', $sent['sent'] === 4);
+
+$byRank = $pdo->query(
+    "SELECT rank_position, choice_id, lecturer_id, is_preferred_main FROM supervisor_shortlist_choices
+     WHERE shortlist_id='$sid' ORDER BY rank_position"
+)->fetchAll();
+check('the preferred main picked third sits at number 1', (int) $byRank[0]['is_preferred_main'] === 1);
+
+foreach ($byRank as $c) {
+    $inbox[$c['rank_position']] = $m->pendingForLecturer($c['lecturer_id']);
+}
+check('every lecturer on the list has it in their inbox',
+    count(array_filter($inbox, fn ($i) => count(array_filter($i, fn ($r) => $r['shortlist_id'] === $sid)) === 1)) === 4);
+
 echo "\n=== Lecturer inbox ===\n";
-$firstAsked = $pdo->query(
-    "SELECT c.choice_id, c.lecturer_id, c.is_preferred_main FROM supervisor_shortlist_choices c
-     WHERE c.shortlist_id='$sid' AND c.request_status='pending'"
-)->fetch();
-check('only the preferred main has been approached', (int) $firstAsked['is_preferred_main'] === 1);
-
-$inbox = $m->pendingForLecturer($firstAsked['lecturer_id']);
-check('it shows in that lecturer\'s inbox', count($inbox) === 1);
-
+$mine = array_values(array_filter($inbox[1], fn ($r) => $r['shortlist_id'] === $sid));
 $html = (string) $twig->render(new \Slim\Psr7\Response(), 'lecturers/supervision.twig', [
     'active_page' => 'l-supervision', 'first_name' => 'L', 'staff_number' => 'S1',
-    'students' => [], 'assignment_requests' => [], 'shortlist_requests' => $inbox,
+    'students' => [], 'assignment_requests' => [], 'shortlist_requests' => $mine,
+    'shortlist_answers' => [], 'has_capacity' => true,
     'request_history' => [], 'documents' => [],
     'csrf_token' => 't', 'error' => null, 'success' => null,
 ])->getBody();
 check('the page tells them they are the preferred main', str_contains($html, 'preferred main supervisor'));
-check('and warns that declining passes it on', str_contains($html, 'next supervisor on their approved list'));
+check('and when they must answer by', str_contains($html, 'Answer by'));
+check('and that everyone was asked at once', str_contains($html, 'asked at the same time'));
 check('the empty-state notice is suppressed', !str_contains($html, 'No pending assignment requests'));
 
-echo "\n=== Preferred main declines ===\n";
-$res = $m->respondToRequest($firstAsked['choice_id'], false, 'On sabbatical next semester.', $admin);
-check('the next name is approached automatically', $res['next_contacted'] === true);
+$full = (string) $twig->render(new \Slim\Psr7\Response(), 'lecturers/supervision.twig', [
+    'active_page' => 'l-supervision', 'first_name' => 'L', 'staff_number' => 'S1',
+    'students' => [], 'assignment_requests' => [], 'shortlist_requests' => $mine,
+    'shortlist_answers' => [], 'has_capacity' => false,
+    'request_history' => [], 'documents' => [],
+    'csrf_token' => 't', 'error' => null, 'success' => null,
+])->getBody();
+check('a lecturer at full load sees Accept disabled, with the reason', str_contains($full, 'Your supervision load is full'));
+
+echo "\n=== They answer, in any order ===\n";
+$m->respondToRequest($byRank[3]['choice_id'], true, null);
+$m->respondToRequest($byRank[0]['choice_id'], false, 'On sabbatical next semester.');
+$m->respondToRequest($byRank[2]['choice_id'], true, null);
+check('with number 2 still silent nothing is decided',
+    $pdo->query("SELECT status FROM supervisor_shortlists WHERE shortlist_id='$sid'")->fetchColumn() === 'requests_sent');
+$last = $m->respondToRequest($byRank[1]['choice_id'], true, null);
+check('number 2 answering last settles it', $last['decided'] === 'successful');
+check('and they are main — the highest in the student\'s order who accepted', $last['appointed_as'] === 'main');
 check('with no new meeting scheduled',
     (int) $pdo->query("SELECT COUNT(*) FROM shortlist_meetings WHERE shortlist_id='$sid'")->fetchColumn() === 1);
-
-echo "\n=== Two accept, panel fills ===\n";
-$roles = [];
-for ($i = 0; $i < 3; $i++) {
-    $next = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid' AND request_status='pending'")->fetchColumn();
-    if (!$next) {
-        break;
-    }
-    $roles[] = $m->respondToRequest($next, true, null, $admin)['role'];
-}
-check('the first to accept became main', ($roles[0] ?? null) === 'main', implode(',', $roles));
-check('the rest are co-supervisors', array_slice($roles, 1) === array_fill(0, count($roles) - 1, 'co_supervisor'));
 
 $assignments = $pdo->query("SELECT role, COUNT(*) c FROM supervision_assignments WHERE proposal_id='$proposal' GROUP BY role")->fetchAll();
 $byRole = [];
@@ -151,25 +177,27 @@ foreach ($assignments as $r) {
 check('exactly one main supervisor was appointed', ($byRole['main'] ?? 0) === 1, json_encode($byRole));
 check('three supervisors in total', array_sum($byRole) === 3);
 check('the declined lecturer was not appointed',
-    (int) $pdo->query("SELECT COUNT(*) FROM supervision_assignments WHERE proposal_id='$proposal' AND supervisor_id='{$firstAsked['lecturer_id']}'")->fetchColumn() === 0);
+    (int) $pdo->query("SELECT COUNT(*) FROM supervision_assignments WHERE proposal_id='$proposal' AND supervisor_id='{$byRank[0]['lecturer_id']}'")->fetchColumn() === 0);
 
 echo "\n=== What the student now sees ===\n";
-$choices = $m->choicesFor($sid);
-$statuses = array_count_values(array_column($choices, 'request_status'));
-check('the student sees one declined and three accepted',
-    ($statuses['declined'] ?? 0) === 1 && ($statuses['accepted'] ?? 0) === 3, json_encode($statuses));
+$proposalRow = $pdo->query("SELECT * FROM thesis_proposals WHERE proposal_id = '$proposal'")->fetch();
+$state = $m->studentState($student['student_id'], $proposalRow);
+$latest = $state['latest'];
+$roles = $pdo->query("SELECT supervisor_id, role FROM supervision_assignments WHERE proposal_id = '$proposal' AND is_active = 1")->fetchAll(PDO::FETCH_KEY_PAIR);
 
-$studentHtml = (string) $twig->render(new \Slim\Psr7\Response(), 'students/supervisors.twig', [
-    'active_page' => 'supervisors', 'first_name' => 'S', 'student_number' => 'X',
-    'proposal' => ['proposal_id' => $proposal, 'status' => 'submitted'],
-    'proposal_submitted' => true, 'old' => [],
-    'shortlist' => $m->findActiveForStudent($student['student_id']),
-    'choices' => $choices, 'supervisors' => [], 'can_resubmit' => false,
-    'max_choices' => 5, 'max_supervisors' => 3,
-    'csrf_token' => 't', 'error' => null, 'success' => null,
+$studentHtml = (string) $twig->render(new \Slim\Psr7\Response(), 'students/proposal.twig', [
+    'active_page' => 'proposal', 'first_name' => 'S', 'student_number' => 'X',
+    'profile_complete' => true, 'has_thesis_registration' => true,
+    'proposal' => $proposalRow, 'synopsis_doc' => null, 'proposal_doc' => null,
+    'state' => $state, 'latest' => $latest, 'latest_choices' => $m->choicesFor($latest['shortlist_id']),
+    'appointed_roles' => $roles, 'history' => [], 'supervisors' => [], 'picked' => [], 'picked_main' => '',
+    'max_choices' => 5, 'max_supervisors' => 3, 'response_days' => 14,
+    'csrf_token' => 't', 'error' => null, 'success' => null, 'old' => [],
 ])->getBody();
-check('their tracker shows the decline reason', str_contains($studentHtml, 'On sabbatical next semester.'));
-check('and shows the accepted supervisors', str_contains($studentHtml, 'Accepted'));
+check('their page reports supervisors appointed', str_contains($studentHtml, 'Supervisors appointed'));
+check('it shows the decline reason', str_contains($studentHtml, 'On sabbatical next semester.'));
+check('and who is main', str_contains($studentHtml, 'main supervisor'));
+check('and nothing is left to edit', !str_contains($studentHtml, 'id="proposalForm"'));
 
 $pdo->rollBack();
 

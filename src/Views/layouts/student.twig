@@ -41,21 +41,20 @@
           <span class="num">!</span>Complete Your Profile
         </a>
       {% elseif has_thesis_registration %}
-        <a class="tab {% if active_page == 'proposal' %}active{% endif %}" href="/student/proposal"><span class="num">02</span>Thesis Proposal</a>
-        <a class="tab {% if active_page == 'supervisors' %}active{% endif %}" href="/student/supervisors"><span class="num">03</span>Supervisors</a>
-        <a class="tab {% if active_page == 'thesis' %}active{% endif %}" href="/student/thesis"><span class="num">04</span>Thesis Fees</a>
-                <a class="tab {% if active_page == 'requirements' %}active{% endif %}" href="/student/requirements"><span class="num">05</span>Requirements</a>
-        <a class="tab {% if active_page == 'documents' %}active{% endif %}" href="/student/documents"><span class="num">06</span>My Documents</a>
-        <a class="tab {% if active_page == 'meetings' %}active{% endif %}" href="/student/meetings"><span class="num">07</span>Meetings</a>
-        <a class="tab {% if active_page == 'exam' %}active{% endif %}" href="/student/exam"><span class="num">08</span>Exam &amp; Graduation</a>
-        <a class="tab {% if active_page == 'outcomes' %}active{% endif %}" href="/student/outcomes"><span class="num">09</span>My Results</a>
+        <a class="tab {% if active_page == 'proposal' %}active{% endif %}" href="/student/proposal"><span class="num">02</span>Proposal &amp; Supervisors</a>
+        <a class="tab {% if active_page == 'thesis' %}active{% endif %}" href="/student/thesis"><span class="num">03</span>Thesis Fees</a>
+        <a class="tab {% if active_page == 'requirements' %}active{% endif %}" href="/student/requirements"><span class="num">04</span>Requirements</a>
+        <a class="tab {% if active_page == 'documents' %}active{% endif %}" href="/student/documents"><span class="num">05</span>My Documents</a>
+        <a class="tab {% if active_page == 'meetings' %}active{% endif %}" href="/student/meetings"><span class="num">06</span>Meetings</a>
+        <a class="tab {% if active_page == 'exam' %}active{% endif %}" href="/student/exam"><span class="num">07</span>Exam &amp; Graduation</a>
+        <a class="tab {% if active_page == 'outcomes' %}active{% endif %}" href="/student/outcomes"><span class="num">08</span>My Results</a>
         <a class="tab {% if active_page == 'notifications' %}active{% endif %}" href="/student/notifications">
-          <span class="num">10</span>Notifications
+          <span class="num">09</span>Notifications
           {% if unread_notifications_count > 0 %}
             <span style="display:inline-block; min-width:16px; padding:1px 5px; margin-left:6px; border-radius:9px; background:#b3492a; color:#fff; font-size:.65rem; text-align:center; line-height:1.3;">{{ unread_notifications_count }}</span>
           {% endif %}
         </a>
-        <a class="tab {% if active_page == 'profile' %}active{% endif %}" href="/student/profile"><span class="num">11</span>Profile</a>
+        <a class="tab {% if active_page == 'profile' %}active{% endif %}" href="/student/profile"><span class="num">10</span>Profile</a>
       {% else %}
         <a class="tab {% if active_page == 'thesis_register' %}active{% endif %}" href="/student/thesis/register" style="color: var(--brass-deep);">
           <span class="num">!</span>Register for Thesis

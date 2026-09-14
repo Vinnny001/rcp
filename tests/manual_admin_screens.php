@@ -202,14 +202,18 @@ check('the interests reach the student browse page',
     $mine !== null && str_contains((string) $mine['research_interests'], 'Distributed systems'));
 check('and so does the link', $mine !== null && count($mine['links']) === 1);
 
-$studentHtml = (string) $twig->render(new \Slim\Psr7\Response(), 'students/supervisors.twig', [
-    'active_page' => 'supervisors', 'first_name' => 'S', 'student_number' => 'X',
-    'proposal' => ['proposal_id' => 'p', 'status' => 'submitted'],
-    'proposal_submitted' => true,
-    'old' => [],
-    'shortlist' => null, 'choices' => [], 'supervisors' => $profiles, 'can_resubmit' => true,
-    'max_choices' => 5, 'max_supervisors' => 3,
-    'csrf_token' => 't', 'error' => null, 'success' => null,
+// The page a student chooses supervisors on, in the state where the
+// list is theirs to build: the profiles open from there.
+$studentHtml = (string) $twig->render(new \Slim\Psr7\Response(), 'students/proposal.twig', [
+    'active_page' => 'proposal', 'first_name' => 'S', 'student_number' => 'X',
+    'proposal' => ['proposal_id' => 'p', 'status' => 'submitted', 'title' => 'T', 'synopsis' => 'S', 'submission_date' => null],
+    'synopsis_doc' => null, 'proposal_doc' => null,
+    'state' => ['latest' => null, 'draft' => null, 'proposal_editable' => false,
+                'list_editable' => true, 'can_send' => true, 'waiting_on' => 'student'],
+    'latest' => null, 'latest_choices' => [], 'appointed_roles' => [], 'history' => [],
+    'supervisors' => $profiles, 'picked' => [], 'picked_main' => '',
+    'max_choices' => 5, 'max_supervisors' => 3, 'response_days' => 14,
+    'old' => [], 'csrf_token' => 't', 'error' => null, 'success' => null,
 ])->getBody();
 check('a student actually sees the interests', str_contains($studentHtml, 'Distributed systems'));
 check('and the link is clickable', str_contains($studentHtml, 'scholar.google.com'));

@@ -345,6 +345,55 @@ $rubrics = visit('/admin/rubrics', 'admin', $admin);
 visit('/admin/audit', 'admin', $admin);
 visit('/admin/fee-rates', 'admin', $admin);
 
+echo "\n--- supervisor requests, through the real controllers ---\n";
+// The proposal page for every student with a registration, whatever
+// state their request is in — each state renders a different branch.
+foreach ($pdo->query(
+    "SELECT DISTINCT u.user_id, u.first_name, u.last_name
+     FROM users u
+     JOIN students s ON s.user_id = u.user_id AND s.student_number IS NOT NULL AND s.student_email IS NOT NULL
+     JOIN student_thesis_registrations str ON str.student_id = s.student_id AND str.status = 'active'"
+)->fetchAll(PDO::FETCH_ASSOC) as $proposalStudent) {
+    visit('/student/proposal', 'student', $proposalStudent);
+}
+visit('/student/supervisors', 'student', $student);
+
+$coordinatorUser = $pdo->query(
+    "SELECT u.user_id, u.first_name, u.last_name FROM users u
+     JOIN research_coordinators rc ON rc.user_id = u.user_id LIMIT 1"
+)->fetch(PDO::FETCH_ASSOC);
+
+if ($coordinatorUser) {
+    $queuePage = visit('/coordinator/shortlists', 'lecturer', $coordinatorUser);
+    foreach ($pdo->query(
+        "SELECT sl.shortlist_id FROM supervisor_shortlists sl
+         JOIN student_thesis_registrations str ON str.student_id = sl.student_id
+         JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+         JOIN research_coordinators rc ON rc.program_id = ts.program_id
+         WHERE rc.user_id = " . $pdo->quote($coordinatorUser['user_id']) . " AND sl.status <> 'draft'"
+    )->fetchAll(PDO::FETCH_COLUMN) as $requestId) {
+        visit('/coordinator/shortlists/' . $requestId, 'lecturer', $coordinatorUser);
+    }
+} else {
+    echo "  SKIP  no research coordinator on file\n";
+}
+
+$askedLecturer = $pdo->query(
+    "SELECT u.user_id, u.first_name, u.last_name FROM users u
+     JOIN lecturers l ON l.user_id = u.user_id
+     JOIN supervisor_shortlist_choices c ON c.lecturer_id = l.lecturer_id AND c.request_status = 'pending'
+     LIMIT 1"
+)->fetch(PDO::FETCH_ASSOC);
+
+if ($askedLecturer) {
+    $inboxPage = visit('/lecturer/supervision', 'lecturer', $askedLecturer);
+    if ($inboxPage) {
+        assertThat('a lecturer holding a request sees when to answer by', str_contains($inboxPage, 'Answer by'));
+    }
+} else {
+    echo "  SKIP  no lecturer holding a request\n";
+}
+
 if ($examSchedules) {
     // Without this picker no window can be tied to a stage, and a
     // window with no stage is invisible to every student.

@@ -38,7 +38,10 @@ class SupervisorProfile
                     d.name AS department_name,
                     il.specialization,
                     il.research_interests,
-                    COALESCE(il.max_supervision_load, l.max_supervision_load) AS max_load,
+                    -- The same limit Lecturer::hasSupervisionCapacity()
+                    -- enforces, so at capacity here means what it means
+                    -- when the request is sent.
+                    l.max_supervision_load AS max_load,
                     l.is_available,
                     (SELECT COUNT(*) FROM supervision_assignments sa
                       WHERE sa.supervisor_id = l.lecturer_id AND sa.is_active = 1) AS current_load

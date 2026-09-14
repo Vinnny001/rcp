@@ -52,6 +52,18 @@
 
 <div class="section-title">Assignment requests<div class="rule"></div></div>
 
+{% if shortlist_requests %}
+  <div class="meta" style="margin-bottom:14px;">
+    Every supervisor on a student's list is asked at the same time. If more accept than the student has places for,
+    the student's own order decides who is appointed — not who answered first. Your answer is final.
+  </div>
+  {% if not has_capacity %}
+    <div class="notice" style="margin-bottom:14px; border-left-color: var(--rust); background:#f6eae7;">
+      Your supervision load is full, so you cannot accept new students. You can still decline, so the student is not left waiting.
+    </div>
+  {% endif %}
+{% endif %}
+
 {% for r in shortlist_requests %}
   <div class="card" style="margin-bottom:14px;">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
@@ -60,11 +72,14 @@
         <div class="meta">"{{ r.proposal_title }}"</div>
         <div class="meta" style="margin-top:6px;">
           {% if r.is_preferred_main %}
-            You are their <span class="strong">preferred main supervisor</span>.
+            You are their <span class="strong">preferred main supervisor</span>, number 1 of {{ r.choice_count }}.
           {% else %}
-            They have you at <span class="strong">position {{ r.rank_position }}</span> for co-supervision.
+            You are <span class="strong">number {{ r.rank_position }} of {{ r.choice_count }}</span> on their list.
           {% endif %}
-          Approved by the department — asked {{ r.sent_at|date('d M Y') }}.
+          Approved by the department, asked {{ r.sent_at|date('d M Y') }}.
+        </div>
+        <div class="meta" style="margin-top:4px;">
+          Answer by <span class="strong">{{ r.responses_due_at|date('d M Y') }}</span>.
         </div>
       </div>
       <div style="display:flex; gap:10px;">
@@ -73,7 +88,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="choice_id" value="{{ r.choice_id }}">
           <input type="hidden" name="decision" value="accept">
-          <button type="submit" class="btn brass">Accept</button>
+          <button type="submit" class="btn brass" {{ has_capacity ? '' : 'disabled title="Your supervision load is full"' }}>Accept</button>
         </form>
       </div>
     </div>
@@ -87,7 +102,7 @@
       <div class="sub">{{ r.student_name }} — "{{ r.proposal_title }}"</div>
 
       <div class="notice" style="margin:14px 0;">
-        The student will not need another department meeting — the next supervisor on their approved list is asked automatically.
+        Your answer is final. The other supervisors on the student's list were asked at the same time, so declining does not hold anyone else up.
       </div>
 
       <form method="POST" action="/lecturer/supervision/shortlist-response">
@@ -149,6 +164,37 @@
   {% endfor %}
 {% elseif not shortlist_requests %}
   <div class="notice">No pending assignment requests.</div>
+{% endif %}
+
+{% if shortlist_answers %}
+  <div class="section-title" style="margin-top:26px;">What became of your answers<div class="rule"></div></div>
+  <table style="margin-bottom:32px;">
+    <thead><tr><th>Student</th><th>Proposal</th><th>Outcome for you</th><th>Date</th></tr></thead>
+    <tbody>
+      {% for a in shortlist_answers %}
+        <tr>
+          <td class="strong">{{ a.student_name }}</td>
+          <td>{{ a.proposal_title }}</td>
+          <td>
+            {% if a.appointed %}
+              <span class="stamp mini approved">Appointed</span>
+            {% elseif a.request_status == 'accepted' %}
+              <span class="stamp mini pending">Accepted — outcome not decided yet</span>
+            {% elseif a.request_status == 'declined' %}
+              <span class="stamp mini rejected">You declined</span>
+            {% elseif a.request_status == 'cancelled' %}
+              <span class="meta">Not needed — their higher choices filled the places</span>
+            {% elseif a.request_status == 'expired' %}
+              <span class="meta">No answer before the deadline</span>
+            {% else %}
+              <span class="meta">Passed over — your load was full</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ a.decided_at ? a.decided_at|date('d M Y') : '—' }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endif %}
 
 {% if request_history %}

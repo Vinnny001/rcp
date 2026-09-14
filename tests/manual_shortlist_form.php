@@ -1,12 +1,19 @@
 <?php
 
 /**
- * The shortlist form as a student meets it.
+ * The proposal and supervisor form as a student meets it.
  *
- *   - a draft proposal is not something the department can act on, so
- *     it carries no shortlist
+ *   - the proposal and its supervisor list are written on one page and
+ *     sent together; once sent, nothing on it is editable
+ *   - when only part is handed back after a failed request, only that
+ *     part is editable
  *   - the order is a list they arrange, not a number they type
- *   - naming a preferred main is optional, and undoable
+ *   - lecturer profiles open on demand instead of filling the page
+ *   - naming a preferred main is optional, undoable, and puts them first
+ *   - a refused attempt keeps what was picked
+ *
+ * Renders the real template with the state the model works out, inside
+ * a rolled-back transaction.
  *
  * Run: php tests/manual_shortlist_form.php
  */
@@ -54,173 +61,144 @@ function throws(callable $fn): ?string
     }
 }
 
-function render(\Slim\Views\Twig $twig, array $extra): string
-{
-    return (string) $twig->render(new \Slim\Psr7\Response(), 'students/supervisors.twig', array_merge([
-        'active_page' => 'supervisors', 'first_name' => 'S', 'student_number' => 'X',
-        'proposal' => null, 'proposal_submitted' => false,
-        'shortlist' => null, 'choices' => [], 'supervisors' => [], 'can_resubmit' => true,
-        'max_choices' => SupervisorShortlist::MAX_CHOICES,
-        'max_supervisors' => SupervisorShortlist::MAX_SUPERVISORS,
-        'old' => [], 'csrf_token' => 't', 'error' => null, 'success' => null,
-    ], $extra))->getBody();
-}
-
 $pdo->beginTransaction();
 
+$model = new SupervisorShortlist($pdo);
 $profiles = (new SupervisorProfile($pdo))->browsable();
 
-echo "\n=== A draft proposal carries no shortlist ===\n";
-
-check('a draft does not count as submitted', !Proposal::isSubmitted(['status' => 'draft']));
-check('a submitted one does', Proposal::isSubmitted(['status' => 'submitted']));
-check('so does one under review', Proposal::isSubmitted(['status' => 'under_review']));
-check('and no proposal at all is not submitted', !Proposal::isSubmitted(null));
-
-$draftPage = render($twig, [
-    'proposal' => ['proposal_id' => 'p', 'status' => 'draft'],
-    'proposal_submitted' => false,
-    'supervisors' => $profiles,
-]);
-check('a student with only a draft is offered no supervisors to pick',
-    !str_contains($draftPage, 'js-add'));
-check('and is told to submit the proposal first',
-    str_contains($draftPage, 'still a draft') && str_contains($draftPage, '/student/proposal'));
-
-$noProposalPage = render($twig, ['proposal' => null, 'proposal_submitted' => false]);
-check('a student with no proposal gets the other message',
-    str_contains($noProposalPage, 'Write your thesis proposal'));
-
-$livePage = render($twig, [
-    'proposal' => ['proposal_id' => 'p', 'status' => 'submitted'],
-    'proposal_submitted' => true,
-    'supervisors' => $profiles,
-]);
-check('once submitted, the form appears', str_contains($livePage, 'js-add'));
-
-echo "\n=== Ordering is a list you arrange, not a number you type ===\n";
-
-check('the page says they are asked one at a time in the student\'s order',
-    str_contains($livePage, 'one at a time, in your'));
-// Nobody types or picks a position, so two supervisors sharing one is
-// not something a student can express in the first place.
-check('no position is typed or picked anywhere',
-    !str_contains($livePage, 'name="rank[') && !str_contains($livePage, '>1st<'));
-check('the chosen list is what carries the order',
-    str_contains($livePage, 'id="chosenList"'));
-check('and it can be dragged or nudged with arrows',
-    str_contains($livePage, 'draggable') && str_contains($livePage, 'Move up'));
-check('supervisors are added to it rather than ranked in place',
-    str_contains($livePage, 'Add to shortlist'));
-
-echo "\n=== Profiles open on demand, not inline ===\n";
-
-check('each card offers a profile to open',
-    str_contains($livePage, 'data-profile="' . $profiles[0]['lecturer_id'] . '"'));
-check('the profile dialog carries the long detail instead',
-    str_contains($livePage, 'id="profile-' . $profiles[0]['lecturer_id'] . '"')
-    && str_contains($livePage, 'Research interests'));
-check('and a supervisor can be added straight from it',
-    str_contains($livePage, 'js-add-from-profile'));
-
-echo "\n=== Preferred main is optional and undoable ===\n";
-
-check('the page says naming one is optional', str_contains($livePage, 'optional'));
-check('there is a way back to no preference',
-    str_contains($livePage, 'id="noPreferred"'));
-check('and it is the state the form opens in',
-    (bool) preg_match('/id="noPreferred"[^>]*checked/', $livePage));
-
 $student = $pdo->query(
-    "SELECT s.student_id, s.user_id FROM students s
-     JOIN thesis_proposals tp ON tp.student_id = s.student_id LIMIT 1"
+    "SELECT s.student_id, s.user_id, tp.proposal_id FROM students s
+     JOIN thesis_proposals tp ON tp.student_id = s.student_id AND tp.status NOT IN ('draft', 'rejected')
+     WHERE NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl WHERE sl.student_id = s.student_id)
+     LIMIT 1"
 )->fetch();
-$proposalId = $pdo->query(
-    "SELECT proposal_id FROM thesis_proposals WHERE student_id = " . $pdo->quote($student['student_id']) . " LIMIT 1"
-)->fetchColumn();
+$proposalRow = fn (): array => $pdo->query(
+    "SELECT * FROM thesis_proposals WHERE proposal_id = " . $pdo->quote($student['proposal_id'])
+)->fetch();
 $lects = $pdo->query(
     "SELECT lecturer_id FROM lecturers WHERE user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 3"
 )->fetchAll(PDO::FETCH_COLUMN);
 
-$model = new SupervisorShortlist($pdo);
+/**
+ * The page exactly as the controller would render it for this student
+ * right now, with anything in $extra laid over the top.
+ */
+$page = function (array $extra = []) use ($twig, $model, $profiles, $student, $proposalRow): string {
+    $proposal = $proposalRow();
+    $state = $model->studentState($student['student_id'], $proposal);
+    $latest = $state['latest'];
 
-$err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
-    ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => false],
-    ['lecturer_id' => $lects[1], 'rank' => 2, 'preferred_main' => false],
-]));
-check('a shortlist with no preferred main is accepted', $err === null, $err ?? '');
+    return (string) $twig->render(new \Slim\Psr7\Response(), 'students/proposal.twig', array_merge([
+        'active_page' => 'proposal', 'first_name' => 'S', 'student_number' => 'X',
+        'proposal' => $proposal, 'synopsis_doc' => null, 'proposal_doc' => null,
+        'state' => $state, 'latest' => $latest,
+        'latest_choices' => $latest ? $model->choicesFor($latest['shortlist_id']) : [],
+        'appointed_roles' => [], 'history' => [],
+        'supervisors' => $state['list_editable'] ? $profiles : [],
+        'picked' => [], 'picked_main' => '',
+        'max_choices' => SupervisorShortlist::MAX_CHOICES,
+        'max_supervisors' => SupervisorShortlist::MAX_SUPERVISORS,
+        'response_days' => SupervisorShortlist::RESPONSE_DAYS,
+        'old' => [], 'csrf_token' => 't', 'error' => null, 'success' => null,
+    ], $extra))->getBody();
+};
 
-// The whole point of allowing it: the order still decides who is asked.
-$sid = $model->findActiveForStudent($student['student_id'])['shortlist_id'];
-$pdo->prepare("UPDATE supervisor_shortlists SET status = 'approved' WHERE shortlist_id = ?")->execute([$sid]);
-$contacted = $model->contactNext($sid);
-$first = $pdo->query(
-    "SELECT lecturer_id, rank_position FROM supervisor_shortlist_choices
-     WHERE choice_id = " . $pdo->quote((string) $contacted)
-)->fetch();
-check('and the first name on the list is the one approached',
-    $first && $first['lecturer_id'] === $lects[0], 'rank ' . ($first['rank_position'] ?? '?'));
+echo "\n=== Written together on one page ===\n";
 
-$err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
-    ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => true],
-    ['lecturer_id' => $lects[1], 'rank' => 2, 'preferred_main' => true],
-]));
-check('two preferred mains is still refused', $err !== null, $err ?? 'no exception');
+check('a draft does not count as submitted', !Proposal::isSubmitted(['status' => 'draft']));
+check('a submitted one does', Proposal::isSubmitted(['status' => 'submitted']));
 
-$err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
-    ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => true],
-]));
-check('and naming exactly one still works', $err === null, $err ?? '');
+$pdo->prepare("UPDATE thesis_proposals SET status = 'draft' WHERE proposal_id = ?")->execute([$student['proposal_id']]);
+$draftPage = $page();
+check('a draft proposal can be edited', str_contains($draftPage, 'name="title"') && str_contains($draftPage, 'name="synopsis"'));
+check('and the supervisor list is built right beside it', str_contains($draftPage, 'id="chosenList"'));
+check('both inside the same form', (bool) preg_match('/id="proposalForm".*id="chosenList".*<\/form>/s', $draftPage));
+check('with one button that sends both', str_contains($draftPage, 'Send proposal and request'));
+check('and the page says sending locks both', str_contains($draftPage, 'Sending locks both'));
 
-echo "\n=== A preferred main is asked first, wherever they were dropped ===\n";
+echo "\n=== The order is a list you arrange ===\n";
 
-// Marked preferred but dragged to the bottom. They are approached
-// before anyone else regardless, so storing them at rank 4 would leave
-// the student's tracker showing "#4" against the person asked first.
-$err = throws(fn() => $model->submit($student['student_id'], $proposalId, [
+check('everyone is said to be asked at the same time', str_contains($draftPage, 'all of them are asked at the same time'));
+check('and the order is what decides who is appointed', str_contains($draftPage, 'your order decides who'));
+check('no position is typed or picked anywhere',
+    !str_contains($draftPage, 'name="rank[') && !str_contains($draftPage, '>1st<'));
+check('the list can be dragged or nudged with arrows',
+    str_contains($draftPage, 'draggable') && str_contains($draftPage, 'Move up'));
+
+echo "\n=== Profiles open on demand, not inline ===\n";
+
+check('each card offers a profile to open',
+    str_contains($draftPage, 'data-profile="' . $profiles[0]['lecturer_id'] . '"'));
+check('the profile dialog carries the long detail',
+    str_contains($draftPage, 'id="profile-' . $profiles[0]['lecturer_id'] . '"')
+    && str_contains($draftPage, 'Research interests'));
+check('and a supervisor can be added straight from it', str_contains($draftPage, 'js-add-from-profile'));
+check('the dialogs sit outside the form, so their buttons cannot submit it',
+    strpos($draftPage, 'id="profile-') > strpos($draftPage, '</form>'));
+
+echo "\n=== Preferred main ===\n";
+
+check('naming one is optional', str_contains($draftPage, 'optional'));
+check('there is a way back to no preference', str_contains($draftPage, 'id="noPreferred"'));
+check('and it is the state the form opens in', (bool) preg_match('/id="noPreferred"[^>]*checked/', $draftPage));
+
+$pdo->prepare("UPDATE thesis_proposals SET status = 'submitted' WHERE proposal_id = ?")->execute([$student['proposal_id']]);
+$sid = $model->sendForStudent($student['student_id'], $proposalRow(), [
     ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => false],
     ['lecturer_id' => $lects[1], 'rank' => 2, 'preferred_main' => false],
     ['lecturer_id' => $lects[2], 'rank' => 3, 'preferred_main' => true],
-]));
-check('a preferred main placed last is accepted', $err === null, $err ?? '');
-
-$sid2 = $model->findActiveForStudent($student['student_id'])['shortlist_id'];
-$ordered = $model->choicesFor($sid2);
-usort($ordered, fn($a, $b) => $a['rank_position'] <=> $b['rank_position']);
-
-check('they are stored at position 1, not where they were dropped',
-    $ordered[0]['lecturer_id'] === $lects[2] && (int) $ordered[0]['rank_position'] === 1,
-    'rank ' . $ordered[0]['rank_position']);
-check('and everyone else keeps their relative order behind them',
+], $student['user_id']);
+$ordered = $model->choicesFor($sid);
+check('a preferred main dropped last is stored at number 1', $ordered[0]['lecturer_id'] === $lects[2]);
+check('everyone else keeps their order behind them',
     $ordered[1]['lecturer_id'] === $lects[0] && $ordered[2]['lecturer_id'] === $lects[1]);
-check('positions are a clean 1..n with no gaps or ties',
-    array_map(fn($c) => (int) $c['rank_position'], $ordered) === [1, 2, 3]);
 
-// The stored order and the asked order are now the same thing.
-$pdo->prepare("UPDATE supervisor_shortlists SET status = 'approved' WHERE shortlist_id = ?")->execute([$sid2]);
-$firstAsked = $pdo->query(
-    "SELECT lecturer_id FROM supervisor_shortlist_choices WHERE choice_id = "
-    . $pdo->quote((string) $model->contactNext($sid2))
-)->fetchColumn();
-check('and the one approached first is that same preferred main',
-    $firstAsked === $lects[2]);
+echo "\n=== Once sent, nothing is editable ===\n";
 
-check('the picker explains that naming one moves them to the top',
-    str_contains($livePage, 'move') && str_contains($livePage, 'top of your list'));
+$sentPage = $page();
+check('no proposal fields', !str_contains($sentPage, 'name="title"'));
+check('no supervisor picker', !str_contains($sentPage, 'id="chosenList"'));
+check('no send button', !str_contains($sentPage, 'Send proposal and request'));
+check('the student sees it is with the coordinator', str_contains($sentPage, 'With your research coordinator'));
+check('and the list they sent, in order', str_contains($sentPage, 'your preferred main'));
+
+echo "\n=== Handed back in part ===\n";
+
+$pdo->prepare("UPDATE supervisor_shortlists SET status = 'rejected', rejection_reason = 'Scope too wide.' WHERE shortlist_id = ?")->execute([$sid]);
+$coordinator = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
+$pdo->exec('SAVEPOINT rejected');
+
+$model->grantEdit($sid, false, true, $coordinator);
+$listOnly = $page();
+check('with only the list handed back, the picker is there', str_contains($listOnly, 'id="chosenList"'));
+check('but the proposal is not editable', !str_contains($listOnly, 'name="title"'));
+check('and the student is told why it failed', str_contains($listOnly, 'Scope too wide.'));
+
+$pdo->exec('ROLLBACK TO SAVEPOINT rejected');
+$model->grantEdit($sid, true, false, $coordinator);
+$proposalOnly = $page();
+check('with only the proposal handed back, it is editable', str_contains($proposalOnly, 'name="title"'));
+check('but the list is not', !str_contains($proposalOnly, 'id="chosenList"'));
+check('and the page says the list goes out again unchanged', str_contains($proposalOnly, 'goes out again unchanged'));
+
+$pdo->exec('ROLLBACK TO SAVEPOINT rejected');
+$waiting = $page();
+check('with nothing handed back, the student can only wait', !str_contains($waiting, 'id="proposalForm"'));
+check('and is told the coordinator decides', str_contains($waiting, 'coordinator decides what happens next'));
 
 echo "\n=== A refused attempt keeps what was picked ===\n";
 
-$retry = render($twig, [
-    'proposal' => ['proposal_id' => 'p', 'status' => 'submitted'],
-    'proposal_submitted' => true,
-    'supervisors' => $profiles,
-    'error' => 'Each supervisor needs a different position in your ranking.',
-    'old' => ['rank' => [$profiles[0]['lecturer_id'] => 2], 'preferred_main' => $profiles[0]['lecturer_id']],
+$pdo->prepare("UPDATE thesis_proposals SET status = 'draft' WHERE proposal_id = ?")->execute([$student['proposal_id']]);
+$pdo->prepare("DELETE FROM supervisor_shortlists WHERE student_id = ?")->execute([$student['student_id']]);
+$retry = $page([
+    'error'       => 'Choose at least one supervisor to send with your proposal.',
+    'picked'      => [$profiles[0]['lecturer_id'] => 2],
+    'picked_main' => $profiles[0]['lecturer_id'],
 ]);
 check('the supervisor they picked comes back with its place in the order',
     (bool) preg_match('/data-id="' . preg_quote($profiles[0]['lecturer_id'], '/') . '"[^>]*data-rank="2"/s', $retry));
 check('and their preferred main is restored too',
-    str_contains($retry, 'value="' . $profiles[0]['lecturer_id'] . '"'));
+    (bool) preg_match('/data-id="' . preg_quote($profiles[0]['lecturer_id'], '/') . '"[^>]*data-main="1"/s', $retry));
 check('so the no-preference option is no longer the checked one',
     !preg_match('/id="noPreferred"[^>]*checked/', $retry));
 

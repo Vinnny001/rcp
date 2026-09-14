@@ -298,8 +298,8 @@ LecturerThesesController::class => function (ContainerInterface $c) {
     return new \App\Controllers\LecturerChatController($c->get(PDO::class), $c->get(Twig::class));
 },
 
-\App\Controllers\StudentSupervisorsController::class => function (ContainerInterface $c) {
-    return new \App\Controllers\StudentSupervisorsController($c->get(PDO::class), $c->get(Twig::class));
+\App\Controllers\StudentSupervisorsController::class => function () {
+    return new \App\Controllers\StudentSupervisorsController();
 },
 
 \App\Controllers\CoordinatorController::class => function (ContainerInterface $c) {

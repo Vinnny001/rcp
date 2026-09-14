@@ -1,6 +1,6 @@
 {% extends 'layouts/lecturer.twig' %}
 
-{% block title %}Shortlist Review{% endblock %}
+{% block title %}Supervisor Request{% endblock %}
 
 {% block content %}
 
@@ -9,7 +9,7 @@
     <h1>{{ shortlist.student_name }}</h1>
     <div class="sub">{{ shortlist.proposal_title }} · {{ shortlist.program_name }}</div>
   </div>
-  <div class="ref mono">{{ shortlist.student_number }}</div>
+  <div class="ref mono">REQ-{{ shortlist.shortlist_id|slice(0, 8)|upper }}</div>
 </div>
 
 {% if success %}
@@ -19,16 +19,55 @@
   <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
-<div class="section-title">The shortlist<div class="rule"></div></div>
+{% if previous %}
+  <div class="meta" style="margin-bottom:14px;">
+    Follows <a href="/coordinator/shortlists/{{ previous.shortlist_id }}">REQ-{{ previous.shortlist_id|slice(0, 8)|upper }}</a>,
+    which was {{ previous.status == 'rejected' ? 'not approved by the department' : 'unsuccessful — nobody was appointed' }}.
+    {{ previous.edit_granted_at ? 'The student revised and resent it.' : 'You revised the supervisor list.' }}
+  </div>
+{% endif %}
+
+<div class="section-title">Proposal as sent<div class="rule"></div></div>
+<div class="card" style="margin-bottom:22px;">
+  <h3>{{ shortlist.proposal_title }}</h3>
+  {% if shortlist.synopsis %}<p style="font-size:.86rem; line-height:1.6; color:#39332a;">{{ shortlist.synopsis }}</p>{% endif %}
+  <div class="meta">Sent {{ (shortlist.submitted_at ?: shortlist.created_at)|date('d M Y') }}. Locked — nobody can change it while this request stands.</div>
+</div>
+
+<div class="section-title">Supervisors, in the student's order<div class="rule"></div></div>
 <table style="margin-bottom:28px;">
-  <thead><tr><th>#</th><th>Supervisor</th><th>Requested as</th><th>Status</th></tr></thead>
+  <thead><tr><th>#</th><th>Supervisor</th><th>Status</th></tr></thead>
   <tbody>
     {% for c in choices %}
       <tr>
         <td class="mono">{{ c.rank_position }}</td>
-        <td class="strong">{{ c.lecturer_name }}</td>
-        <td>{{ c.is_preferred_main ? 'Preferred main' : 'Co-supervisor' }}</td>
-        <td class="meta">{{ c.request_status|replace({'_': ' '})|capitalize }}</td>
+        <td class="strong">
+          {{ c.lecturer_name }}
+          {% if c.is_preferred_main %}<div class="meta" style="font-size:.7rem;">preferred main</div>{% endif %}
+        </td>
+        <td>
+          {% if c.request_status == 'not_sent' %}
+            {% if shortlist.status == 'approved' and not c.has_capacity %}
+              <span class="meta" style="color: var(--rust);">At full load — would be passed over if sent now</span>
+            {% else %}
+              <span class="meta">Not asked yet</span>
+            {% endif %}
+          {% elseif c.request_status == 'pending' %}
+            <span class="stamp mini pending">Waiting for an answer</span>
+          {% elseif c.request_status == 'accepted' %}
+            <span class="stamp mini approved">{{ shortlist.status == 'successful' ? 'Appointed' : 'Accepted' }}</span>
+          {% elseif c.request_status == 'declined' %}
+            <span class="stamp mini rejected">Declined</span>
+            {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
+          {% elseif c.request_status == 'unavailable' %}
+            <span class="meta">At full supervision load</span>
+            {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
+          {% elseif c.request_status == 'expired' %}
+            <span class="meta">Did not answer in time</span>
+          {% else %}
+            <span class="meta">Not needed — higher choices filled the places</span>
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
   </tbody>
@@ -37,68 +76,73 @@
 {# ---------- no meeting yet ---------- #}
 {% if not shortlist.meeting_id %}
   <div class="section-title">Convene the department<div class="rule"></div></div>
-  <div class="meta" style="margin-bottom:14px;">
-    Heads vote on the shortlist as a whole. Nothing is sent to any supervisor until you finalise the minutes and apply the decision.
-  </div>
 
-  {% if heads %}
-    <div class="form-card">
-      <form method="POST" action="/coordinator/shortlists/schedule">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
-        <div class="field-row">
-          <div class="field"><label>Date and time</label><input type="datetime-local" name="scheduled_at" required></div>
-          <div class="field">
-            <label>Mode</label>
-            <select name="mode">
-              <option value="physical">Physical</option>
-              <option value="virtual">Virtual</option>
-              <option value="hybrid">Hybrid</option>
-            </select>
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field"><label>Location</label><input type="text" name="location" placeholder="Boardroom"></div>
-          <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" placeholder="https://…"></div>
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <label>Meeting lead</label>
-            <select name="lead_user_id">
-              <option value="">You</option>
-              {% for h in heads %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="field">
-            <label>Secretary <span class="meta">— writes the minutes</span></label>
-            <select name="secretary_user_id">
-              <option value="">None — the lead writes them</option>
-              {% for h in heads %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
-            </select>
-          </div>
-        </div>
-        <div class="meta" style="margin-bottom:10px;">
-          Whoever is secretary writes the minutes. Leave it empty and the lead does — which is you, unless you name someone else as lead.
-        </div>
-
-        <label style="font-size:.8rem; display:block; margin:12px 0 6px;">Invite heads of {{ shortlist.department_name }}</label>
-        <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
-          {% for h in heads %}
-            <label style="font-size:.82rem; display:flex; gap:8px; align-items:center;">
-              <input type="checkbox" name="dept_head_ids[]" value="{{ h.dept_head_id }}" checked>
-              {{ h.head_name }} <span class="meta">({{ h.position_name }})</span>
-            </label>
-          {% endfor %}
-        </div>
-
-        <button type="submit" class="btn brass">Schedule meeting</button>
-      </form>
-    </div>
+  {% if shortlist.proposal_status == 'draft' %}
+    <div class="notice">The student is revising the proposal. A meeting can be scheduled once they send it.</div>
   {% else %}
-    <div class="notice" style="border-left-color: var(--rust); background:#f6eae7;">
-      {{ shortlist.department_name }} has no serving heads, so there is nobody to vote. An administrator adds them under Research Roles.
+    <div class="meta" style="margin-bottom:14px;">
+      Heads vote on the proposal and its supervisor list together. Nothing is sent to any supervisor until the minutes are approved, the decision applied, and you send it.
     </div>
+
+    {% if heads %}
+      <div class="form-card">
+        <form method="POST" action="/coordinator/shortlists/schedule">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+          <div class="field-row">
+            <div class="field"><label>Date and time</label><input type="datetime-local" name="scheduled_at" required></div>
+            <div class="field">
+              <label>Mode</label>
+              <select name="mode">
+                <option value="physical">Physical</option>
+                <option value="virtual">Virtual</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Location</label><input type="text" name="location" placeholder="Boardroom"></div>
+            <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" placeholder="https://…"></div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label>Meeting lead</label>
+              <select name="lead_user_id">
+                <option value="">You</option>
+                {% for h in heads %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Secretary <span class="meta">— writes the minutes</span></label>
+              <select name="secretary_user_id">
+                <option value="">None — the lead writes them</option>
+                {% for h in heads %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="meta" style="margin-bottom:10px;">
+            Whoever is secretary writes the minutes. Leave it empty and the lead does — which is you, unless you name someone else as lead.
+          </div>
+
+          <label style="font-size:.8rem; display:block; margin:12px 0 6px;">Invite heads of {{ shortlist.department_name }}</label>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
+            {% for h in heads %}
+              <label style="font-size:.82rem; display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" name="dept_head_ids[]" value="{{ h.dept_head_id }}" checked>
+                {{ h.head_name }} <span class="meta">({{ h.position_name }})</span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <button type="submit" class="btn brass">Schedule meeting</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="notice" style="border-left-color: var(--rust); background:#f6eae7;">
+        {{ shortlist.department_name }} has no serving heads, so there is nobody to vote. An administrator adds them under Research Roles.
+      </div>
+    {% endif %}
   {% endif %}
 
 {# ---------- meeting exists ---------- #}
@@ -174,9 +218,9 @@
   </div>
   {% endif %}
 
-  {% if shortlist.status in ['approved','rejected','exhausted'] %}
-    <div class="notice">
-      Decision already applied — recorded as <span class="strong">{{ shortlist.status }}</span>.
+  {% if shortlist.status != 'meeting_scheduled' %}
+    <div class="notice" style="margin-bottom:24px;">
+      Department decision applied — {{ shortlist.status == 'rejected' ? 'not approved' : 'approved' }}.
     </div>
 
   {% elseif not shortlist.minutes_finalized_at %}
@@ -209,6 +253,113 @@
       <button type="submit" class="btn brass"
               onclick="return confirm('Apply the department decision?');">Apply the decision</button>
     </form>
+  {% endif %}
+{% endif %}
+
+{# ---------- approved: send it ---------- #}
+{% if shortlist.status == 'approved' %}
+  {% set full = choices|filter(c => c.request_status == 'not_sent' and not c.has_capacity)|length %}
+  {% set askable = choices|filter(c => c.request_status == 'not_sent' and c.has_capacity)|length %}
+
+  <div class="section-title">Send to the supervisors<div class="rule"></div></div>
+  <div class="card">
+    <div class="meta" style="margin-bottom:12px;">
+      Everyone on the list is asked at the same time and has {{ response_days }} days to answer.
+      If more accept than the student has places for, the student's order decides who is appointed.
+      It is decided as soon as the result can no longer change, and when the {{ response_days }} days are up at the latest.
+    </div>
+    <div class="meta" style="margin-bottom:14px;">
+      <span class="strong">{{ askable }}</span> will be asked.
+      {% if full %}<span style="color: var(--rust);">{{ full }} at full supervision load will be passed over.</span>{% endif %}
+    </div>
+    <form method="POST" action="/coordinator/shortlists/send">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+      <button type="submit" class="btn brass"
+              onclick="return confirm('Send this request to every supervisor on the list now?');">Send to all supervisors</button>
+    </form>
+  </div>
+
+{# ---------- out with lecturers ---------- #}
+{% elseif shortlist.status == 'requests_sent' %}
+  <div class="section-title">With the supervisors<div class="rule"></div></div>
+  <div class="card">
+    <h3>Answers due {{ shortlist.responses_due_at|date('d M Y') }}</h3>
+    <div class="meta">
+      Sent {{ shortlist.requests_sent_at|date('d M Y') }}.
+      {{ choices|filter(c => c.request_status == 'pending')|length }} still to answer ·
+      {{ choices|filter(c => c.request_status == 'accepted')|length }} accepted.
+      It is decided the moment the student's top choices have answered, and by {{ shortlist.responses_due_at|date('d M Y') }} at the latest.
+    </div>
+  </div>
+
+{# ---------- done ---------- #}
+{% elseif shortlist.status == 'successful' %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">
+    Supervisors appointed {{ shortlist.decided_at|date('d M Y') }}.
+  </div>
+
+{# ---------- failed: what happens next ---------- #}
+{% elseif shortlist.status in ['rejected', 'exhausted'] %}
+  <div class="section-title">What happens next<div class="rule"></div></div>
+
+  {% if decision.follow_up %}
+    <div class="notice">
+      Followed up by <a href="/coordinator/shortlists/{{ decision.follow_up.shortlist_id }}">REQ-{{ decision.follow_up.shortlist_id|slice(0, 8)|upper }}</a>.
+      This request stays on record as it ended.
+    </div>
+
+  {% elseif decision.grant_open %}
+    <div class="notice">
+      Handed back to the student on {{ shortlist.edit_granted_at|date('d M Y') }} to revise
+      {{- shortlist.edit_proposal_allowed ? ' the proposal' : '' -}}
+      {{- shortlist.edit_proposal_allowed and shortlist.edit_shortlist_allowed ? ' and' : '' -}}
+      {{- shortlist.edit_shortlist_allowed ? ' the supervisor list' : '' -}}.
+      Nothing can be changed or scheduled until they send it.
+    </div>
+
+  {% elseif decision.can_decide %}
+    <div class="meta" style="margin-bottom:16px;">
+      {{ shortlist.status == 'rejected' ? 'The department did not approve this request.' : 'Nobody on the list was appointed.' }}
+      Either hand it back to the student, or change the supervisor list yourself. The proposal stays locked unless you hand it back.
+    </div>
+
+    <div class="form-card" style="margin-bottom:22px;">
+      <h3 style="margin-top:0;">Hand it back to the student</h3>
+      <div class="meta" style="margin-bottom:12px;">Only the student can change what you hand back. You cannot change it meanwhile, and no meeting can be scheduled until they send it.</div>
+      <form method="POST" action="/coordinator/shortlists/grant-edit">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+        <label style="font-size:.84rem; display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+          <input type="checkbox" name="edit_proposal" value="1"> The proposal
+        </label>
+        <label style="font-size:.84rem; display:flex; gap:8px; align-items:center; margin-bottom:14px;">
+          <input type="checkbox" name="edit_shortlist" value="1"> The supervisor list
+        </label>
+        <button type="submit" class="btn brass">Hand back</button>
+      </form>
+    </div>
+
+    <div class="form-card">
+      <h3 style="margin-top:0;">Revise the supervisor list yourself</h3>
+      <div class="meta" style="margin-bottom:14px;">
+        This becomes a new request that needs a new department meeting. It is only accepted if the list actually changes.
+      </div>
+      <form method="POST" action="/coordinator/shortlists/revise" id="reviseForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
+        {% if supervisors %}
+          {% set picker_who = "the student's" %}
+          {% include 'partials/supervisor_picker.twig' %}
+        {% endif %}
+        <button type="submit" name="action" value="revise" class="btn brass" style="margin-top:14px;">Save revised list</button>
+      </form>
+    </div>
+    {% if supervisors %}
+      {% set picker_form_id = 'reviseForm' %}
+      {% set picker_require_for = ['revise'] %}
+      {% include 'partials/supervisor_picker_assets.twig' %}
+    {% endif %}
   {% endif %}
 {% endif %}
 

@@ -5,10 +5,10 @@
  * against the real database, wrapped in a transaction that is always
  * rolled back.
  *
- * Covers the paths that are easy to get wrong: the minutes gate, a tie
- * rejecting, the preferred main being approached first regardless of
- * rank, main being inherited when the preferred main declines, the
- * panel filling up, and every lecturer declining.
+ * Covers the department half of a request: choice validation, the
+ * minutes gate, voting rules, rejection reasons, and approval sending
+ * nothing on its own. What happens once it reaches the lecturers lives
+ * in manual_request_rounds.php.
  *
  * Run: php tests/manual_shortlist_flow.php
  */
@@ -43,8 +43,9 @@ $m = new SupervisorShortlist($pdo);
 
 // ---- fixtures -------------------------------------------------------
 $student  = $pdo->query("SELECT s.student_id, s.user_id FROM students s
-                         JOIN thesis_proposals tp ON tp.student_id = s.student_id LIMIT 1")->fetch();
-$proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' LIMIT 1")->fetchColumn();
+                         JOIN thesis_proposals tp ON tp.student_id = s.student_id AND tp.status NOT IN ('draft', 'rejected')
+                         LIMIT 1")->fetch();
+$proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' AND status NOT IN ('draft', 'rejected') LIMIT 1")->fetchColumn();
 $lecturers = $pdo->query("SELECT lecturer_id FROM lecturers
                           WHERE user_id <> '{$student['user_id']}' LIMIT 5")->fetchAll(PDO::FETCH_COLUMN);
 $admin = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
@@ -141,93 +142,30 @@ $outcome = $m->recordOutcome($meeting2);
 $row = $pdo->query("SELECT status, rejection_reason FROM supervisor_shortlists WHERE shortlist_id='$sid2'")->fetch();
 check('rejected shortlist records the reason', $outcome === 'rejected' && str_contains((string) $row['rejection_reason'], 'methodological'), $row['status']);
 
-echo "\n=== 5. Preferred main goes to the front of the list ===\n";
+echo "\n=== 5. Approval asks nobody; the order is stored as it will be used ===\n";
 $sid3 = $makeShortlist();
 $meeting3 = $scheduleAndVote($sid3, ['approve', 'approve', 'reject']);
 $m->saveMinutes($meeting3, 'Approved.', true);
 $m->approveMinutes($meeting3, $admin);
 $m->recordOutcome($meeting3);
-$contacted = $pdo->query("SELECT lecturer_id, rank_position, is_preferred_main FROM supervisor_shortlist_choices
-                          WHERE shortlist_id='$sid3' AND request_status='pending'")->fetchAll();
-check('exactly one lecturer is holding a request', count($contacted) === 1, count($contacted) . ' pending');
-// Submitted third, but a preferred main is asked before anyone else,
-// so they are stored at position 1 rather than left at 3 — otherwise
-// the student's tracker would show "#3" beside the person asked first.
-check('and it is the preferred main', (int) $contacted[0]['is_preferred_main'] === 1);
-check('who was moved to position 1 despite being picked third',
-    (int) $contacted[0]['rank_position'] === 1, 'rank ' . $contacted[0]['rank_position']);
+check('approving does not contact any lecturer — the coordinator sends it',
+    (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' AND request_status <> 'not_sent'")->fetchColumn() === 0);
+// Picked third, but marked preferred main: the order decides who is
+// appointed and who becomes main, so they belong at position 1.
+$pref = $pdo->query("SELECT rank_position FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' AND is_preferred_main = 1")->fetchColumn();
+check('a preferred main picked third is stored at position 1', (int) $pref === 1, 'rank ' . $pref);
 
-echo "\n=== 6. Preferred main accepts -> becomes main ===\n";
-$choice = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' AND request_status='pending'")->fetchColumn();
-$res = $m->respondToRequest($choice, true, null, $admin);
-check('accepting appoints them as main', $res['role'] === 'main', "role={$res['role']}");
-check('and the next lecturer is approached', $res['next_contacted'] === true);
-
-echo "\n=== 7. Filling the panel stands the rest down ===\n";
-for ($i = 0; $i < 2; $i++) {
-    $next = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' AND request_status='pending'")->fetchColumn();
-    if ($next) { $m->respondToRequest($next, true, null, $admin); }
-}
-$counts = [];
-foreach ($pdo->query("SELECT request_status, COUNT(*) c FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' GROUP BY request_status")->fetchAll() as $r) {
-    $counts[$r['request_status']] = (int) $r['c'];
-}
-check('three accepted', ($counts['accepted'] ?? 0) === 3, json_encode($counts));
-check('the fourth was cancelled, not left pending', ($counts['cancelled'] ?? 0) === 1 && !isset($counts['pending']));
-$roles = $pdo->query("SELECT role, COUNT(*) c FROM supervision_assignments WHERE proposal_id='$proposal' GROUP BY role")->fetchAll();
-$roleMap = [];
-foreach ($roles as $r) { $roleMap[$r['role']] = (int) $r['c']; }
-check('exactly one main supervisor exists', ($roleMap['main'] ?? 0) === 1, json_encode($roleMap));
-
-echo "\n=== 8. Preferred main declines -> the next acceptor inherits main ===\n";
-$pdo->prepare("DELETE FROM supervision_assignments WHERE proposal_id = ?")->execute([$proposal]);
-$sid4 = $makeShortlist();
-$meeting4 = $scheduleAndVote($sid4, ['approve', 'approve', 'approve']);
-$m->saveMinutes($meeting4, 'Approved.', true);
-$m->approveMinutes($meeting4, $admin);
-$m->recordOutcome($meeting4);
-$pref = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid4' AND request_status='pending'")->fetchColumn();
-$res = $m->respondToRequest($pref, false, 'Supervision load is full this semester.', $admin);
-check('declining approaches the next lecturer with no new meeting', $res['next_contacted'] === true);
-check('and does not exhaust the shortlist', $res['exhausted'] === false);
-$next = $pdo->query("SELECT choice_id, is_preferred_main FROM supervisor_shortlist_choices WHERE shortlist_id='$sid4' AND request_status='pending'")->fetch();
-check('the next one asked is not the preferred main', (int) $next['is_preferred_main'] === 0);
-$res = $m->respondToRequest($next['choice_id'], true, null, $admin);
-check('the first to accept inherits main', $res['role'] === 'main', "role={$res['role']}");
-
-echo "\n=== 9. Everyone declines -> the student must start again ===\n";
-$pdo->prepare("DELETE FROM supervision_assignments WHERE proposal_id = ?")->execute([$proposal]);
-$sid5 = $makeShortlist();
-$meeting5 = $scheduleAndVote($sid5, ['approve', 'approve', 'approve']);
-$m->saveMinutes($meeting5, 'Approved.', true);
-$m->approveMinutes($meeting5, $admin);
-$m->recordOutcome($meeting5);
-$last = null;
-while ($c = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid5' AND request_status='pending'")->fetchColumn()) {
-    $last = $m->respondToRequest($c, false, 'Unavailable.', $admin);
-}
-check('the shortlist is marked exhausted', $last['exhausted'] === true);
-$st = $pdo->query("SELECT status FROM supervisor_shortlists WHERE shortlist_id='$sid5'")->fetchColumn();
-check('status reflects it', $st === 'exhausted', $st);
-check('no supervisors were appointed', (int) $pdo->query("SELECT COUNT(*) FROM supervision_assignments WHERE proposal_id='$proposal'")->fetchColumn() === 0);
-
-echo "\n=== 10. A request can only be answered once ===\n";
-$sid6 = $makeShortlist();
-$meeting6 = $scheduleAndVote($sid6, ['approve', 'approve', 'approve']);
-$m->saveMinutes($meeting6, 'Approved.', true);
-$m->approveMinutes($meeting6, $admin);
-$m->recordOutcome($meeting6);
-$c6 = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid6' AND request_status='pending'")->fetchColumn();
-$m->respondToRequest($c6, false, 'No.', $admin);
-$err = throws(fn() => $m->respondToRequest($c6, true, null, $admin));
+echo "\n=== 6. A request can only be answered once ===\n";
+$m->sendRequests($sid3, $admin);
+$c = $pdo->query("SELECT choice_id FROM supervisor_shortlist_choices WHERE shortlist_id='$sid3' AND request_status='pending' ORDER BY rank_position DESC LIMIT 1")->fetchColumn();
+$m->respondToRequest($c, false, 'No.');
+$err = throws(fn() => $m->respondToRequest($c, true, null));
 check('answering twice is refused', $err !== null, $err ?? '');
 
-echo "\n=== 11. Resubmitting supersedes the old shortlist ===\n";
-$sid7 = $makeShortlist();
-$active = $m->findActiveForStudent($student['student_id']);
-check('the newest shortlist is the active one', $active['shortlist_id'] === $sid7);
-check('the previous one is superseded',
-    $pdo->query("SELECT status FROM supervisor_shortlists WHERE shortlist_id='$sid6'")->fetchColumn() === 'superseded');
+// The rest of the lifecycle — everyone asked at once, the student's order
+// deciding who is appointed, early decisions, the deadline, and what the
+// coordinator does after a failure — is exercised in
+// tests/manual_request_rounds.php.
 
 $pdo->rollBack();
 

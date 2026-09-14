@@ -67,6 +67,11 @@ class LecturerSupervisionController
             return $this->redirect($response, '/login');
         }
 
+        $requests = new \App\Models\SupervisorShortlist($this->db);
+        // No scheduler: a window that closed unseen is settled here, so a
+        // lecturer never sees a request that can no longer be answered.
+        $requests->resolveDue();
+
         return $this->twig->render($response, 'lecturers/supervision.twig', [
             'active_page'         => 'l-supervision',
             'first_name'          => $_SESSION['first_name'] ?? '',
@@ -78,8 +83,11 @@ class LecturerSupervisionController
             'assignment_requests' => $requestModel->findPendingByLecturerId($lecturer['lecturer_id']),
             // Requests from the shortlist workflow: the only route by
             // which a supervisor is appointed.
-            'shortlist_requests'  => (new \App\Models\SupervisorShortlist($this->db))
-                                        ->pendingForLecturer($lecturer['lecturer_id']),
+            'shortlist_requests'  => $requests->pendingForLecturer($lecturer['lecturer_id']),
+            'shortlist_answers'   => $requests->recentAnswersForLecturer($lecturer['lecturer_id']),
+            // A full lecturer cannot accept; the page says so up front
+            // instead of letting them press a button that will refuse.
+            'has_capacity'        => $lecturerModel->hasSupervisionCapacity($lecturer['lecturer_id']),
             'request_history'     => $requestModel->findHistoryByLecturerId($lecturer['lecturer_id']),
             'documents'           => $documentModel->findBySupervisorId($lecturer['lecturer_id']),
             'csrf_token'          => $this->csrfToken(),
@@ -157,18 +165,19 @@ class LecturerSupervisionController
             $result = (new \App\Models\SupervisorShortlist($this->db))->respondToRequest(
                 $choiceId,
                 $accept,
-                trim((string) ($data['decline_reason'] ?? '')) ?: null,
-                $_SESSION['user_id']
+                trim((string) ($data['decline_reason'] ?? '')) ?: null
             );
 
-            if ($result['outcome'] === 'accepted') {
-                $_SESSION['flash_success'] = $result['role'] === 'main'
-                    ? 'Accepted. You are now their main supervisor.'
-                    : 'Accepted. You are now a co-supervisor.';
+            if ($result['outcome'] === 'declined') {
+                $_SESSION['flash_success'] = 'Declined. The student will see your reason.';
+            } elseif ($result['appointed_as'] === 'main') {
+                $_SESSION['flash_success'] = 'Accepted — and that settled it: you are their main supervisor.';
+            } elseif ($result['appointed_as'] !== null) {
+                $_SESSION['flash_success'] = 'Accepted — and that settled it: you are one of their co-supervisors.';
+            } elseif ($result['decided'] !== null) {
+                $_SESSION['flash_success'] = 'Accepted, but the student\'s higher choices had already filled their places, so you were not needed.';
             } else {
-                $_SESSION['flash_success'] = $result['next_contacted']
-                    ? 'Declined. The next supervisor on the student\'s list has been asked.'
-                    : 'Declined. The student has been told they need to submit a new shortlist.';
+                $_SESSION['flash_success'] = 'Accepted. Whether you are appointed depends on the student\'s higher choices, who have not all answered yet.';
             }
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = $e->getMessage();

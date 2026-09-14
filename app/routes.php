@@ -73,7 +73,8 @@ return function (App $app) {
     $app->get('/student/proposal', [StudentProposalController::class, 'show']);
     $app->post('/student/proposal', [StudentProposalController::class, 'store']);
 
-    // Supervisor shortlist: browse profiles, submit a ranked list, track it
+    // Supervisors are now chosen and sent with the proposal; these only
+    // send old links to /student/proposal.
     $app->get('/student/supervisors', [StudentSupervisorsController::class, 'show']);
     $app->post('/student/supervisors', [StudentSupervisorsController::class, 'submit']);
 
@@ -110,6 +111,9 @@ return function (App $app) {
     $app->post('/coordinator/shortlists/minutes', [CoordinatorController::class, 'saveMinutes']);
     $app->post('/coordinator/shortlists/approve-minutes', [CoordinatorController::class, 'approveMinutes']);
     $app->post('/coordinator/shortlists/apply', [CoordinatorController::class, 'applyOutcome']);
+    $app->post('/coordinator/shortlists/send', [CoordinatorController::class, 'sendRequests']);
+    $app->post('/coordinator/shortlists/grant-edit', [CoordinatorController::class, 'grantEdit']);
+    $app->post('/coordinator/shortlists/revise', [CoordinatorController::class, 'reviseList']);
 
     // Coordinator: exam results waiting to be released to students
     // Coordinator: students ready to be examined

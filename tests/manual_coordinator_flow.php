@@ -93,9 +93,17 @@ check('context resolves program and department', !empty($ctx['program_name']) &&
 $render = function (string $tpl, array $vars) use ($twig): string {
     return (string) $twig->render(new \Slim\Psr7\Response(), $tpl, $vars)->getBody();
 };
+$lecturerModel = new \App\Models\Lecturer($pdo);
 $coordVars = fn(array $c) => [
     'active_page' => 'l-coordinator', 'first_name' => 'Co', 'last_name' => 'Ord',
-    'shortlist' => $c, 'choices' => $m->choicesFor($sid),
+    'shortlist' => $c,
+    'choices' => array_map(
+        fn ($choice) => $choice + ['has_capacity' => $lecturerModel->hasSupervisionCapacity($choice['lecturer_id'])],
+        $m->choicesFor($c['shortlist_id'])
+    ),
+    'decision' => $m->decisionState($c), 'previous' => null,
+    'supervisors' => [], 'picked' => [], 'picked_main' => '',
+    'max_choices' => SupervisorShortlist::MAX_CHOICES, 'response_days' => SupervisorShortlist::RESPONSE_DAYS,
     'voters' => $c['meeting_id'] ? $m->meetingVoters($c['meeting_id']) : [],
     'tally' => $c['meeting_id'] ? $m->tally($c['meeting_id']) : null,
     'heads' => $dh->activeForDepartment($c['department_id']),
@@ -153,14 +161,26 @@ check('after approval the apply button appears', str_contains($h, 'Apply the dec
 
 $outcome = $m->recordOutcome($meeting);
 check('outcome is approved', $outcome === 'approved');
-$pending = $pdo->query("SELECT c.choice_id, c.is_preferred_main FROM supervisor_shortlist_choices c
-                        WHERE c.shortlist_id = '$sid' AND c.request_status = 'pending'")->fetchAll();
-check('exactly the preferred main was approached', count($pending) === 1 && (int) $pending[0]['is_preferred_main'] === 1);
+$asked = (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlist_choices
+                             WHERE shortlist_id = '$sid' AND request_status <> 'not_sent'")->fetchColumn();
+check('approval on its own contacts nobody', $asked === 0, $asked . ' asked');
 
 $ctx = $m->findWithContext($sid);
 $h = $render('coordinators/shortlist.twig', $coordVars($ctx));
-check('the coordinator view now reports it as applied', str_contains($h, 'Decision already applied'));
+check('the coordinator view now reports it as applied', str_contains($h, 'Department decision applied'));
 check('and the minutes are locked', str_contains($h, 'readonly'));
+check('and offers to send it to every supervisor at once', str_contains($h, '/coordinator/shortlists/send'));
+
+echo "\n=== Sending ===\n";
+$sent = $m->sendRequests($sid, $coordUser);
+$pending = (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlist_choices WHERE shortlist_id = '$sid' AND request_status = 'pending'")->fetchColumn();
+check('every supervisor with room is asked together', $pending === $sent['sent'] && $sent['sent'] + $sent['unavailable'] === 3,
+    $sent['sent'] . ' asked, ' . $sent['unavailable'] . ' full');
+$h = $render('coordinators/shortlist.twig', $coordVars($m->findWithContext($sid)));
+check('the page shows when answers are due', str_contains($h, 'Answers due'));
+check('and no longer offers to send', !str_contains($h, '/coordinator/shortlists/send'));
+check('the queue shows it as with the supervisors',
+    in_array('requests_sent', array_column($m->queueForPrograms([$program['program_id']]), 'status'), true));
 
 $pdo->rollBack();
 printf("\n%s\n%d passed, %d failed\n", str_repeat('-', 56), $pass, $fail);

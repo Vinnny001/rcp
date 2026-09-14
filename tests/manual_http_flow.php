@@ -88,8 +88,8 @@ function get(string $path, array $session): string
 $marker = 'HTTP-TEST-' . bin2hex(random_bytes(6));
 $createdMeetingId = null;
 $createdDocumentId = null;
-$draftedProposalId = null;
-$draftedProposalStatus = null;
+$flippedDocumentId = null;
+$flippedDocumentStatus = null;
 $uploadedFixturePath = null;
 
 try {
@@ -239,101 +239,123 @@ try {
     $myDocsPage = get('/lecturer/my-documents', $session);
     check('the uploaded document appears on My Documents', str_contains($myDocsPage, $fixtureFileName));
 
-    // ---- the shortlist form's server-side refusals ----
+    // ---- the proposal and request form's server-side refusals ----
     //
-    // Both of these are rejected before anything is written, so there
-    // is nothing to clean up. Posted directly rather than through the
-    // page, because the point is that the server refuses them even when
-    // the form did not.
-    echo "\n--- shortlist form refusals over real HTTP ---\n";
+    // Posted straight at the server rather than through the page, because
+    // the point is that the server refuses them even when a form did not.
+    // Every one is refused before anything is written, apart from the one
+    // document status flipped for the last check, which is put back.
+    echo "\n--- proposal and request refusals over real HTTP ---\n";
 
+    $csrf = str_repeat('a', 64);
+    $asStudent = fn (array $row): array => [
+        'user_id' => $row['user_id'], 'role' => 'student',
+        'first_name' => 'S', 'last_name' => 'T', 'csrf_token' => $csrf,
+    ];
     $shortlistBefore = (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists")->fetchColumn();
-
-    // Rather than hoping a draft happens to be on file — seed data
-    // drifts as the app gets used — one proposal is put into draft for
-    // the length of this check and restored straight afterwards.
-    $draftStudent = $pdo->query(
-        "SELECT s.student_id, s.user_id, tp.proposal_id, tp.status
-         FROM students s
-         JOIN thesis_proposals tp ON tp.student_id = s.student_id
-         WHERE tp.status <> 'rejected'
-           AND NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl
-                            WHERE sl.student_id = s.student_id AND sl.status <> 'superseded')
-         LIMIT 1"
-    )->fetch(PDO::FETCH_ASSOC);
-
-    if ($draftStudent) {
-        $draftedProposalId = $draftStudent['proposal_id'];
-        $draftedProposalStatus = $draftStudent['status'];
-        $pdo->prepare("UPDATE thesis_proposals SET status = 'draft' WHERE proposal_id = :id")
-            ->execute(['id' => $draftedProposalId]);
-    }
-
     $someLecturer = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 1")->fetchColumn();
 
-    if ($draftStudent) {
-        $draftSession = [
-            'user_id' => $draftStudent['user_id'], 'role' => 'student',
-            'first_name' => 'D', 'last_name' => 'S', 'csrf_token' => str_repeat('a', 64),
-        ];
-        post('/student/supervisors', [
-            'csrf_token' => str_repeat('a', 64),
-            'rank' => [$someLecturer => '1'],
-            'preferred_main' => $someLecturer,
-        ], [], $draftSession);
-
-        check('a student whose proposal is still a draft cannot submit a shortlist',
-            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'Submit your thesis proposal'),
-            (string) ($_SESSION['flash_error'] ?? 'no error set'));
-
-        // Put it back before anything else reads the same rows.
-        $pdo->prepare("UPDATE thesis_proposals SET status = :s WHERE proposal_id = :id")
-            ->execute(['s' => $draftedProposalStatus, 'id' => $draftedProposalId]);
-        $draftedProposalId = null;
-    } else {
-        echo "  SKIP  no student to put into draft for this check\n";
-    }
-
-    $liveStudent = $pdo->query(
-        "SELECT s.student_id, s.user_id FROM students s
-         JOIN thesis_proposals tp ON tp.student_id = s.student_id
-         WHERE tp.status <> 'draft'
-           AND NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl
-                            WHERE sl.student_id = s.student_id AND sl.status <> 'superseded')
+    // A request already with the coordinator, department or lecturers.
+    $lockedStudent = $pdo->query(
+        "SELECT st.user_id, tp.title FROM supervisor_shortlists sl
+         JOIN students st ON st.student_id = sl.student_id
+         JOIN thesis_proposals tp ON tp.proposal_id = sl.proposal_id
+         WHERE sl.status IN ('pending_coordinator', 'meeting_scheduled', 'approved', 'requests_sent')
          LIMIT 1"
     )->fetch(PDO::FETCH_ASSOC);
 
-    if ($liveStudent) {
-        $liveSession = [
-            'user_id' => $liveStudent['user_id'], 'role' => 'student',
-            'first_name' => 'L', 'last_name' => 'S', 'csrf_token' => str_repeat('a', 64),
-        ];
-        // Preferred main named, but never given a position — which would
-        // otherwise drop them from the list and read as "no preference".
-        post('/student/supervisors', [
-            'csrf_token' => str_repeat('a', 64),
-            'rank' => [$someLecturer => ''],
-            'preferred_main' => $someLecturer,
-        ], [], $liveSession);
+    if ($lockedStudent) {
+        $result = post('/student/proposal', [
+            'csrf_token' => $csrf, 'action' => 'submit',
+            'title' => 'Changed after sending', 'synopsis' => str_repeat('A changed synopsis. ', 5),
+            'rank' => [$someLecturer => '1'], 'preferred_main' => '',
+        ], [], $asStudent($lockedStudent));
 
-        check('naming a preferred main with no position is refused, not silently dropped',
-            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'did not say when to ask them'),
+        check('a student cannot resend or change a request that has been sent',
+            $result['location'] === '/student/proposal'
+            && str_contains((string) ($_SESSION['flash_error'] ?? ''), 'cannot be changed'),
             (string) ($_SESSION['flash_error'] ?? 'no error set'));
+        check('and the proposal they sent is untouched',
+            $pdo->query("SELECT COUNT(*) FROM thesis_proposals WHERE title = 'Changed after sending'")->fetchColumn() == 0);
     } else {
-        echo "  SKIP  no student without a live shortlist to post as\n";
+        echo "  SKIP  no request in flight to try to change\n";
     }
 
-    check('neither refusal wrote a shortlist',
+    // A student who has not sent a request yet, so the list is theirs.
+    $openStudent = $pdo->query(
+        "SELECT st.user_id FROM students st
+         JOIN thesis_proposals tp ON tp.student_id = st.student_id AND tp.status NOT IN ('draft', 'rejected')
+         WHERE NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl WHERE sl.student_id = st.student_id)
+         LIMIT 1"
+    )->fetch(PDO::FETCH_ASSOC);
+
+    if ($openStudent) {
+        post('/student/proposal', [
+            'csrf_token' => $csrf, 'action' => 'submit', 'rank' => [], 'preferred_main' => '',
+        ], [], $asStudent($openStudent));
+        check('a request cannot be sent with no supervisors on it',
+            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'at least one supervisor'),
+            (string) ($_SESSION['flash_error'] ?? 'no error set'));
+
+        post('/student/proposal', [
+            'csrf_token' => $csrf, 'action' => 'draft',
+            'rank' => [$someLecturer => ''], 'preferred_main' => $someLecturer,
+        ], [], $asStudent($openStudent));
+        check('a preferred main who is not on the list is refused, not silently dropped',
+            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'not on your list'),
+            (string) ($_SESSION['flash_error'] ?? 'no error set'));
+
+        $old = post('/student/supervisors', [
+            'csrf_token' => $csrf, 'rank' => [$someLecturer => '1'], 'preferred_main' => '',
+        ], [], $asStudent($openStudent));
+        check('the retired supervisors page sends students to the combined one',
+            $old['location'] === '/student/proposal');
+    } else {
+        echo "  SKIP  no student without a request to post as\n";
+    }
+
+    check('none of those refusals wrote a request',
         (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists")->fetchColumn() === $shortlistBefore);
+
+    // A file still marked draft on a proposal that has been sent must
+    // not be removable — the proposal is what locks it, not the file.
+    $sentDoc = $pdo->query(
+        "SELECT d.document_id, d.document_status, st.user_id
+         FROM exam_documents ed
+         JOIN documents d ON d.document_id = ed.document_id
+         JOIN thesis_proposals tp ON tp.proposal_id = ed.proposal_id AND tp.status NOT IN ('draft', 'rejected')
+         JOIN students st ON st.student_id = tp.student_id
+         LIMIT 1"
+    )->fetch(PDO::FETCH_ASSOC);
+
+    if ($sentDoc) {
+        $flippedDocumentId = $sentDoc['document_id'];
+        $flippedDocumentStatus = $sentDoc['document_status'];
+        $pdo->prepare("UPDATE documents SET document_status = 'draft' WHERE document_id = ?")->execute([$flippedDocumentId]);
+
+        post('/student/proposal/document/remove', [
+            'csrf_token' => $csrf, 'document_id' => $flippedDocumentId,
+        ], [], $asStudent($sentDoc));
+
+        check('a draft-status file cannot be removed from a proposal that was sent',
+            (int) $pdo->query("SELECT COUNT(*) FROM documents WHERE document_id = " . $pdo->quote($flippedDocumentId))->fetchColumn() === 1,
+            (string) ($_SESSION['flash_error'] ?? ''));
+
+        $pdo->prepare("UPDATE documents SET document_status = ? WHERE document_id = ?")
+            ->execute([$flippedDocumentStatus, $flippedDocumentId]);
+        $flippedDocumentId = null;
+    } else {
+        echo "  SKIP  no document on a sent proposal to try to remove\n";
+    }
 } catch (\Throwable $e) {
     $fail++;
     echo "\n  ERROR  " . $e->getMessage() . "\n         " . $e->getFile() . ':' . $e->getLine() . "\n";
 } finally {
     // Real cleanup — not a transaction rollback, since the writes above
     // did not happen on this script's own connection.
-    if ($draftedProposalId) {
-        $pdo->prepare("UPDATE thesis_proposals SET status = :s WHERE proposal_id = :id")
-            ->execute(['s' => $draftedProposalStatus, 'id' => $draftedProposalId]);
+    if ($flippedDocumentId) {
+        $pdo->prepare("UPDATE documents SET document_status = ? WHERE document_id = ?")
+            ->execute([$flippedDocumentStatus, $flippedDocumentId]);
     }
     if ($createdMeetingId) {
         $pdo->prepare("DELETE FROM meeting_resources WHERE meeting_id = :id")->execute(['id' => $createdMeetingId]);

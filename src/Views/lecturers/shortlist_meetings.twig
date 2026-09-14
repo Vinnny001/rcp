@@ -24,6 +24,11 @@
     <div class="card" style="margin-bottom:22px;">
       <h3>{{ m.student_name }} <span class="meta mono" style="font-size:.72rem;">{{ m.student_number }}</span></h3>
       <div class="meta">{{ m.proposal_title }}</div>
+      {# The vote covers the proposal and its supervisor list together, so
+         the proposal is here to be read, not just named. #}
+      {% if m.proposal_synopsis %}
+        <p style="font-size:.84rem; line-height:1.6; color:#39332a; margin:8px 0 0;">{{ m.proposal_synopsis }}</p>
+      {% endif %}
       <div class="meta" style="margin-top:6px;">
         Meeting {{ m.scheduled_at|date('d M Y, g:i A') }} · {{ m.mode|capitalize }}
         {%- if m.location %} · {{ m.location }}{% endif %}

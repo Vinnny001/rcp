@@ -6,8 +6,8 @@
 
 <div class="page-head">
   <div>
-    <h1>Supervisor shortlists</h1>
-    <div class="sub">Students waiting on a department decision, across the programs you coordinate.</div>
+    <h1>Supervisor requests</h1>
+    <div class="sub">Proposals and supervisor requests still moving, across the programs you coordinate.</div>
   </div>
   <div class="ref">COORDINATOR</div>
 </div>
@@ -41,11 +41,24 @@
             <td>
               {% if s.status == 'pending_coordinator' %}
                 <span class="stamp mini pending">Needs a meeting</span>
-              {% elseif not s.minutes_finalized_at %}
+              {% elseif s.status == 'meeting_scheduled' and not s.minutes_finalized_at %}
                 <span class="stamp mini pending">Minutes not final</span>
                 <div class="meta" style="font-size:.72rem;">Met {{ s.scheduled_at|date('d M Y') }}</div>
-              {% else %}
+              {% elseif s.status == 'meeting_scheduled' and not s.minutes_approved_at %}
+                <span class="stamp mini pending">Minutes need your approval</span>
+              {% elseif s.status == 'meeting_scheduled' %}
                 <span class="stamp mini approved">Ready to apply</span>
+              {% elseif s.status == 'approved' %}
+                <span class="stamp mini approved">Ready to send to supervisors</span>
+              {% elseif s.status == 'requests_sent' %}
+                <span class="stamp mini review">With supervisors</span>
+                <div class="meta" style="font-size:.72rem;">
+                  {{ s.pending_count }} to answer · {{ s.accepted_count }} accepted · due {{ s.responses_due_at|date('d M Y') }}
+                </div>
+              {% elseif s.edit_granted_at %}
+                <span class="stamp mini pending">With the student to revise</span>
+              {% else %}
+                <span class="stamp mini rejected">{{ s.status == 'rejected' ? 'Not approved' : 'Nobody appointed' }} — decide next step</span>
               {% endif %}
             </td>
             <td style="text-align:right;">
@@ -56,7 +69,7 @@
       </tbody>
     </table>
   {% else %}
-    <div class="notice">Nothing waiting. Shortlists appear here as soon as students submit them.</div>
+    <div class="notice">Nothing waiting. Requests appear here as soon as students send them.</div>
   {% endif %}
 {% endif %}
 

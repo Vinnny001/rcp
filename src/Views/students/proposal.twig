@@ -1,156 +1,287 @@
 {% extends 'layouts/student.twig' %}
 
-{% block title %}Thesis Proposal{% endblock %}
+{% block title %}Proposal & Supervisors{% endblock %}
 
 {% block content %}
 
 <div class="page-head">
   <div>
-    <h1>Thesis proposal</h1>
-    <div class="sub">Your submitted synopsis and its progress through review.</div>
+    <h1>Proposal &amp; supervisors</h1>
+    <div class="sub">Your proposal and the supervisors you want are sent together, and neither can be changed once sent.</div>
   </div>
-  <div class="ref">{% if proposal %}PROP-{{ proposal.proposal_id }}-A{% else %}PROP-{{ student_number }}{% endif %}</div>
+  <div class="ref">{% if latest %}REQ-{{ latest.shortlist_id|slice(0, 8)|upper }}{% else %}PROP-{{ student_number }}{% endif %}</div>
 </div>
 
 {% if success %}
-  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">
-    {{ success }}
-  </div>
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
 {% endif %}
 {% if error %}
-  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">
-    {{ error }}
-  </div>
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
-{% if proposal and proposal.status != 'draft' %}
+{# ==================================================================== #}
+{#  Where the request stands                                            #}
+{# ==================================================================== #}
+{% if latest %}
+  {% set heading = {
+    'pending_coordinator': ['With your research coordinator', 'They take your proposal and supervisor list to the department. Nothing can be changed while they have it.'],
+    'meeting_scheduled':   ['Before the department', 'Department heads vote on your request. Nothing is decided until the minutes are approved.'],
+    'approved':            ['Approved by the department', 'Your coordinator sends it to every supervisor on your list at the same time.'],
+    'requests_sent':       ['With the supervisors on your list', ''],
+    'successful':          ['Supervisors appointed', ''],
+    'rejected':            ['Not approved by the department', ''],
+    'exhausted':           ['Nobody could be appointed', 'None of the supervisors on your list accepted, or could take on another student.'],
+  }[latest.status]|default(['Sent', '']) %}
+
+  <div class="section-title">Your request<div class="rule"></div></div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <h3>{{ heading[0] }}</h3>
+    {% if heading[1] %}<div class="meta">{{ heading[1] }}</div>{% endif %}
+
+    {% if latest.status == 'requests_sent' %}
+      <div class="meta">
+        Everyone was asked on {{ latest.requests_sent_at|date('d M Y') }} and has until
+        <span class="strong">{{ latest.responses_due_at|date('d M Y') }}</span> to answer.
+        It is decided as soon as your top choices have answered — waiting longer could not change who is appointed —
+        and by that date at the latest.
+      </div>
+    {% endif %}
+
+    {% if latest.status == 'rejected' and latest.rejection_reason %}
+      <div class="notice" style="margin-top:12px; border-left-color: var(--rust); background:#f6eae7;">
+        <span class="strong">From the meeting minutes:</span><br>{{ latest.rejection_reason }}
+      </div>
+    {% endif %}
+
+    {% if latest.status in ['rejected', 'exhausted'] %}
+      <div class="meta" style="margin-top:10px;">
+        {% if state.can_send %}
+          Your coordinator has handed this back for you to revise:
+          <span class="strong">
+            {{- latest.edit_proposal_allowed ? ' your proposal' : '' -}}
+            {{- latest.edit_proposal_allowed and latest.edit_shortlist_allowed ? ' and' : '' -}}
+            {{- latest.edit_shortlist_allowed ? ' your supervisor list' : '' -}}
+          </span>.
+          When you send it, it goes back to the department as a new request. This one stays on your record.
+        {% else %}
+          Your research coordinator decides what happens next: they may hand it back for you to revise, or change the supervisor list themselves. Nothing can be changed until they do.
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="meta" style="margin-top:8px;">Sent {{ latest.submitted_at ? latest.submitted_at|date('d M Y') : latest.created_at|date('d M Y') }}</div>
+  </div>
+
+  <table style="margin-bottom:26px;">
+    <thead><tr><th>#</th><th>Supervisor</th><th>Where it stands</th></tr></thead>
+    <tbody>
+      {% for c in latest_choices %}
+        <tr>
+          <td class="mono">{{ c.rank_position }}</td>
+          <td class="strong">
+            {{ c.lecturer_name }}
+            {% if c.is_preferred_main %}<div class="meta" style="font-size:.7rem;">your preferred main</div>{% endif %}
+          </td>
+          <td>
+            {% if c.request_status == 'accepted' and appointed_roles[c.lecturer_id] is defined %}
+              <span class="stamp mini approved">Appointed</span>
+              <span class="meta">{{ appointed_roles[c.lecturer_id] == 'main' ? 'main supervisor' : 'co-supervisor' }}</span>
+            {% elseif c.request_status == 'accepted' %}
+              <span class="stamp mini approved">Accepted</span>
+            {% elseif c.request_status == 'pending' %}
+              <span class="stamp mini pending">Waiting for their answer</span>
+            {% elseif c.request_status == 'not_sent' %}
+              <span class="meta">Not asked yet</span>
+            {% elseif c.request_status == 'declined' %}
+              <span class="stamp mini rejected">Declined</span>
+              {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
+            {% elseif c.request_status == 'unavailable' %}
+              <span class="meta">At full supervision load</span>
+              {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
+            {% elseif c.request_status == 'expired' %}
+              <span class="meta">Did not answer in time</span>
+            {% else %}
+              <span class="meta">Not needed — your higher choices filled your places</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+{# ==================================================================== #}
+{#  Writing it: only the parts that are the student's to change         #}
+{# ==================================================================== #}
+{% if state.proposal_editable or state.list_editable %}
+
+  <form method="POST" action="/student/proposal" enctype="multipart/form-data" id="proposalForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="section-title">Proposal<div class="rule"></div></div>
+
+    {% if state.proposal_editable %}
+      <div class="form-card" style="margin-bottom:26px;">
+        <div class="field">
+          <label>Working title</label>
+          <input type="text" name="title" required maxlength="255"
+                 value="{{ old.title|default(proposal.title|default('')) }}"
+                 placeholder="e.g. Federated Learning for Fraud Detection in Mobile Money">
+        </div>
+
+        <div class="field">
+          <label>Synopsis</label>
+          <textarea name="synopsis" rows="5"
+                    placeholder="Describe the problem, approach, and expected contribution...">{{ old.synopsis|default(proposal.synopsis|default('')) }}</textarea>
+        </div>
+
+        {% for doc in [
+            {'label': 'Synopsis PDF (optional)', 'field': 'synopsis_file', 'doc': synopsis_doc},
+            {'label': 'Proposal PDF (optional)', 'field': 'proposal_file', 'doc': proposal_doc}
+        ] %}
+          <div class="field">
+            <label>{{ doc.label }}</label>
+            {% if doc.doc and doc.doc.document_status == 'draft' %}
+              <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">
+                <span class="mono" style="font-size:.82rem;">{{ doc.doc.file_name }}</span>
+                <button type="submit" name="document_id" value="{{ doc.doc.document_id }}" formaction="/student/proposal/document/remove" formnovalidate
+                        class="btn ghost" style="padding:5px 12px; font-size:.72rem; color: var(--rust);">Remove</button>
+              </div>
+            {% elseif doc.doc %}
+              {# Sent with an earlier request: it can be replaced while revising, not dropped. #}
+              <div class="meta" style="margin-bottom:6px;">Currently <span class="mono">{{ doc.doc.file_name }}</span>. Choose a file to replace it.</div>
+              <input type="file" name="{{ doc.field }}" accept=".pdf">
+            {% else %}
+              <input type="file" name="{{ doc.field }}" accept=".pdf">
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% elseif proposal %}
+      <div class="card" style="margin-bottom:26px;">
+        <h3>{{ proposal.title }}</h3>
+        <p style="font-size:.88rem; line-height:1.6; color:#39332a;">{{ proposal.synopsis }}</p>
+        <div class="meta">
+          {% if latest %}Locked — your coordinator handed back only the supervisor list.{% else %}Submitted {{ proposal.submission_date ? proposal.submission_date|date('d M Y') : '' }}. It is sent again with your supervisor list, unchanged.{% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="section-title">Supervisors<div class="rule"></div></div>
+
+    {% if state.list_editable %}
+      <div class="meta" style="margin-bottom:10px;">
+        Choose up to {{ max_choices }} supervisors and put them in the order you want them. Once the department approves
+        your request, <span class="strong">all of them are asked at the same time</span> and have {{ response_days }} days to answer.
+        If more accept than you have places for — you end up with at most {{ max_supervisors }} — your order decides who
+        is appointed, never who replied first, and the highest of them becomes your main supervisor.
+      </div>
+      <div class="meta" style="margin-bottom:16px;">
+        Naming a preferred main is optional. It moves them to number 1.
+      </div>
+
+      {% if supervisors %}
+        {% set picker_who = 'your' %}
+        {% include 'partials/supervisor_picker.twig' %}
+      {% else %}
+        <div class="notice">No supervisors are listed for your department yet. Your coordinator can help.</div>
+      {% endif %}
+    {% else %}
+      <div class="meta" style="margin-bottom:10px;">Your coordinator handed back only the proposal, so this list goes out again unchanged.</div>
+      <table style="margin-bottom:10px;">
+        <thead><tr><th>#</th><th>Supervisor</th></tr></thead>
+        <tbody>
+          {% for c in latest_choices %}
+            <tr>
+              <td class="mono">{{ c.rank_position }}</td>
+              <td class="strong">{{ c.lecturer_name }}{% if c.is_preferred_main %} <span class="meta">— preferred main</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <div class="notice" style="margin-top:22px;">
+      <span class="strong">Sending locks both.</span> Once sent, neither your proposal nor your supervisor list can be
+      changed by anyone unless your coordinator hands them back.
+    </div>
+
+    <div style="display:flex; gap:12px; margin-top:14px;">
+      <button type="submit" name="action" value="draft" class="btn ghost" formnovalidate>Save draft</button>
+      <button type="submit" name="action" value="submit" class="btn brass"
+              onclick="return confirm('Send your proposal and supervisor request? Neither can be changed once sent.');">Send proposal and request</button>
+    </div>
+  </form>
+
+  {% if state.list_editable and supervisors %}
+    {% set picker_form_id = 'proposalForm' %}
+    {% set picker_require_for = ['submit'] %}
+    {% include 'partials/supervisor_picker_assets.twig' %}
+  {% endif %}
+
+{# ==================================================================== #}
+{#  Locked: what was sent                                               #}
+{# ==================================================================== #}
+{% elseif proposal %}
+  <div class="section-title">Proposal<div class="rule"></div></div>
   <div class="card" style="margin-bottom:26px;">
     <h3>{{ proposal.title }}</h3>
-    <div class="meta">
-      Submitted {{ proposal.submission_date|date('d M Y') }}
-      {% if proposal.proposed_supervisor_name %} · Proposed supervisor: {{ proposal.proposed_supervisor_name }}{% endif %}
-    </div>
+    <div class="meta">Submitted {{ proposal.submission_date ? proposal.submission_date|date('d M Y') : '—' }}</div>
     <p style="font-size:.88rem; line-height:1.6; color:#39332a;">{{ proposal.synopsis }}</p>
+
+    {% if synopsis_doc or proposal_doc %}
+      <div class="meta" style="margin-bottom:10px;">
+        {% if synopsis_doc %}Synopsis: <span class="mono">{{ synopsis_doc.file_name }}</span>{% endif %}
+        {% if synopsis_doc and proposal_doc %} · {% endif %}
+        {% if proposal_doc %}Proposal: <span class="mono">{{ proposal_doc.file_name }}</span>{% endif %}
+      </div>
+    {% endif %}
 
     {% if proposal.status == 'approved' %}
       <span class="stamp approved">Approved</span>
-    {% elseif proposal.status == 'rejected' %}
-      <span class="stamp rejected">Rejected</span>
     {% elseif proposal.status == 'under_review' %}
       <span class="stamp review">Under Review</span>
+    {% elseif proposal.status == 'revision_required' %}
+      <span class="stamp pending">Revision required</span>
     {% else %}
       <span class="stamp pending">Submitted</span>
     {% endif %}
+    <div class="meta" style="margin-top:8px;">
+      Locked. The Proposal Approval examination is still what approves the proposal itself.
+    </div>
   </div>
-
-  <div class="section-title">Review timeline<div class="rule"></div></div>
-  <table style="margin-bottom:30px;">
-    <thead><tr><th>Stage</th><th>Date</th><th>Status</th></tr></thead>
-    <tbody>
-      <tr>
-        <td>Draft</td>
-        <td class="mono">{{ proposal.created_at ? proposal.created_at|date('d M Y') : '—' }}</td>
-        <td><span class="stamp mini approved">Complete</span></td>
-      </tr>
-      <tr>
-        <td>Submitted</td>
-        <td class="mono">{{ proposal.submission_date ? proposal.submission_date|date('d M Y') : '—' }}</td>
-        <td><span class="stamp mini approved">Complete</span></td>
-      </tr>
-      <tr>
-        <td>Under review</td>
-        <td class="mono">{{ proposal.reviewed_at ? proposal.reviewed_at|date('d M Y') : '—' }}</td>
-        <td>
-          {% if proposal.status in ['under_review', 'approved', 'rejected'] %}
-            <span class="stamp mini approved">Complete</span>
-          {% else %}
-            <span class="stamp mini pending">In progress</span>
-          {% endif %}
-        </td>
-      </tr>
-      <tr>
-        <td>Board approval</td>
-        <td class="mono">{{ proposal.decided_at ? proposal.decided_at|date('d M Y') : '—' }}</td>
-        <td>
-          {% if proposal.status == 'approved' %}
-            <span class="stamp mini approved">Complete</span>
-          {% elseif proposal.status == 'rejected' %}
-            <span class="stamp mini rejected">Rejected</span>
-          {% else %}
-            <span class="stamp mini pending">Pending</span>
-          {% endif %}
-        </td>
-      </tr>
-    </tbody>
-  </table>
-{% elseif proposal and proposal.status == 'draft' %}
-  <div class="notice">This proposal is still a draft. Keep editing it, then submit when you're ready — it won't be reviewed until you do.</div>
-{% else %}
-  <div class="notice">You haven't started a thesis proposal yet. Fill in the form below — you can save it as a draft and come back later, or submit it straight for review.</div>
 {% endif %}
 
-{% if not proposal or proposal.status in ['draft', 'rejected'] %}
-  <div class="section-title">
-    {% if proposal and proposal.status == 'draft' %}Edit your draft{% else %}Submit a new proposal{% endif %}
-    <div class="rule"></div>
-  </div>
-  <div class="form-card">
-    <form method="POST" action="/student/proposal" enctype="multipart/form-data">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-      <div class="field">
-        <label>Working title</label>
-        <input type="text" name="title" required maxlength="255"
-               value="{{ old.title|default(proposal.title|default('')) }}"
-               placeholder="e.g. Federated Learning for Fraud Detection in Mobile Money">
-      </div>
-
-      <div class="field">
-        <label>Synopsis</label>
-        <textarea name="synopsis" rows="4"
-                  placeholder="Describe the problem, approach, and expected contribution...">{{ old.synopsis|default(proposal.synopsis|default('')) }}</textarea>
-      </div>
-
-      <div class="notice">
-        <span class="strong">Supervisors come next, not here.</span>
-        Once this proposal is in, you shortlist the supervisors you would
-        like from <a href="/student/supervisors">Supervisors</a>, and the
-        department votes on your list. Asking a lecturer directly is no
-        longer how the appointment is made.
-      </div>
-
-      <div class="field">
-        <label>Synopsis PDF (optional)</label>
-        {% if synopsis_doc %}
-          <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">
-            <span class="mono" style="font-size:.82rem;">{{ synopsis_doc.file_name }}</span>
-            <button type="submit" name="document_id" value="{{ synopsis_doc.document_id }}" formaction="/student/proposal/document/remove" formnovalidate
-                    class="btn ghost" style="padding:5px 12px; font-size:.72rem; color: var(--rust);">Remove</button>
-          </div>
-        {% else %}
-          <input type="file" name="synopsis_file" accept=".pdf">
-        {% endif %}
-      </div>
-
-      <div class="field">
-        <label>Proposal PDF (optional)</label>
-        {% if proposal_doc %}
-          <div class="card" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">
-            <span class="mono" style="font-size:.82rem;">{{ proposal_doc.file_name }}</span>
-            <button type="submit" name="document_id" value="{{ proposal_doc.document_id }}" formaction="/student/proposal/document/remove" formnovalidate
-                    class="btn ghost" style="padding:5px 12px; font-size:.72rem; color: var(--rust);">Remove</button>
-          </div>
-        {% else %}
-          <input type="file" name="proposal_file" accept=".pdf">
-        {% endif %}
-      </div>
-
-      <div style="display:flex; gap:12px;">
-        <button type="submit" name="action" value="draft" class="btn ghost">Save as draft</button>
-        <button type="submit" name="action" value="submit" class="btn brass">Submit for review</button>
-      </div>
-    </form>
-  </div>
+{# ==================================================================== #}
+{#  Earlier requests                                                     #}
+{# ==================================================================== #}
+{% if history %}
+  <div class="section-title">Earlier requests<div class="rule"></div></div>
+  <table style="margin-bottom:30px;">
+    <thead><tr><th>Request</th><th>Sent</th><th>Proposal as sent</th><th>Outcome</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+        <tr>
+          <td class="mono">REQ-{{ h.shortlist_id|slice(0, 8)|upper }}</td>
+          <td class="mono">{{ (h.submitted_at ?: h.created_at)|date('d M Y') }}</td>
+          <td>{{ h.proposal_title_snapshot }}<div class="meta" style="font-size:.72rem;">{{ h.choice_count }} supervisor{{ h.choice_count != 1 ? 's' : '' }} listed</div></td>
+          <td>
+            {% if h.status == 'rejected' %}
+              <span class="stamp mini rejected">Not approved</span>
+              {% if h.rejection_reason %}<div class="meta" style="font-size:.72rem;">{{ h.rejection_reason }}</div>{% endif %}
+            {% elseif h.status == 'exhausted' %}
+              <span class="stamp mini rejected">Nobody appointed</span>
+            {% elseif h.status == 'successful' %}
+              <span class="stamp mini approved">Appointed</span>
+            {% else %}
+              <span class="meta">{{ h.status|replace({'_': ' '})|capitalize }}</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endif %}
 
 {% endblock %}

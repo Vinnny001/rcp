@@ -1,0 +1,304 @@
+{#
+  Profile dialogs, styling and behaviour for partials/supervisor_picker.twig.
+  Include after the host form has closed — the dialogs hold buttons of
+  their own and must not submit it.
+
+  Expects:
+    supervisors         SupervisorProfile::browsable()
+    max_choices         SupervisorShortlist::MAX_CHOICES
+    picker_form_id      id of the host form
+    picker_require_for  submit-button values that need at least one supervisor
+#}
+{% for s in supervisors %}
+  <div class="modal-overlay" id="profile-{{ s.lecturer_id }}">
+    <div class="modal">
+      <button type="button" class="modal-close" data-close="profile-{{ s.lecturer_id }}">✕ Close</button>
+      <h2 style="margin-top:0;">{{ s.name }}</h2>
+      <div class="meta">{{ s.department_name }}{% if s.specialization %} · {{ s.specialization }}{% endif %}</div>
+
+      <div class="meta" style="margin-top:14px;">Research interests</div>
+      {% if s.research_interests %}
+        <p style="font-size:.88rem; line-height:1.65;">{{ s.research_interests }}</p>
+      {% else %}
+        <p class="meta" style="font-size:.8rem;">Not filled in yet.</p>
+      {% endif %}
+
+      {% if s.links %}
+        <div class="meta" style="margin-top:12px;">Where their work can be read</div>
+        <div style="font-size:.84rem; line-height:1.9;">
+          {% for link in s.links %}
+            <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label ?: link.platform|replace({'_': ' '})|capitalize }}</a>{% if not loop.last %} · {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="meta" style="margin-top:12px;">Previously supervised</div>
+      {% if s.theses %}
+        <ul style="font-size:.84rem; line-height:1.6; margin:4px 0 0 18px; padding:0;">
+          {% for t in s.theses %}<li>{{ t.title }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <p class="meta" style="font-size:.8rem;">Nothing on record yet.</p>
+      {% endif %}
+
+      <div class="meta" style="margin-top:14px;">
+        Supervising {{ s.current_load }} of {{ s.max_load }}
+        {%- if not s.has_capacity %} <span style="color: var(--rust);">· at full load</span>{% endif %}
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="profile-{{ s.lecturer_id }}">Close</button>
+        <button type="button" class="btn brass js-add-from-profile" data-id="{{ s.lecturer_id }}">Add to list</button>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+
+<style>
+  .picker{ display:grid; grid-template-columns:1fr 300px; gap:22px; align-items:start; }
+  .pick-grid{ display:grid; gap:14px; }
+  .pick-card{ padding:16px 18px; }
+  .pick-card.is-chosen{ border-color:var(--brass); background:#fdfaf2; }
+  .btn-sm{ padding:6px 12px; font-size:.74rem; }
+
+  .chosen-panel{ position:sticky; top:20px; background:#fbf8f1; border:1px solid var(--paper-line);
+                 border-radius:var(--radius); padding:18px 20px; }
+  .chosen-list{ list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .chosen-item{ display:flex; align-items:center; gap:8px; background:var(--paper); cursor:grab;
+                border:1px solid var(--paper-line); border-radius:var(--radius); padding:8px 10px; font-size:.8rem; }
+  .chosen-item.dragging{ opacity:.4; }
+  .chosen-item .pos{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; color:var(--brass-deep);
+                     min-width:16px; font-weight:600; }
+  .chosen-item .who{ flex:1; line-height:1.3; }
+  .chosen-item.is-main{ border-color:var(--brass); background:#fdfaf2; cursor:default; }
+  .chosen-item.is-main .pos{ color:var(--brass); }
+  .chosen-item .mainpick{ display:flex; align-items:center; gap:3px; font-size:.68rem; color:var(--slate); cursor:pointer; }
+  .chosen-item .mainpick input{ margin:0; }
+  .chosen-item button{ border:none; background:none; cursor:pointer; padding:2px 4px; font-size:.8rem;
+                       color:var(--slate); line-height:1; }
+  .chosen-item button:hover{ color:var(--ink-text); }
+  .chosen-item .drop{ color:var(--rust); }
+  .chosen-none{ display:flex; gap:7px; align-items:flex-start; font-size:.74rem; color:var(--slate);
+                padding-top:10px; border-top:1px solid var(--paper-line); }
+
+  .modal-overlay{ display:none; position:fixed; inset:0; background:rgba(16,22,31,.55);
+                  z-index:60; align-items:center; justify-content:center; padding:20px; }
+  .modal-overlay.open{ display:flex; }
+  .modal{ background:var(--paper); border-radius:var(--radius); padding:26px 28px; max-width:560px;
+          width:100%; max-height:82vh; overflow-y:auto; position:relative; }
+  .modal-close{ position:absolute; top:12px; right:14px; border:none; background:none; cursor:pointer;
+                font-size:.74rem; color:var(--slate); }
+  .modal-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+
+  @media (max-width:900px){ .picker{ grid-template-columns:1fr; } .chosen-panel{ position:static; } }
+</style>
+
+<script>
+  (function () {
+    var MAX = {{ max_choices }};
+    var REQUIRE_FOR = {{ picker_require_for|json_encode|raw }};
+    var list = document.getElementById('chosenList');
+    var empty = document.getElementById('chosenEmpty');
+    var none = document.getElementById('noPreferred');
+    var form = document.getElementById({{ picker_form_id|json_encode|raw }});
+
+    if (!list || !form) { return; }
+
+    function cardFor(id) {
+      return document.querySelector('.pick-card[data-id="' + id + '"]');
+    }
+
+    function chosenIds() {
+      return Array.prototype.map.call(list.children, function (li) { return li.dataset.id; });
+    }
+
+    // A preferred main belongs at position 1: the order decides who is
+    // appointed and who becomes main, so the one they most want sits at
+    // the top. The list order IS the ranking, and positions are rewritten
+    // from it after every change, so two can never share a position.
+    function pinPreferred() {
+      var checked = list.querySelector('input[type=radio]:checked');
+      var li = checked && checked.closest('.chosen-item');
+      if (li && li !== list.firstElementChild) {
+        list.insertBefore(li, list.firstElementChild);
+      }
+      return li;
+    }
+
+    function renumber() {
+      var pinned = pinPreferred();
+      var ids = chosenIds();
+      Array.prototype.forEach.call(list.children, function (li, i) {
+        var isPinned = li === pinned;
+        li.querySelector('.pos').textContent = (i + 1) + '.';
+        li.querySelector('input[type=hidden]').value = String(i + 1);
+        li.classList.toggle('is-main', isPinned);
+        li.draggable = !isPinned;
+        li.querySelector('.up').disabled = isPinned || i <= (pinned ? 1 : 0);
+        li.querySelector('.down').disabled = isPinned || i === ids.length - 1;
+      });
+      empty.style.display = ids.length ? 'none' : '';
+      document.querySelectorAll('.pick-card').forEach(function (card) {
+        var inList = ids.indexOf(card.dataset.id) !== -1;
+        var addBtn = card.querySelector('.js-add');
+        card.classList.toggle('is-chosen', inList);
+        addBtn.textContent = inList ? 'Added' : 'Add to list';
+        addBtn.disabled = inList || ids.length >= MAX;
+        addBtn.classList.toggle('ghost', inList);
+        addBtn.classList.toggle('brass', !inList);
+      });
+      if (!list.querySelector('input[type=radio]:checked')) {
+        none.checked = true;
+      }
+    }
+
+    function add(id) {
+      if (!id || chosenIds().indexOf(id) !== -1 || chosenIds().length >= MAX) {
+        return;
+      }
+      var card = cardFor(id);
+      if (!card) { return; }
+
+      var li = document.createElement('li');
+      li.className = 'chosen-item';
+      li.draggable = true;
+      li.dataset.id = id;
+      li.innerHTML =
+        '<span class="pos"></span>' +
+        '<span class="who"><span class="nm"></span></span>' +
+        '<label class="mainpick" title="Their preferred main supervisor — moves to number 1">' +
+          '<input type="radio" name="preferred_main"> main</label>' +
+        '<button type="button" class="up" title="Move up">▲</button>' +
+        '<button type="button" class="down" title="Move down">▼</button>' +
+        '<button type="button" class="drop" title="Remove">✕</button>' +
+        '<input type="hidden">';
+      li.querySelector('.nm').textContent = card.dataset.name;
+      li.querySelector('input[type=radio]').value = id;
+      li.querySelector('input[type=hidden]').name = 'rank[' + id + ']';
+      list.appendChild(li);
+      renumber();
+    }
+
+    document.querySelectorAll('.js-add').forEach(function (btn) {
+      btn.addEventListener('click', function () { add(btn.closest('.pick-card').dataset.id); });
+    });
+
+    document.querySelectorAll('.js-add-from-profile').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        add(btn.dataset.id);
+        btn.closest('.modal-overlay').classList.remove('open');
+      });
+    });
+
+    list.addEventListener('click', function (e) {
+      var li = e.target.closest('.chosen-item');
+      if (!li) { return; }
+      if (e.target.classList.contains('drop')) { li.remove(); renumber(); }
+      if (e.target.classList.contains('up') && li.previousElementSibling) {
+        list.insertBefore(li, li.previousElementSibling);
+        renumber();
+      }
+      if (e.target.classList.contains('down') && li.nextElementSibling) {
+        list.insertBefore(li.nextElementSibling, li);
+        renumber();
+      }
+    });
+
+    list.addEventListener('change', renumber);
+    // Lives outside the list, so its change does not reach the handler
+    // above — without this the row just unpinned would stay pinned.
+    none.addEventListener('change', renumber);
+
+    // ---- drag to reorder ----
+    var dragging = null;
+
+    list.addEventListener('dragstart', function (e) {
+      dragging = e.target.closest('.chosen-item');
+      if (dragging) {
+        dragging.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    });
+
+    list.addEventListener('dragend', function () {
+      if (dragging) {
+        dragging.classList.remove('dragging');
+        dragging = null;
+        renumber();
+      }
+    });
+
+    list.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      if (!dragging) { return; }
+      var after = null;
+      var closest = Number.NEGATIVE_INFINITY;
+      Array.prototype.forEach.call(list.children, function (li) {
+        if (li === dragging) { return; }
+        var box = li.getBoundingClientRect();
+        var offset = e.clientY - box.top - box.height / 2;
+        if (offset < 0 && offset > closest) {
+          closest = offset;
+          after = li;
+        }
+      });
+      var pinned = list.querySelector('.chosen-item.is-main');
+      if (pinned && after === pinned) {
+        after = pinned.nextElementSibling;
+      }
+      if (after) {
+        list.insertBefore(dragging, after);
+      } else {
+        list.appendChild(dragging);
+      }
+    });
+
+    // ---- profile dialogs ----
+    document.querySelectorAll('[data-profile]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('profile-' + btn.dataset.profile).classList.add('open');
+      });
+    });
+
+    document.querySelectorAll('[data-close]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById(btn.dataset.close).classList.remove('open');
+      });
+    });
+
+    document.querySelectorAll('.modal-overlay').forEach(function (overlay) {
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) { overlay.classList.remove('open'); }
+      });
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.open').forEach(function (o) { o.classList.remove('open'); });
+      }
+    });
+
+    // Saving a draft with nobody chosen is fine; sending is not.
+    form.addEventListener('submit', function (e) {
+      var action = e.submitter ? e.submitter.value : '';
+      if (REQUIRE_FOR.indexOf(action) !== -1 && !chosenIds().length) {
+        e.preventDefault();
+        alert('Add at least one supervisor to the list.');
+      }
+    });
+
+    // Rebuild the list that was already chosen, in its order.
+    Array.prototype.slice.call(document.querySelectorAll('.pick-card'))
+      .filter(function (c) { return c.dataset.rank !== ''; })
+      .sort(function (a, b) { return Number(a.dataset.rank) - Number(b.dataset.rank); })
+      .forEach(function (c) { add(c.dataset.id); });
+
+    var main = document.querySelector('.pick-card[data-main="1"]');
+    if (main) {
+      var radio = list.querySelector('input[type=radio][value="' + main.dataset.id + '"]');
+      if (radio) { radio.checked = true; }
+    }
+
+    renumber();
+  }());
+</script>

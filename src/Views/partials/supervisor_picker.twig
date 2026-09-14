@@ -1,0 +1,60 @@
+{#
+  The supervisor picker: lecturers on the left, the ordered list being
+  built on the right. Belongs inside the host's <form>; the host owns the
+  buttons. Pair it with partials/supervisor_picker_assets.twig after the
+  form closes.
+
+  Expects:
+    supervisors   SupervisorProfile::browsable()
+    picked        { lecturer_id: rank } already on the list
+    picked_main   lecturer_id of the preferred main, or ''
+    max_choices   SupervisorShortlist::MAX_CHOICES
+    picker_who    "your" for the student, the student's name for a coordinator
+#}
+<div class="picker">
+  <div>
+    <div class="meta" style="margin-bottom:10px;">Supervisors in the department</div>
+    <div class="pick-grid">
+      {% for s in supervisors %}
+        <div class="card pick-card" data-id="{{ s.lecturer_id }}" data-name="{{ s.name }}"
+             data-rank="{{ picked[s.lecturer_id]|default('') }}"
+             data-main="{{ picked_main == s.lecturer_id ? '1' : '' }}">
+          <h3 style="margin-bottom:2px;">{{ s.name }}</h3>
+          <div class="meta" style="margin-bottom:8px;">
+            {{ s.department_name }}{% if s.specialization %} · {{ s.specialization }}{% endif %}
+          </div>
+          <div class="meta" style="margin-bottom:12px;">
+            Supervising {{ s.current_load }} of {{ s.max_load }}
+            {%- if not s.has_capacity %} <span style="color: var(--rust);">· at full load, so would not be asked</span>{% endif %}
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn ghost btn-sm" data-profile="{{ s.lecturer_id }}">View profile</button>
+            <button type="button" class="btn brass btn-sm js-add">Add to list</button>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+    <div class="chosen-panel">
+      <div class="meta" style="margin-bottom:4px;">{{ picker_who|capitalize }} order</div>
+      <div class="meta" style="font-size:.72rem; margin-bottom:12px;">
+        Drag to reorder, or use the arrows. Everyone on the list is asked at
+        the same time; this order decides who is appointed if more accept
+        than there are places, and number 1 of those becomes main.
+      </div>
+
+      <ol id="chosenList" class="chosen-list"></ol>
+
+      <p id="chosenEmpty" class="meta" style="font-size:.78rem;">
+        Nobody chosen yet. Add up to {{ max_choices }} supervisors.
+      </p>
+
+      <label class="chosen-none">
+        <input type="radio" name="preferred_main" value="" id="noPreferred" {{ picked_main ? '' : 'checked' }}>
+        No preferred main — the order decides
+      </label>
+    </div>
+  </div>
+</div>
