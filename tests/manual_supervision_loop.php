@@ -139,7 +139,7 @@ $mine = array_values(array_filter($inbox[1], fn ($r) => $r['shortlist_id'] === $
 $html = (string) $twig->render(new \Slim\Psr7\Response(), 'lecturers/supervision.twig', [
     'active_page' => 'l-supervision', 'first_name' => 'L', 'staff_number' => 'S1',
     'students' => [], 'assignment_requests' => [], 'shortlist_requests' => $mine,
-    'shortlist_answers' => [], 'has_capacity' => true,
+    'shortlist_answers' => [], 'new_student_blocker' => null,
     'request_history' => [], 'documents' => [],
     'csrf_token' => 't', 'error' => null, 'success' => null,
 ])->getBody();
@@ -148,14 +148,20 @@ check('and when they must answer by', str_contains($html, 'Answer by'));
 check('and that everyone was asked at once', str_contains($html, 'asked at the same time'));
 check('the empty-state notice is suppressed', !str_contains($html, 'No pending assignment requests'));
 
-$full = (string) $twig->render(new \Slim\Psr7\Response(), 'lecturers/supervision.twig', [
+$blocked = fn (?string $blocker): string => (string) $twig->render(new \Slim\Psr7\Response(), 'lecturers/supervision.twig', [
     'active_page' => 'l-supervision', 'first_name' => 'L', 'staff_number' => 'S1',
     'students' => [], 'assignment_requests' => [], 'shortlist_requests' => $mine,
-    'shortlist_answers' => [], 'has_capacity' => false,
+    'shortlist_answers' => [], 'new_student_blocker' => $blocker,
     'request_history' => [], 'documents' => [],
     'csrf_token' => 't', 'error' => null, 'success' => null,
 ])->getBody();
-check('a lecturer at full load sees Accept disabled, with the reason', str_contains($full, 'Your supervision load is full'));
+$full = $blocked('full');
+$off = $blocked('unavailable');
+check('a lecturer at full load sees why they cannot accept', str_contains($full, 'Your supervision load is full'));
+check('a lecturer not taking students is told that instead', str_contains($off, 'availability is switched off') && !str_contains($off, 'load is full'));
+check('and either way Accept is disabled',
+    (bool) preg_match('/<button[^>]*disabled[^>]*>Accept</', $full) && (bool) preg_match('/<button[^>]*disabled[^>]*>Accept</', $off));
+check('while an available lecturer can press it', !preg_match('/<button[^>]*disabled[^>]*>Accept</', $html));
 
 echo "\n=== They answer, in any order ===\n";
 $m->respondToRequest($byRank[3]['choice_id'], true, null);

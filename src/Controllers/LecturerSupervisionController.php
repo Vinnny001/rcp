@@ -85,9 +85,10 @@ class LecturerSupervisionController
             // which a supervisor is appointed.
             'shortlist_requests'  => $requests->pendingForLecturer($lecturer['lecturer_id']),
             'shortlist_answers'   => $requests->recentAnswersForLecturer($lecturer['lecturer_id']),
-            // A full lecturer cannot accept; the page says so up front
-            // instead of letting them press a button that will refuse.
-            'has_capacity'        => $lecturerModel->hasSupervisionCapacity($lecturer['lecturer_id']),
+            // A lecturer who is not taking students, or is full, cannot
+            // accept; the page says which up front instead of offering a
+            // button that will refuse.
+            'new_student_blocker' => $lecturerModel->newStudentBlocker($lecturer['lecturer_id']),
             'request_history'     => $requestModel->findHistoryByLecturerId($lecturer['lecturer_id']),
             'documents'           => $documentModel->findBySupervisorId($lecturer['lecturer_id']),
             'csrf_token'          => $this->csrfToken(),

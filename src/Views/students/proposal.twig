@@ -3,6 +3,12 @@
 {% block title %}Proposal & Supervisors{% endblock %}
 
 {% block content %}
+{% macro files(list) %}
+  {%- for f in list -%}
+    <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer">{{ f.document_type }}: {{ f.file_name }}</a>{% if not loop.last %} · {% endif %}
+  {%- endfor -%}
+{% endmacro %}
+{% import _self as sent %}
 
 <div class="page-head">
   <div>
@@ -71,6 +77,9 @@
     {% endif %}
 
     <div class="meta" style="margin-top:8px;">Sent {{ latest.submitted_at ? latest.submitted_at|date('d M Y') : latest.created_at|date('d M Y') }}</div>
+    {% if latest_files %}
+      <div class="meta" style="margin-top:4px;">Sent with {{ sent.files(latest_files) }}</div>
+    {% endif %}
   </div>
 
   <table style="margin-bottom:26px;">
@@ -97,7 +106,7 @@
               <span class="stamp mini rejected">Declined</span>
               {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
             {% elseif c.request_status == 'unavailable' %}
-              <span class="meta">At full supervision load</span>
+              <span class="meta">Could not take a new student</span>
               {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
             {% elseif c.request_status == 'expired' %}
               <span class="meta">Did not answer in time</span>
@@ -265,7 +274,13 @@
         <tr>
           <td class="mono">REQ-{{ h.shortlist_id|slice(0, 8)|upper }}</td>
           <td class="mono">{{ (h.submitted_at ?: h.created_at)|date('d M Y') }}</td>
-          <td>{{ h.proposal_title_snapshot }}<div class="meta" style="font-size:.72rem;">{{ h.choice_count }} supervisor{{ h.choice_count != 1 ? 's' : '' }} listed</div></td>
+          <td>
+            {{ h.proposal_title_snapshot }}
+            <div class="meta" style="font-size:.72rem;">{{ h.choice_count }} supervisor{{ h.choice_count != 1 ? 's' : '' }} listed</div>
+            {% if history_files[h.shortlist_id] is defined %}
+              <div class="meta" style="font-size:.72rem;">Sent with {{ sent.files(history_files[h.shortlist_id]) }}</div>
+            {% endif %}
+          </td>
           <td>
             {% if h.status == 'rejected' %}
               <span class="stamp mini rejected">Not approved</span>

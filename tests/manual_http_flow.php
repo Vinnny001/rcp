@@ -90,6 +90,11 @@ $createdMeetingId = null;
 $createdDocumentId = null;
 $flippedDocumentId = null;
 $flippedDocumentStatus = null;
+// Everything the "replaced file is kept" check creates, for the finally.
+$keptRequestId = null;
+$keptProposal = null;
+$keptFiles = [];
+$keptDocumentIds = [];
 $uploadedFixturePath = null;
 
 try {
@@ -347,6 +352,101 @@ try {
     } else {
         echo "  SKIP  no document on a sent proposal to try to remove\n";
     }
+    // ---- a handed-back proposal keeps the file its failed request had ----
+    //
+    // Real files, real rows: a request is sent with a PDF, the department
+    // rejects it, the coordinator hands the proposal back, and the student
+    // uploads a replacement over HTTP. The old file must still be on disk,
+    // because the failed request is the record of what was judged.
+    echo "\n--- replacing a file on a handed-back proposal ---\n";
+
+    $keeper = $pdo->query(
+        "SELECT st.student_id, st.user_id, tp.proposal_id, tp.status, tp.title, tp.synopsis
+         FROM students st
+         JOIN thesis_proposals tp ON tp.student_id = st.student_id AND tp.status NOT IN ('draft', 'rejected')
+         JOIN student_thesis_registrations str ON str.student_id = st.student_id AND str.status = 'active'
+         WHERE NOT EXISTS (SELECT 1 FROM supervisor_shortlists sl WHERE sl.student_id = st.student_id)
+           AND NOT EXISTS (SELECT 1 FROM exam_documents ed WHERE ed.proposal_id = tp.proposal_id)
+           AND st.student_number IS NOT NULL AND st.student_email IS NOT NULL
+         LIMIT 1"
+    )->fetch(PDO::FETCH_ASSOC);
+    $proposalTypeId = $pdo->query("SELECT doc_type_id FROM document_types WHERE doc_type_name = 'Proposal' LIMIT 1")->fetchColumn();
+
+    if ($keeper && $proposalTypeId) {
+        $keptProposal = $keeper;
+        $documentsModel = new \App\Models\Document($pdo);
+        $requestModel = new \App\Models\SupervisorShortlist($pdo);
+
+        $uploadsDir = __DIR__ . '/../public/uploads/documents';
+        if (!is_dir($uploadsDir)) {
+            mkdir($uploadsDir, 0755, true);
+        }
+        $originalName = 'kept-' . bin2hex(random_bytes(8)) . '.pdf';
+        $originalRelative = 'uploads/documents/' . $originalName;
+        file_put_contents($uploadsDir . '/' . $originalName, '%PDF-1.4 the file the first request was sent with');
+        $keptFiles[] = $uploadsDir . '/' . $originalName;
+
+        $originalDocId = $documentsModel->create([
+            'user_id' => $keeper['user_id'], 'uploaded_by' => $keeper['user_id'], 'document_type_id' => $proposalTypeId,
+            'document_status' => 'submitted', 'file_name' => 'first-proposal.pdf', 'file_path' => $originalRelative,
+            'file_size_kb' => 1, 'mime_type' => 'application/pdf',
+        ]);
+        $keptDocumentIds[] = $originalDocId;
+        $documentsModel->linkToProposal($originalDocId, $keeper['proposal_id'], $proposalTypeId, null);
+
+        $someLecturers = $pdo->query(
+            "SELECT lecturer_id FROM lecturers WHERE user_id <> " . $pdo->quote($keeper['user_id']) . " LIMIT 2"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $keptRequestId = $requestModel->sendForStudent($keeper['student_id'], $keeper, [
+            ['lecturer_id' => $someLecturers[0], 'rank' => 1, 'preferred_main' => false],
+            ['lecturer_id' => $someLecturers[1], 'rank' => 2, 'preferred_main' => false],
+        ], $keeper['user_id']);
+
+        check('the request records the file it was sent with',
+            array_column($requestModel->filesFor($keptRequestId), 'file_path') === [$originalRelative]);
+
+        $pdo->prepare("UPDATE supervisor_shortlists SET status = 'rejected', rejection_reason = 'Test.' WHERE shortlist_id = ?")
+            ->execute([$keptRequestId]);
+        $requestModel->grantEdit($keptRequestId, true, false, $lecturer['user_id']);
+
+        $replacementSource = sys_get_temp_dir() . '/replacement-' . bin2hex(random_bytes(6)) . '.pdf';
+        file_put_contents($replacementSource, '%PDF-1.4 the revised proposal');
+        $keptFiles[] = $replacementSource;
+
+        post('/student/proposal', [
+            'csrf_token' => $csrf, 'action' => 'draft',
+            'title' => $keeper['title'], 'synopsis' => $keeper['synopsis'],
+        ], [
+            'proposal_file' => new UploadedFile($replacementSource, 'revised-proposal.pdf', 'application/pdf', filesize($replacementSource), UPLOAD_ERR_OK, false),
+        ], $asStudent($keeper));
+
+        $current = $pdo->prepare(
+            "SELECT d.document_id, d.file_path FROM exam_documents ed JOIN documents d ON d.document_id = ed.document_id
+             WHERE ed.proposal_id = ? AND ed.document_type_id = ?"
+        );
+        $current->execute([$keeper['proposal_id'], $proposalTypeId]);
+        $nowLinked = $current->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($nowLinked as $row) {
+            $keptDocumentIds[] = $row['document_id'];
+            $keptFiles[] = __DIR__ . '/../public/' . $row['file_path'];
+        }
+
+        check('the upload replaced the proposal\'s file',
+            count($nowLinked) === 1 && $nowLinked[0]['file_path'] !== $originalRelative,
+            (string) ($_SESSION['flash_error'] ?? ''));
+        check('the replacement landed on disk',
+            count($nowLinked) === 1 && is_file(__DIR__ . '/../public/' . $nowLinked[0]['file_path']));
+        check('the file the failed request was sent with is still on disk',
+            is_file($uploadsDir . '/' . $originalName));
+        check('and the failed request still points at it',
+            array_column($requestModel->filesFor($keptRequestId), 'file_path') === [$originalRelative]);
+
+        $keeperPage = get('/student/proposal', $asStudent($keeper));
+        check('the student\'s page links the file that request was sent with',
+            str_contains($keeperPage, 'Sent with') && str_contains($keeperPage, 'href="/' . $originalRelative . '"'));
+    } else {
+        echo "  SKIP  no student with a clean proposal to test file replacement on\n";
+    }
 } catch (\Throwable $e) {
     $fail++;
     echo "\n  ERROR  " . $e->getMessage() . "\n         " . $e->getFile() . ':' . $e->getLine() . "\n";
@@ -356,6 +456,23 @@ try {
     if ($flippedDocumentId) {
         $pdo->prepare("UPDATE documents SET document_status = ? WHERE document_id = ?")
             ->execute([$flippedDocumentStatus, $flippedDocumentId]);
+    }
+    if ($keptRequestId) {
+        // Choices and recorded files go with the request (ON DELETE CASCADE).
+        $pdo->prepare("DELETE FROM supervisor_shortlists WHERE shortlist_id = ?")->execute([$keptRequestId]);
+    }
+    foreach ($keptDocumentIds as $documentId) {
+        $pdo->prepare("DELETE FROM exam_documents WHERE document_id = ?")->execute([$documentId]);
+        $pdo->prepare("DELETE FROM documents WHERE document_id = ?")->execute([$documentId]);
+    }
+    foreach ($keptFiles as $file) {
+        if (is_file($file)) {
+            unlink($file);
+        }
+    }
+    if ($keptProposal) {
+        $pdo->prepare("UPDATE thesis_proposals SET status = ?, title = ?, synopsis = ? WHERE proposal_id = ?")
+            ->execute([$keptProposal['status'], $keptProposal['title'], $keptProposal['synopsis'], $keptProposal['proposal_id']]);
     }
     if ($createdMeetingId) {
         $pdo->prepare("DELETE FROM meeting_resources WHERE meeting_id = :id")->execute(['id' => $createdMeetingId]);

@@ -57,7 +57,11 @@
     Every supervisor on a student's list is asked at the same time. If more accept than the student has places for,
     the student's own order decides who is appointed — not who answered first. Your answer is final.
   </div>
-  {% if not has_capacity %}
+  {% if new_student_blocker == 'unavailable' %}
+    <div class="notice" style="margin-bottom:14px; border-left-color: var(--rust); background:#f6eae7;">
+      Your availability is switched off, so you cannot accept new students. Turn it back on from your profile, or decline so the student is not left waiting.
+    </div>
+  {% elseif new_student_blocker == 'full' %}
     <div class="notice" style="margin-bottom:14px; border-left-color: var(--rust); background:#f6eae7;">
       Your supervision load is full, so you cannot accept new students. You can still decline, so the student is not left waiting.
     </div>
@@ -88,7 +92,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="choice_id" value="{{ r.choice_id }}">
           <input type="hidden" name="decision" value="accept">
-          <button type="submit" class="btn brass" {{ has_capacity ? '' : 'disabled title="Your supervision load is full"' }}>Accept</button>
+          <button type="submit" class="btn brass" {{ new_student_blocker ? 'disabled title="You cannot take on a new student right now"' : '' }}>Accept</button>
         </form>
       </div>
     </div>
@@ -187,7 +191,7 @@
             {% elseif a.request_status == 'expired' %}
               <span class="meta">No answer before the deadline</span>
             {% else %}
-              <span class="meta">Passed over — your load was full</span>
+              <span class="meta">Passed over — you could not take a new student</span>
             {% endif %}
           </td>
           <td class="mono">{{ a.decided_at ? a.decided_at|date('d M Y') : '—' }}</td>

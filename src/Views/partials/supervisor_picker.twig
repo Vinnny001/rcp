@@ -25,7 +25,8 @@
           </div>
           <div class="meta" style="margin-bottom:12px;">
             Supervising {{ s.current_load }} of {{ s.max_load }}
-            {%- if not s.has_capacity %} <span style="color: var(--rust);">· at full load, so would not be asked</span>{% endif %}
+            {%- if not s.is_available %} <span style="color: var(--rust);">· not taking new students, so would not be asked</span>
+            {%- elseif not s.has_capacity %} <span style="color: var(--rust);">· at full load, so would not be asked</span>{% endif %}
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button type="button" class="btn ghost btn-sm" data-profile="{{ s.lecturer_id }}">View profile</button>

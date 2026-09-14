@@ -126,6 +126,8 @@ class StudentProposalController
             'state'           => $state,
             'latest'          => $latest,
             'latest_choices'  => $latest ? $requests->choicesFor($latest['shortlist_id']) : [],
+            'latest_files'    => $latest ? $requests->filesFor($latest['shortlist_id']) : [],
+            'history_files'   => $requests->filesByRequest(array_column($history, 'shortlist_id')),
             'appointed_roles' => $proposal ? $this->appointedRoles($proposal['proposal_id']) : [],
             'history'         => $history,
             'supervisors'     => ($state['list_editable'] ?? false) ? (new SupervisorProfile($this->db))->browsable() : [],
@@ -300,8 +302,9 @@ class StudentProposalController
 
             // One transaction: the proposal is only ever submitted together
             // with its request, and a draft saves both halves or neither.
+            $sentId = null;
             if ($sending) {
-                $requests->sendForStudent($student['student_id'], $proposal, $choices, $_SESSION['user_id']);
+                $sentId = $requests->sendForStudent($student['student_id'], $proposal, $choices, $_SESSION['user_id']);
             } elseif ($state['list_editable']) {
                 $requests->saveDraft($student['student_id'], $proposal, $choices ?? [], $_SESSION['user_id']);
             }
@@ -321,6 +324,9 @@ class StudentProposalController
 
         if ($sending) {
             $this->submitDraftDocuments($proposal['proposal_id']);
+            // Files uploaded with this Send landed after the request was
+            // written, so record the request's files again now they have.
+            $requests->captureFiles($sentId);
         }
 
         $_SESSION['flash_success'] = $sending
@@ -469,10 +475,7 @@ class StudentProposalController
                     . ' has already been reviewed, so it was kept rather than replaced.';
                 return;
             }
-            $oldPath = __DIR__ . '/../../public/' . $existingDoc['file_path'];
-            if (is_file($oldPath)) {
-                unlink($oldPath);
-            }
+            $this->deleteFileUnlessOnRecord($existingDoc['file_path']);
         }
 
         $file->moveTo($destination);
@@ -550,14 +553,29 @@ class StudentProposalController
             return $this->redirect($response, '/student/proposal');
         }
 
-        $path = __DIR__ . '/../../public/' . $doc['file_path'];
-        if (is_file($path)) {
-            unlink($path);
-        }
         $documentModel->delete($documentId);
+        $this->deleteFileUnlessOnRecord($doc['file_path']);
 
         $_SESSION['flash_success'] = 'Document removed.';
         return $this->redirect($response, '/student/proposal');
+    }
+
+    /**
+     * Deletes an uploaded file from disk — unless a supervisor request was
+     * sent with it. A failed request keeps its files as the record of what
+     * it was judged on, even after the student replaces them on a
+     * revised proposal.
+     */
+    private function deleteFileUnlessOnRecord(string $relativePath): void
+    {
+        if ((new SupervisorShortlist($this->db))->isFileOnRecord($relativePath)) {
+            return;
+        }
+
+        $path = __DIR__ . '/../../public/' . $relativePath;
+        if (is_file($path)) {
+            unlink($path);
+        }
     }
 
     private function csrfToken(): string

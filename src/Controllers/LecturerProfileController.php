@@ -65,6 +65,15 @@ class LecturerProfileController
             $blockers[] = 'You have ' . count($pending) . ' pending supervision request' . (count($pending) === 1 ? '' : 's') . ' — decline it before turning off availability.';
         }
 
+        // A student's request is waiting on this lecturer's answer. Going
+        // unavailable would leave it unanswerable until the window closed.
+        $asked = (new \App\Models\SupervisorShortlist($this->db))->pendingForLecturer($lecturerId);
+        if ($asked) {
+            $blockers[] = 'You have ' . count($asked) . ' supervisor request' . (count($asked) === 1 ? '' : 's')
+                . ' from a student waiting on your answer — accept or decline '
+                . (count($asked) === 1 ? 'it' : 'them') . ' before turning off availability.';
+        }
+
         if ((new Meeting($this->db))->hasActiveMeetingForUser($userId)) {
             $blockers[] = 'You have a scheduled or in-progress meeting invite — availability cannot be turned off until it is resolved.';
         }

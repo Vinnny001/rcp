@@ -281,6 +281,38 @@ class Lecturer
         return (bool) $stmt->fetchColumn();
     }
 
+    /**
+     * Why this lecturer cannot take on a new student right now, or null
+     * if they can.
+     *
+     *   'unavailable' — they have switched their availability off
+     *   'full'        — they are at their supervision load
+     *
+     * The single rule the supervisor request flow applies wherever a
+     * lecturer is asked, accepts, or is appointed. Availability comes
+     * first: a lecturer who has said they are not taking students should
+     * be told that, not that they happen to be full.
+     */
+    public function newStudentBlocker(string $lecturerId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT l.is_available,
+                    l.max_supervision_load > (
+                        SELECT COUNT(*) FROM supervision_assignments sa
+                        WHERE sa.supervisor_id = l.lecturer_id AND sa.is_active = 1
+                    ) AS has_room
+             FROM lecturers l WHERE l.lecturer_id = :id"
+        );
+        $stmt->execute(['id' => $lecturerId]);
+        $row = $stmt->fetch();
+
+        if (!$row || !(int) $row['is_available']) {
+            return 'unavailable';
+        }
+
+        return (int) $row['has_room'] ? null : 'full';
+    }
+
     public function countActiveSupervisions(string $lecturerId): int
     {
         $stmt = $this->db->prepare(

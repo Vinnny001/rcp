@@ -43,7 +43,8 @@
 
       <div class="meta" style="margin-top:14px;">
         Supervising {{ s.current_load }} of {{ s.max_load }}
-        {%- if not s.has_capacity %} <span style="color: var(--rust);">· at full load</span>{% endif %}
+        {%- if not s.is_available %} <span style="color: var(--rust);">· not taking new students</span>
+        {%- elseif not s.has_capacity %} <span style="color: var(--rust);">· at full load</span>{% endif %}
       </div>
 
       <div class="modal-actions">

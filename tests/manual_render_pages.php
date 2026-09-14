@@ -390,6 +390,13 @@ if ($askedLecturer) {
     if ($inboxPage) {
         assertThat('a lecturer holding a request sees when to answer by', str_contains($inboxPage, 'Answer by'));
     }
+    // Switching availability off while a student waits on their answer
+    // would strand the request, so the profile page says it cannot yet.
+    $askedProfile = visit('/lecturer/profile', 'lecturer', $askedLecturer);
+    if ($askedProfile) {
+        assertThat('they cannot switch availability off while a request waits on them',
+            str_contains($askedProfile, 'waiting on your answer'));
+    }
 } else {
     echo "  SKIP  no lecturer holding a request\n";
 }

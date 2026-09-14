@@ -49,6 +49,23 @@ class SupervisorShortlist
     /** How long lecturers have to answer once the coordinator sends a request. */
     public const RESPONSE_DAYS = 14;
 
+    /** The documents that make up a proposal, and so travel with its request. */
+    public const PROPOSAL_DOCUMENT_TYPES = ['Synopsis', 'Proposal'];
+
+    /**
+     * Recorded against a lecturer who could not take a new student, by
+     * why — see Lecturer::newStudentBlocker().
+     */
+    private const PASSED_OVER_AT_SEND = [
+        'unavailable' => 'Not taking on new students when the request was sent.',
+        'full'        => 'Already at full supervision load when the request was sent.',
+    ];
+
+    private const PASSED_OVER_AT_DECISION = [
+        'unavailable' => 'Switched off their availability before the outcome was decided.',
+        'full'        => 'Their supervision load filled up before the outcome was decided.',
+    ];
+
     /** Attempts that ended without anyone appointed. */
     private const FAILED = ['rejected', 'exhausted'];
 
@@ -260,6 +277,7 @@ class SupervisorShortlist
         ]);
 
         $this->insertChoices($shortlistId, $choices);
+        $this->captureFiles($shortlistId);
 
         return $shortlistId;
     }
@@ -920,8 +938,7 @@ class SupervisorShortlist
             $lecturers = new Lecturer($this->db);
             $markUnavailable = $this->db->prepare(
                 "UPDATE supervisor_shortlist_choices
-                 SET request_status = 'unavailable', decided_at = NOW(),
-                     decline_reason = 'Already at full supervision load when the request was sent.'
+                 SET request_status = 'unavailable', decided_at = NOW(), decline_reason = :reason
                  WHERE choice_id = :id"
             );
             $markSent = $this->db->prepare(
@@ -932,11 +949,17 @@ class SupervisorShortlist
             $sent = 0;
             $unavailable = 0;
             foreach ($choices->fetchAll() as $choice) {
-                if ($lecturers->hasSupervisionCapacity($choice['lecturer_id'])) {
+                $blocker = $lecturers->newStudentBlocker($choice['lecturer_id']);
+                if ($blocker === null) {
                     $markSent->execute(['id' => $choice['choice_id']]);
                     $sent++;
                 } else {
-                    $markUnavailable->execute(['id' => $choice['choice_id']]);
+                    // Not asked at all: they could not accept, so asking
+                    // would only leave the student waiting on a no.
+                    $markUnavailable->execute([
+                        'id'     => $choice['choice_id'],
+                        'reason' => self::PASSED_OVER_AT_SEND[$blocker],
+                    ]);
                     $unavailable++;
                 }
             }
@@ -1002,7 +1025,13 @@ class SupervisorShortlist
             }
 
             if ($accept) {
-                if (!(new Lecturer($this->db))->hasSupervisionCapacity($choice['lecturer_id'])) {
+                $blocker = (new Lecturer($this->db))->newStudentBlocker($choice['lecturer_id']);
+                if ($blocker === 'unavailable') {
+                    throw new RuntimeException(
+                        'Your availability is switched off, so you cannot accept a new student. Turn it back on from your profile, or decline.'
+                    );
+                }
+                if ($blocker === 'full') {
                     throw new RuntimeException(
                         'Your supervision load is full, so you cannot accept another student. You can still decline.'
                     );
@@ -1082,9 +1111,9 @@ class SupervisorShortlist
      * one — or once the window closes — nothing left can change who is
      * appointed, so it is decided.
      *
-     * Capacity is checked again here, not only at acceptance: a lecturer
-     * may accept several students' requests, and whichever is decided
-     * first can fill their load.
+     * Whether the lecturer can take a new student is checked again here,
+     * not only at acceptance: a lecturer may accept several students'
+     * requests, and whichever is decided first can fill their load.
      *
      * Expects to run inside a transaction holding the request's lock.
      */
@@ -1120,10 +1149,11 @@ class SupervisorShortlist
                 break;
             }
             if ($choice['request_status'] === 'accepted') {
-                if ($lecturers->hasSupervisionCapacity($choice['lecturer_id'])) {
+                $blocker = $lecturers->newStudentBlocker($choice['lecturer_id']);
+                if ($blocker === null) {
                     $appoint[] = $choice;
                 } else {
-                    $filledUp[] = $choice;
+                    $filledUp[] = $choice + ['blocker' => $blocker];
                 }
             } elseif ($choice['request_status'] === 'pending' && !$windowClosed) {
                 return null;
@@ -1159,12 +1189,14 @@ class SupervisorShortlist
 
         $markFilledUp = $this->db->prepare(
             "UPDATE supervisor_shortlist_choices
-             SET request_status = 'unavailable',
-                 decline_reason = 'Their supervision load filled up before the outcome was decided.'
+             SET request_status = 'unavailable', decline_reason = :reason
              WHERE choice_id = :id"
         );
         foreach ($filledUp as $choice) {
-            $markFilledUp->execute(['id' => $choice['choice_id']]);
+            $markFilledUp->execute([
+                'id'     => $choice['choice_id'],
+                'reason' => self::PASSED_OVER_AT_DECISION[$choice['blocker']],
+            ]);
         }
 
         $appointedIds = array_column($appoint, 'choice_id');
@@ -1284,6 +1316,95 @@ class SupervisorShortlist
         if (!$state['can_decide']) {
             throw new RuntimeException('This request is not waiting on a decision about what happens next.');
         }
+    }
+
+    // ------------------------------------------------------------------
+    // The files a request was sent with
+    // ------------------------------------------------------------------
+
+    /**
+     * Records the proposal's files as they stand now against this
+     * request, replacing any earlier record for it.
+     *
+     * Called when a request is written, and again by the student's page
+     * once a file uploaded in the same Send has landed — uploads are
+     * moved into place after the transaction that sends the request.
+     */
+    public function captureFiles(string $shortlistId): int
+    {
+        $this->db->prepare("DELETE FROM supervisor_shortlist_files WHERE shortlist_id = :id")
+            ->execute(['id' => $shortlistId]);
+
+        $types = implode(',', array_map([$this->db, 'quote'], self::PROPOSAL_DOCUMENT_TYPES));
+        $stmt = $this->db->prepare(
+            "INSERT INTO supervisor_shortlist_files
+                (file_id, shortlist_id, document_type, file_name, file_path, file_size_kb)
+             SELECT UUID(), s.shortlist_id, dt.doc_type_name, d.file_name, d.file_path, d.file_size_kb
+             FROM supervisor_shortlists s
+             JOIN exam_documents ed ON ed.proposal_id = s.proposal_id
+             JOIN documents d ON d.document_id = ed.document_id
+             JOIN document_types dt ON dt.doc_type_id = ed.document_type_id
+             WHERE s.shortlist_id = :id AND dt.doc_type_name IN ($types)"
+        );
+        $stmt->execute(['id' => $shortlistId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function filesFor(string $shortlistId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT document_type, file_name, file_path, file_size_kb, captured_at
+             FROM supervisor_shortlist_files WHERE shortlist_id = :id
+             ORDER BY document_type"
+        );
+        $stmt->execute(['id' => $shortlistId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * The files for several requests at once, keyed by request id.
+     *
+     * @param array<int, string> $shortlistIds
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    public function filesByRequest(array $shortlistIds): array
+    {
+        if ($shortlistIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($shortlistIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT shortlist_id, document_type, file_name, file_path, file_size_kb
+             FROM supervisor_shortlist_files WHERE shortlist_id IN ($placeholders)
+             ORDER BY document_type"
+        );
+        $stmt->execute(array_values($shortlistIds));
+
+        $byRequest = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $byRequest[$row['shortlist_id']][] = $row;
+        }
+
+        return $byRequest;
+    }
+
+    /**
+     * Whether any request was sent with this file. Such a file must stay
+     * on disk even when the student replaces it on a revised proposal —
+     * it is the record of what that request was judged on.
+     */
+    public function isFileOnRecord(string $filePath): bool
+    {
+        $stmt = $this->db->prepare("SELECT 1 FROM supervisor_shortlist_files WHERE file_path = :path LIMIT 1");
+        $stmt->execute(['path' => $filePath]);
+
+        return (bool) $stmt->fetchColumn();
     }
 
     // ------------------------------------------------------------------

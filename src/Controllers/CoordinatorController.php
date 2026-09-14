@@ -76,11 +76,12 @@ class CoordinatorController
         $choices = $model->choicesFor($shortlist['shortlist_id']);
         $decision = $model->decisionState($shortlist);
 
-        // Who on the list could not be asked if it were sent now, so the
-        // coordinator sees it before pressing Send rather than after.
+        // Who on the list could not be asked if it were sent now — not
+        // taking students, or at full load — so the coordinator sees it
+        // before pressing Send rather than after.
         $lecturers = new Lecturer($this->db);
         foreach ($choices as &$choice) {
-            $choice['has_capacity'] = $lecturers->hasSupervisionCapacity($choice['lecturer_id']);
+            $choice['blocker'] = $lecturers->newStudentBlocker($choice['lecturer_id']);
         }
         unset($choice);
 
@@ -99,6 +100,7 @@ class CoordinatorController
             'last_name'     => $_SESSION['last_name'] ?? '',
             'shortlist'     => $shortlist,
             'choices'       => $choices,
+            'files'         => $model->filesFor($shortlist['shortlist_id']),
             'decision'      => $decision,
             'previous'      => $shortlist['previous_shortlist_id'] ? $model->findWithContext($shortlist['previous_shortlist_id']) : null,
             'supervisors'   => $decision['can_decide'] ? (new SupervisorProfile($this->db))->browsable() : [],
@@ -511,7 +513,7 @@ class CoordinatorController
             $message = $result['sent'] . ' supervisor' . ($result['sent'] === 1 ? '' : 's')
                 . ' asked, with ' . SupervisorShortlist::RESPONSE_DAYS . ' days to answer.';
             if ($result['unavailable'] > 0) {
-                $message .= ' ' . $result['unavailable'] . ' at full supervision load '
+                $message .= ' ' . $result['unavailable'] . ' who could not take a new student '
                     . ($result['unavailable'] === 1 ? 'was' : 'were') . ' passed over.';
             }
             if ($result['outcome'] === 'exhausted') {

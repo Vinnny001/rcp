@@ -3,6 +3,12 @@
 {% block title %}Supervisor Request{% endblock %}
 
 {% block content %}
+{% macro files(list) %}
+  {%- for f in list -%}
+    <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer">{{ f.document_type }}: {{ f.file_name }}</a>{% if not loop.last %} · {% endif %}
+  {%- endfor -%}
+{% endmacro %}
+{% import _self as sent %}
 
 <div class="page-head">
   <div>
@@ -31,6 +37,11 @@
 <div class="card" style="margin-bottom:22px;">
   <h3>{{ shortlist.proposal_title }}</h3>
   {% if shortlist.synopsis %}<p style="font-size:.86rem; line-height:1.6; color:#39332a;">{{ shortlist.synopsis }}</p>{% endif %}
+  {% if files %}
+    <div class="meta" style="margin-bottom:6px;">{{ sent.files(files) }}</div>
+  {% else %}
+    <div class="meta" style="margin-bottom:6px;">No files were sent with it.</div>
+  {% endif %}
   <div class="meta">Sent {{ (shortlist.submitted_at ?: shortlist.created_at)|date('d M Y') }}. Locked — nobody can change it while this request stands.</div>
 </div>
 
@@ -47,7 +58,9 @@
         </td>
         <td>
           {% if c.request_status == 'not_sent' %}
-            {% if shortlist.status == 'approved' and not c.has_capacity %}
+            {% if shortlist.status == 'approved' and c.blocker == 'unavailable' %}
+              <span class="meta" style="color: var(--rust);">Not taking new students — would be passed over if sent now</span>
+            {% elseif shortlist.status == 'approved' and c.blocker == 'full' %}
               <span class="meta" style="color: var(--rust);">At full load — would be passed over if sent now</span>
             {% else %}
               <span class="meta">Not asked yet</span>
@@ -60,7 +73,7 @@
             <span class="stamp mini rejected">Declined</span>
             {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
           {% elseif c.request_status == 'unavailable' %}
-            <span class="meta">At full supervision load</span>
+            <span class="meta">Could not take a new student</span>
             {% if c.decline_reason %}<div class="meta" style="font-size:.72rem;">{{ c.decline_reason }}</div>{% endif %}
           {% elseif c.request_status == 'expired' %}
             <span class="meta">Did not answer in time</span>
@@ -258,8 +271,8 @@
 
 {# ---------- approved: send it ---------- #}
 {% if shortlist.status == 'approved' %}
-  {% set full = choices|filter(c => c.request_status == 'not_sent' and not c.has_capacity)|length %}
-  {% set askable = choices|filter(c => c.request_status == 'not_sent' and c.has_capacity)|length %}
+  {% set full = choices|filter(c => c.request_status == 'not_sent' and c.blocker)|length %}
+  {% set askable = choices|filter(c => c.request_status == 'not_sent' and not c.blocker)|length %}
 
   <div class="section-title">Send to the supervisors<div class="rule"></div></div>
   <div class="card">
@@ -270,7 +283,7 @@
     </div>
     <div class="meta" style="margin-bottom:14px;">
       <span class="strong">{{ askable }}</span> will be asked.
-      {% if full %}<span style="color: var(--rust);">{{ full }} at full supervision load will be passed over.</span>{% endif %}
+      {% if full %}<span style="color: var(--rust);">{{ full }} not taking new students or at full load will be passed over.</span>{% endif %}
     </div>
     <form method="POST" action="/coordinator/shortlists/send">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

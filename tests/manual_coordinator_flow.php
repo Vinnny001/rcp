@@ -98,9 +98,10 @@ $coordVars = fn(array $c) => [
     'active_page' => 'l-coordinator', 'first_name' => 'Co', 'last_name' => 'Ord',
     'shortlist' => $c,
     'choices' => array_map(
-        fn ($choice) => $choice + ['has_capacity' => $lecturerModel->hasSupervisionCapacity($choice['lecturer_id'])],
+        fn ($choice) => $choice + ['blocker' => $lecturerModel->newStudentBlocker($choice['lecturer_id'])],
         $m->choicesFor($c['shortlist_id'])
     ),
+    'files' => $m->filesFor($c['shortlist_id']),
     'decision' => $m->decisionState($c), 'previous' => null,
     'supervisors' => [], 'picked' => [], 'picked_main' => '',
     'max_choices' => SupervisorShortlist::MAX_CHOICES, 'response_days' => SupervisorShortlist::RESPONSE_DAYS,

@@ -13,8 +13,11 @@
  *     passed over rather than asked
  *   - the student's order decides who is appointed, not reply speed, and
  *     the outcome is decided as soon as it can no longer change
+ *   - a lecturer who is not taking students is treated like a full one:
+ *     passed over at send, refused at accept, dropped at the decision
  *   - after a failure the coordinator either hands it back to the
- *     student or revises the list, and every attempt stays on record
+ *     student or revises the list, and every attempt stays on record,
+ *     files included
  *
  * Run: php tests/manual_request_rounds.php
  */
@@ -24,6 +27,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\Models\DepartmentHead;
+use App\Models\Document;
 use App\Models\SupervisorShortlist;
 
 $env = parse_ini_file(__DIR__ . '/../.env');
@@ -83,10 +87,12 @@ $lects = $pdo->query(
 // Plenty of room for everyone, so capacity only matters where a scenario
 // takes it away on purpose.
 $roomy = $pdo->prepare(
-    "UPDATE lecturers SET max_supervision_load =
+    "UPDATE lecturers SET is_available = 1, max_supervision_load =
         (SELECT COUNT(*) FROM supervision_assignments sa WHERE sa.supervisor_id = lecturers.lecturer_id AND sa.is_active = 1) + 5
      WHERE lecturer_id = ?"
 );
+$switchOff = $pdo->prepare("UPDATE lecturers SET is_available = 0 WHERE lecturer_id = ?");
+$switchOn = $pdo->prepare("UPDATE lecturers SET is_available = 1 WHERE lecturer_id = ?");
 $fill = $pdo->prepare(
     "UPDATE lecturers SET max_supervision_load =
         (SELECT COUNT(*) FROM supervision_assignments sa WHERE sa.supervisor_id = lecturers.lecturer_id AND sa.is_active = 1)
@@ -164,6 +170,18 @@ check('so no meeting can be scheduled on it',
 check('and the request cannot go without the proposal',
     throws(fn () => $m->sendForStudent($student['student_id'], $proposalRow(), $list, $student['user_id'])) !== null);
 
+// The PDF the proposal goes out with. A row only — no file on disk is
+// needed to prove which path each request records.
+$documents = new Document($pdo);
+$proposalTypeId = $pdo->query("SELECT doc_type_id FROM document_types WHERE doc_type_name = 'Proposal' LIMIT 1")->fetchColumn();
+$originalPath = 'uploads/documents/rounds-test-original-' . bin2hex(random_bytes(4)) . '.pdf';
+$originalDoc = $documents->create([
+    'user_id' => $student['user_id'], 'uploaded_by' => $student['user_id'], 'document_type_id' => $proposalTypeId,
+    'document_status' => 'submitted', 'file_name' => 'original-proposal.pdf', 'file_path' => $originalPath,
+    'file_size_kb' => 120, 'mime_type' => 'application/pdf',
+]);
+$documents->linkToProposal($originalDoc, $student['proposal_id'], $proposalTypeId, null);
+
 // What the controller does in one transaction: submit the proposal, send the request.
 $pdo->prepare("UPDATE thesis_proposals SET status = 'submitted' WHERE proposal_id = ?")->execute([$student['proposal_id']]);
 $sid = $m->sendForStudent($student['student_id'], $proposalRow(), $list, $student['user_id']);
@@ -171,6 +189,8 @@ $sid = $m->sendForStudent($student['student_id'], $proposalRow(), $list, $studen
 check('sending creates the request', $requestStatus($sid) === 'pending_coordinator');
 check('the working draft is gone once it is sent',
     (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists WHERE shortlist_id = " . $pdo->quote($draftId))->fetchColumn() === 0);
+check('it records the file it was sent with',
+    array_column($m->filesFor($sid), 'file_path') === [$originalPath]);
 check('it keeps a copy of the proposal as sent',
     $pdo->query("SELECT proposal_title_snapshot FROM supervisor_shortlists WHERE shortlist_id = " . $pdo->quote($sid))->fetchColumn() === $proposalRow()['title']);
 
@@ -299,6 +319,37 @@ check('the failed request stays on record', $requestStatus($sid) === 'exhausted'
 check('and is waiting on the coordinator', $m->decisionState($m->findWithContext($sid))['can_decide']);
 
 // =====================================================================
+echo "\n=== Not taking new students ===\n";
+$pdo->exec('ROLLBACK TO SAVEPOINT requests_out');
+
+$switchOff->execute([$lects[0]]);
+$err = throws(fn () => $answer($sid, 1, true));
+check('a lecturer who switched availability off cannot accept', $err !== null && str_contains($err, 'availability'), (string) $err);
+check('and is told that, not that they are full', $err !== null && !str_contains($err, 'load is full'));
+check('their request stays open so they can still decline', $choiceFor($sid, 1)['request_status'] === 'pending');
+$switchOn->execute([$lects[0]]);
+
+$answer($sid, 1, true);
+$switchOff->execute([$lects[0]]);   // accepted, then stopped taking students before it was decided
+$answer($sid, 2, true);
+$answer($sid, 3, true);
+$answer($sid, 4, false);
+check('an acceptance from someone no longer taking students is not acted on', $roleOf($lects[0]) === null, $statuses($sid));
+check('it is recorded with that reason',
+    str_contains((string) $choiceFor($sid, 1)['decline_reason'], 'availability'));
+check('and the next in order becomes main', $roleOf($lects[1]) === 'main');
+
+$pdo->exec('ROLLBACK TO SAVEPOINT sent_to_coordinator');
+$approve($sid);
+$switchOff->execute([$lects[1]]);
+$fill->execute([$lects[2]]);
+$sent = $m->sendRequests($sid, $coordinator);
+check('a lecturer not taking students is passed over rather than asked', $choiceFor($sid, 2)['request_status'] === 'unavailable');
+check('with the reason recorded', str_contains((string) $choiceFor($sid, 2)['decline_reason'], 'Not taking on new students'));
+check('a full lecturer is passed over with their own reason', str_contains((string) $choiceFor($sid, 3)['decline_reason'], 'full supervision load'));
+check('everyone else is asked', $sent['sent'] === 3 && $sent['unavailable'] === 2, $statuses($sid));
+
+// =====================================================================
 echo "\n=== The department rejects ===\n";
 $pdo->exec('ROLLBACK TO SAVEPOINT sent_to_coordinator');
 
@@ -328,6 +379,17 @@ check('the rejected request is still what the queue shows while the student work
         "SELECT ts.program_id FROM student_thesis_registrations str JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
          WHERE str.student_id = " . $pdo->quote($student['student_id']) . " LIMIT 1")->fetchColumn()]), 'shortlist_id'), true));
 
+// The student replaces the PDF while revising: the document row goes,
+// exactly as the upload does, and a new one takes its place.
+$documents->delete($originalDoc);
+$revisedPath = 'uploads/documents/rounds-test-revised-' . bin2hex(random_bytes(4)) . '.pdf';
+$revisedDoc = $documents->create([
+    'user_id' => $student['user_id'], 'uploaded_by' => $student['user_id'], 'document_type_id' => $proposalTypeId,
+    'document_status' => 'draft', 'file_name' => 'revised-proposal.pdf', 'file_path' => $revisedPath,
+    'file_size_kb' => 130, 'mime_type' => 'application/pdf',
+]);
+$documents->linkToProposal($revisedDoc, $student['proposal_id'], $proposalTypeId, null);
+
 $pdo->prepare("UPDATE thesis_proposals SET title = 'A revised title', status = 'submitted' WHERE proposal_id = ?")->execute([$student['proposal_id']]);
 $sid2 = $m->sendForStudent($student['student_id'], $proposalRow(), array_slice($list, 1, 3), $student['user_id']);
 
@@ -337,6 +399,11 @@ check('which points back at the one that failed',
 check('the failed request keeps its outcome and reason',
     $requestStatus($sid) === 'rejected'
     && str_contains((string) $pdo->query("SELECT rejection_reason FROM supervisor_shortlists WHERE shortlist_id = " . $pdo->quote($sid))->fetchColumn(), 'overlaps'));
+check('the failed request still records the file it was judged on',
+    array_column($m->filesFor($sid), 'file_path') === [$originalPath]);
+check('so that file is kept on disk rather than deleted', $m->isFileOnRecord($originalPath));
+check('the new request records the replacement',
+    array_column($m->filesFor($sid2), 'file_path') === [$revisedPath]);
 check('and still records the proposal as it was then',
     $pdo->query("SELECT proposal_title_snapshot FROM supervisor_shortlists WHERE shortlist_id = " . $pdo->quote($sid))->fetchColumn() !== 'A revised title');
 check('the new request is the current one', $m->latestSentForStudent($student['student_id'])['shortlist_id'] === $sid2);
