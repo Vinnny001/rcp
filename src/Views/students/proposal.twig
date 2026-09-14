@@ -3,12 +3,6 @@
 {% block title %}Proposal & Supervisors{% endblock %}
 
 {% block content %}
-{% macro files(list) %}
-  {%- for f in list -%}
-    <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer">{{ f.document_type }}: {{ f.file_name }}</a>{% if not loop.last %} · {% endif %}
-  {%- endfor -%}
-{% endmacro %}
-{% import _self as sent %}
 
 <div class="page-head">
   <div>
@@ -78,7 +72,7 @@
 
     <div class="meta" style="margin-top:8px;">Sent {{ latest.submitted_at ? latest.submitted_at|date('d M Y') : latest.created_at|date('d M Y') }}</div>
     {% if latest_files %}
-      <div class="meta" style="margin-top:4px;">Sent with {{ sent.files(latest_files) }}</div>
+      <div class="meta" style="margin-top:4px;">Sent with {% include 'partials/request_files.twig' with {files: latest_files} only %}</div>
     {% endif %}
   </div>
 
@@ -278,7 +272,7 @@
             {{ h.proposal_title_snapshot }}
             <div class="meta" style="font-size:.72rem;">{{ h.choice_count }} supervisor{{ h.choice_count != 1 ? 's' : '' }} listed</div>
             {% if history_files[h.shortlist_id] is defined %}
-              <div class="meta" style="font-size:.72rem;">Sent with {{ sent.files(history_files[h.shortlist_id]) }}</div>
+              <div class="meta" style="font-size:.72rem;">Sent with {% include 'partials/request_files.twig' with {files: history_files[h.shortlist_id]} only %}</div>
             {% endif %}
           </td>
           <td>

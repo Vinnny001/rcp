@@ -3,12 +3,6 @@
 {% block title %}Supervisor Request{% endblock %}
 
 {% block content %}
-{% macro files(list) %}
-  {%- for f in list -%}
-    <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer">{{ f.document_type }}: {{ f.file_name }}</a>{% if not loop.last %} · {% endif %}
-  {%- endfor -%}
-{% endmacro %}
-{% import _self as sent %}
 
 <div class="page-head">
   <div>
@@ -38,7 +32,7 @@
   <h3>{{ shortlist.proposal_title }}</h3>
   {% if shortlist.synopsis %}<p style="font-size:.86rem; line-height:1.6; color:#39332a;">{{ shortlist.synopsis }}</p>{% endif %}
   {% if files %}
-    <div class="meta" style="margin-bottom:6px;">{{ sent.files(files) }}</div>
+    <div class="meta" style="margin-bottom:6px;">{% include 'partials/request_files.twig' with {files: files} only %}</div>
   {% else %}
     <div class="meta" style="margin-bottom:6px;">No files were sent with it.</div>
   {% endif %}

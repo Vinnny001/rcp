@@ -4,6 +4,15 @@
  * Boots the real Slim app in-process and renders each page as a
  * signed-in user, so template errors surface without a browser.
  *
+ * Holds pages to the live app's standard, not just "it rendered":
+ * public/index.php registers a ShutdownHandler that turns ANY PHP error
+ * left over from a request — a deprecation notice included — into a
+ * 500. This harness builds the app without that handler, so a notice
+ * used to pass silently here and break the page in a browser (a Twig
+ * macro defined inside a block did exactly that). Every visit now
+ * records the notices it raises and fails on them, and every template
+ * is compiled the same way, including ones no visit reaches.
+ *
  * Run: php tests/manual_render_pages.php
  */
 
@@ -85,10 +94,20 @@ function visit(string $path, string $role, array $user): ?string
 
     $request = (new ServerRequestFactory())->createServerRequest('GET', $path);
 
+    $notices = [];
+    set_error_handler(noticeCollector($notices));
+
     try {
         $response = $app->handle($request);
         $status = $response->getStatusCode();
         $body = (string) $response->getBody();
+        restore_error_handler();
+
+        if ($notices) {
+            $fail++;
+            printf("  FAIL  %-34s %s, but the live app would return 500:\n        %s\n", $path, $status, implode("\n        ", $notices));
+            return null;
+        }
 
         if ($status === 200) {
             $pass++;
@@ -105,11 +124,31 @@ function visit(string $path, string $role, array $user): ?string
         $fail++;
         printf("  FAIL  %-34s %s\n%s\n", $path, $status, substr(strip_tags($body), 0, 900));
     } catch (\Throwable $e) {
+        restore_error_handler();
         $fail++;
         printf("  FAIL  %-34s threw %s: %s\n        %s:%d\n", $path, get_class($e), $e->getMessage(), $e->getFile(), $e->getLine());
     }
 
     return null;
+}
+
+/**
+ * Collects the PHP notices, warnings and deprecations raised while it is
+ * installed — what ShutdownHandler would find in error_get_last().
+ *
+ * One is ignored: session_start() complaining that headers were already
+ * sent. That only happens because this script has printed output before
+ * the controller runs; a real request has not.
+ */
+function noticeCollector(array &$notices): callable
+{
+    return static function (int $type, string $message, string $file = '', int $line = 0) use (&$notices): bool {
+        if (str_starts_with($message, 'session_start():')) {
+            return true;
+        }
+        $notices[] = $message . ($file !== '' ? ' (' . basename($file) . ':' . $line . ')' : '');
+        return true;
+    };
 }
 
 // Prefer a lecturer who actually organises meetings, so the edit and
@@ -412,6 +451,34 @@ if ($rubrics) {
     assertThat('marking scheme rows are editable', str_contains($rubrics, 'action="/admin/rubrics/criteria/save"'));
     assertThat('and a row can be removed', str_contains($rubrics, 'action="/admin/rubrics/criteria/delete"'));
 }
+
+echo "\n--- every template compiles without notices ---\n";
+// Through the app's own Twig, so its custom filters exist. Catches a
+// template no visit above happens to reach.
+$appTwig = buildApp()->getContainer()->get(\Slim\Views\Twig::class)->getEnvironment();
+$viewsRoot = realpath(__DIR__ . '/../src/Views');
+$compiled = 0;
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($viewsRoot, FilesystemIterator::SKIP_DOTS)) as $file) {
+    if ($file->getExtension() !== 'twig') {
+        continue;
+    }
+    $name = str_replace('\\', '/', substr($file->getPathname(), strlen($viewsRoot) + 1));
+    $notices = [];
+    set_error_handler(noticeCollector($notices));
+    try {
+        $appTwig->load($name);
+        $problem = $notices ? implode('; ', $notices) : null;
+    } catch (\Throwable $e) {
+        $problem = $e->getMessage();
+    }
+    restore_error_handler();
+
+    $compiled++;
+    if ($problem !== null) {
+        assertThat("template $name compiles cleanly", false, $problem);
+    }
+}
+assertThat('every template compiles with no errors or notices', $compiled > 0, $compiled . ' templates');
 
 echo "\n$pass passed, $fail failed\n";
 exit($fail === 0 ? 0 : 1);

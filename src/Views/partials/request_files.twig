@@ -1,0 +1,11 @@
+{#
+  The files a supervisor request was sent with, as links.
+  Expects: files — SupervisorShortlist::filesFor() rows.
+
+  An include rather than a macro: Twig 3.27 deprecated defining a macro
+  anywhere but the top level of a template, and this app's
+  ShutdownHandler turns any leftover notice into a 500.
+#}
+{%- for f in files -%}
+  <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer">{{ f.document_type }}: {{ f.file_name }}</a>{% if not loop.last %} · {% endif %}
+{%- endfor -%}
