@@ -285,18 +285,20 @@ class Lecturer
      * Why this lecturer cannot take on a new student right now, or null
      * if they can.
      *
-     *   'unavailable' — they have switched their availability off
-     *   'full'        — they are at their supervision load
+     *   'not_internal' — not an internal JKUAT lecturer, so cannot supervise
+     *   'unavailable'  — they have switched their availability off
+     *   'full'         — they are at their supervision load
      *
      * The single rule the supervisor request flow applies wherever a
-     * lecturer is asked, accepts, or is appointed. Availability comes
-     * first: a lecturer who has said they are not taking students should
-     * be told that, not that they happen to be full.
+     * lecturer is asked, accepts, or is appointed. The most permanent
+     * reason is reported first: an external lecturer should be told they
+     * cannot supervise at all, not that they happen to be full.
      */
     public function newStudentBlocker(string $lecturerId): ?string
     {
         $stmt = $this->db->prepare(
             "SELECT l.is_available,
+                    EXISTS (SELECT 1 FROM internal_lecturers il WHERE il.lecturer_id = l.lecturer_id) AS is_internal,
                     l.max_supervision_load > (
                         SELECT COUNT(*) FROM supervision_assignments sa
                         WHERE sa.supervisor_id = l.lecturer_id AND sa.is_active = 1
@@ -306,7 +308,10 @@ class Lecturer
         $stmt->execute(['id' => $lecturerId]);
         $row = $stmt->fetch();
 
-        if (!$row || !(int) $row['is_available']) {
+        if (!$row || !(int) $row['is_internal']) {
+            return 'not_internal';
+        }
+        if (!(int) $row['is_available']) {
             return 'unavailable';
         }
 

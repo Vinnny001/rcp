@@ -46,7 +46,7 @@ $student  = $pdo->query("SELECT s.student_id, s.user_id FROM students s
                          JOIN thesis_proposals tp ON tp.student_id = s.student_id AND tp.status NOT IN ('draft', 'rejected')
                          LIMIT 1")->fetch();
 $proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' AND status NOT IN ('draft', 'rejected') LIMIT 1")->fetchColumn();
-$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers
+$lecturers = $pdo->query("SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id 
                           WHERE user_id <> '{$student['user_id']}' LIMIT 5")->fetchAll(PDO::FETCH_COLUMN);
 $admin = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
 $dept = $pdo->query("SELECT department_id FROM departments LIMIT 1")->fetchColumn();

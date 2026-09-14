@@ -57,13 +57,15 @@ class SupervisorShortlist
      * why — see Lecturer::newStudentBlocker().
      */
     private const PASSED_OVER_AT_SEND = [
-        'unavailable' => 'Not taking on new students when the request was sent.',
-        'full'        => 'Already at full supervision load when the request was sent.',
+        'not_internal' => 'Not an internal lecturer when the request was sent, so cannot supervise.',
+        'unavailable'  => 'Not taking on new students when the request was sent.',
+        'full'         => 'Already at full supervision load when the request was sent.',
     ];
 
     private const PASSED_OVER_AT_DECISION = [
-        'unavailable' => 'Switched off their availability before the outcome was decided.',
-        'full'        => 'Their supervision load filled up before the outcome was decided.',
+        'not_internal' => 'No longer an internal lecturer when the outcome was decided, so cannot supervise.',
+        'unavailable'  => 'Switched off their availability before the outcome was decided.',
+        'full'         => 'Their supervision load filled up before the outcome was decided.',
     ];
 
     /** Attempts that ended without anyone appointed. */
@@ -148,6 +150,7 @@ class SupervisorShortlist
 
             $this->assertValidChoices($choices, true);
             $this->assertNotSelf($studentId, array_column($choices, 'lecturer_id'));
+            $this->assertAllInternal(array_column($choices, 'lecturer_id'));
             $choices = $this->withPreferredMainFirst($choices);
 
             $draftId = $state['draft']['shortlist_id'] ?? null;
@@ -242,6 +245,7 @@ class SupervisorShortlist
     ): string {
         $this->assertValidChoices($choices);
         $this->assertNotSelf($studentId, array_column($choices, 'lecturer_id'));
+        $this->assertAllInternal(array_column($choices, 'lecturer_id'));
         $choices = $this->withPreferredMainFirst($choices);
 
         $proposal = $this->db->prepare(
@@ -368,6 +372,45 @@ class SupervisorShortlist
         }
 
         return $choices;
+    }
+
+    /**
+     * Refuses a list naming anyone who is not an internal lecturer.
+     *
+     * Only internal JKUAT lecturers supervise. The picker only offers
+     * them, but hiding is not enforcing: a posted form can carry any
+     * lecturer id, and without this an external lecturer could be put on
+     * a list and sent a request they could never accept.
+     *
+     * @param array<int, string> $lecturerIds
+     */
+    private function assertAllInternal(array $lecturerIds): void
+    {
+        if ($lecturerIds === []) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($lecturerIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT CONCAT(u.first_name, ' ', u.last_name)
+             FROM lecturers l
+             JOIN users u ON u.user_id = l.user_id
+             WHERE l.lecturer_id IN ($placeholders)
+               AND NOT EXISTS (SELECT 1 FROM internal_lecturers il WHERE il.lecturer_id = l.lecturer_id)"
+        );
+        $stmt->execute(array_values($lecturerIds));
+        $notInternal = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // An id that matches no lecturer at all is not internal either.
+        $known = $this->db->prepare("SELECT COUNT(*) FROM lecturers WHERE lecturer_id IN ($placeholders)");
+        $known->execute(array_values($lecturerIds));
+
+        if ($notInternal !== [] || (int) $known->fetchColumn() !== count(array_unique($lecturerIds))) {
+            throw new RuntimeException(
+                'Only internal JKUAT lecturers can supervise'
+                . ($notInternal !== [] ? ', so ' . implode(', ', $notInternal) . ' cannot be on a supervisor list.' : '. One of the lecturers chosen is not one.')
+            );
+        }
     }
 
     /**
@@ -1026,6 +1069,11 @@ class SupervisorShortlist
 
             if ($accept) {
                 $blocker = (new Lecturer($this->db))->newStudentBlocker($choice['lecturer_id']);
+                if ($blocker === 'not_internal') {
+                    throw new RuntimeException(
+                        'Only internal JKUAT lecturers can supervise, so you cannot accept this request. You can still decline.'
+                    );
+                }
                 if ($blocker === 'unavailable') {
                     throw new RuntimeException(
                         'Your availability is switched off, so you cannot accept a new student. Turn it back on from your profile, or decline.'
@@ -1280,6 +1328,7 @@ class SupervisorShortlist
 
             $this->assertValidChoices($choices);
             $this->assertNotSelf($request['student_id'], array_column($choices, 'lecturer_id'));
+            $this->assertAllInternal(array_column($choices, 'lecturer_id'));
             $revised = $this->withPreferredMainFirst($choices);
 
             $current = array_map(static fn (array $c): array => [

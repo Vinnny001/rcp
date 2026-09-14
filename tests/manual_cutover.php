@@ -62,7 +62,7 @@ $proposal = $pdo->query(
     "SELECT proposal_id FROM thesis_proposals WHERE student_id = " . $pdo->quote($student['student_id']) . " LIMIT 1"
 )->fetchColumn();
 $someLecturer = $pdo->query(
-    "SELECT lecturer_id FROM lecturers WHERE user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 1"
+    "SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id WHERE user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 1"
 )->fetchColumn();
 
 $before = (int) $pdo->query("SELECT COUNT(*) FROM supervision_requests")->fetchColumn();
@@ -115,7 +115,7 @@ if ($dual) {
         "SELECT proposal_id FROM thesis_proposals WHERE student_id = " . $pdo->quote($dual['student_id']) . " LIMIT 1"
     )->fetchColumn();
     $other = $pdo->query(
-        "SELECT lecturer_id FROM lecturers WHERE user_id <> " . $pdo->quote($dual['user_id']) . " LIMIT 1"
+        "SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id WHERE user_id <> " . $pdo->quote($dual['user_id']) . " LIMIT 1"
     )->fetchColumn();
 
     $err = throws(fn() => $shortlist->submit($dual['student_id'], $dualProposal, [

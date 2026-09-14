@@ -76,7 +76,7 @@ $proposalRow = fn (): array => $pdo->query(
     "SELECT * FROM thesis_proposals WHERE proposal_id = " . $pdo->quote($student['proposal_id'])
 )->fetch();
 $lects = $pdo->query(
-    "SELECT lecturer_id FROM lecturers WHERE user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 3"
+    "SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id WHERE user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 3"
 )->fetchAll(PDO::FETCH_COLUMN);
 
 /**

@@ -258,7 +258,7 @@ try {
         'first_name' => 'S', 'last_name' => 'T', 'csrf_token' => $csrf,
     ];
     $shortlistBefore = (int) $pdo->query("SELECT COUNT(*) FROM supervisor_shortlists")->fetchColumn();
-    $someLecturer = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 1")->fetchColumn();
+    $someLecturer = $pdo->query("SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id LIMIT 1")->fetchColumn();
 
     // A request already with the coordinator, department or lecturers.
     $lockedStudent = $pdo->query(
@@ -308,6 +308,17 @@ try {
         ], [], $asStudent($openStudent));
         check('a preferred main who is not on the list is refused, not silently dropped',
             str_contains((string) ($_SESSION['flash_error'] ?? ''), 'not on your list'),
+            (string) ($_SESSION['flash_error'] ?? 'no error set'));
+
+        // The picker never offers external lecturers, so this can only
+        // arrive as a hand-made post — which is exactly what must fail.
+        $externalId = $pdo->query("SELECT lecturer_id FROM external_lecturers LIMIT 1")->fetchColumn();
+        post('/student/proposal', [
+            'csrf_token' => $csrf, 'action' => 'draft',
+            'rank' => [$externalId => '1'], 'preferred_main' => '',
+        ], [], $asStudent($openStudent));
+        check('a posted list naming an external lecturer is refused',
+            str_contains((string) ($_SESSION['flash_error'] ?? ''), 'Only internal JKUAT lecturers can supervise'),
             (string) ($_SESSION['flash_error'] ?? 'no error set'));
 
         $old = post('/student/supervisors', [
@@ -395,7 +406,7 @@ try {
         $documentsModel->linkToProposal($originalDocId, $keeper['proposal_id'], $proposalTypeId, null);
 
         $someLecturers = $pdo->query(
-            "SELECT lecturer_id FROM lecturers WHERE user_id <> " . $pdo->quote($keeper['user_id']) . " LIMIT 2"
+            "SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id WHERE user_id <> " . $pdo->quote($keeper['user_id']) . " LIMIT 2"
         )->fetchAll(PDO::FETCH_COLUMN);
         $keptRequestId = $requestModel->sendForStudent($keeper['student_id'], $keeper, [
             ['lecturer_id' => $someLecturers[0], 'rank' => 1, 'preferred_main' => false],

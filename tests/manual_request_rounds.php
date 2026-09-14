@@ -15,6 +15,8 @@
  *     the outcome is decided as soon as it can no longer change
  *   - a lecturer who is not taking students is treated like a full one:
  *     passed over at send, refused at accept, dropped at the decision
+ *   - only internal lecturers can be on a list at all, and one made
+ *     external afterwards is treated the same way
  *   - after a failure the coordinator either hands it back to the
  *     student or revises the list, and every attempt stays on record,
  *     files included
@@ -102,6 +104,14 @@ foreach ($lects as $id) {
     $roomy->execute([$id]);
 }
 
+$externalLecturer = $pdo->query(
+    "SELECT l.lecturer_id, CONCAT(u.first_name, ' ', u.last_name) AS name
+     FROM lecturers l JOIN users u ON u.user_id = l.user_id
+     JOIN external_lecturers el ON el.lecturer_id = l.lecturer_id LIMIT 1"
+)->fetch();
+// What Admin -> Users "external" does to the internal side of a lecturer.
+$makeExternal = $pdo->prepare("DELETE FROM internal_lecturers WHERE lecturer_id = ?");
+
 $admin = $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn();
 $coordinator = $pdo->query(
     "SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
@@ -164,6 +174,10 @@ check('and the supervisor list with it', $state['list_editable'] && $state['can_
 
 $draftId = $m->saveDraft($student['student_id'], $proposalRow(), array_slice($list, 0, 2), $student['user_id']);
 check('a list can be kept as a draft', $requestStatus($draftId) === 'draft');
+$err = throws(fn () => $m->saveDraft($student['student_id'], $proposalRow(), [
+    ['lecturer_id' => $externalLecturer['lecturer_id'], 'rank' => 1, 'preferred_main' => false],
+], $student['user_id']));
+check('a draft naming an external lecturer is refused', $err !== null && str_contains($err, 'internal'), (string) $err);
 check('a draft is not a request anyone else can see', $m->latestSentForStudent($student['student_id']) === null);
 check('so no meeting can be scheduled on it',
     throws(fn () => $m->scheduleMeeting($draftId, '2026-10-01 10:00:00', 'physical', null, null, $headIds, $coordinator)) !== null);
@@ -350,6 +364,45 @@ check('a full lecturer is passed over with their own reason', str_contains((stri
 check('everyone else is asked', $sent['sent'] === 3 && $sent['unavailable'] === 2, $statuses($sid));
 
 // =====================================================================
+echo "\n=== Only internal lecturers supervise ===\n";
+
+$err = throws(fn () => $m->submit($student['student_id'], $student['proposal_id'], [
+    ['lecturer_id' => $lects[0], 'rank' => 1, 'preferred_main' => false],
+    ['lecturer_id' => $externalLecturer['lecturer_id'], 'rank' => 2, 'preferred_main' => false],
+]));
+check('a list naming an external lecturer is refused', $err !== null && str_contains($err, 'internal'), (string) $err);
+check('and the refusal names them', $err !== null && str_contains($err, $externalLecturer['name']));
+check('an id that belongs to no lecturer is refused too',
+    throws(fn () => $m->submit($student['student_id'], $student['proposal_id'], [
+        ['lecturer_id' => '00000000-0000-4000-8000-000000000000', 'rank' => 1, 'preferred_main' => false],
+    ])) !== null);
+
+$pdo->exec('ROLLBACK TO SAVEPOINT sent_to_coordinator');
+$approve($sid);
+$makeExternal->execute([$lects[3]]);
+$m->sendRequests($sid, $coordinator);
+check('a lecturer made external after being shortlisted is passed over at send',
+    $choiceFor($sid, 4)['request_status'] === 'unavailable' && str_contains((string) $choiceFor($sid, 4)['decline_reason'], 'internal'),
+    (string) $choiceFor($sid, 4)['decline_reason']);
+
+$pdo->exec('ROLLBACK TO SAVEPOINT sent_to_coordinator');
+$approve($sid);
+$m->sendRequests($sid, $coordinator);
+$makeExternal->execute([$lects[0]]);
+$err = throws(fn () => $answer($sid, 1, true));
+check('one made external after being asked cannot accept', $err !== null && str_contains($err, 'internal'), (string) $err);
+check('but can still decline', throws(fn () => $answer($sid, 1, false)) === null);
+
+$answer($sid, 2, true);
+$makeExternal->execute([$lects[1]]);   // accepted, then made external before the decision
+$answer($sid, 3, true);
+$answer($sid, 4, false);
+$answer($sid, 5, false);
+check('an acceptance from someone no longer internal is not acted on', $roleOf($lects[1]) === null, $statuses($sid));
+check('it is recorded with that reason', str_contains((string) $choiceFor($sid, 2)['decline_reason'], 'internal'));
+check('and the next internal lecturer in order becomes main', $roleOf($lects[2]) === 'main');
+
+// =====================================================================
 echo "\n=== The department rejects ===\n";
 $pdo->exec('ROLLBACK TO SAVEPOINT sent_to_coordinator');
 
@@ -428,6 +481,11 @@ check('the list goes out again exactly as it was, whatever was posted',
 // =====================================================================
 echo "\n=== The coordinator revises the list instead ===\n";
 $pdo->exec('ROLLBACK TO SAVEPOINT rejected');
+
+$err = throws(fn () => $m->reviseList($sid, [
+    ['lecturer_id' => $externalLecturer['lecturer_id'], 'rank' => 1, 'preferred_main' => true],
+], $coordinator));
+check('the coordinator cannot put an external lecturer on the list either', $err !== null && str_contains($err, 'internal'), (string) $err);
 
 $same = throws(fn () => $m->reviseList($sid, $list, $coordinator));
 check('an unchanged list is refused, so no pointless meeting can follow', $same !== null && str_contains($same, 'Nothing has changed'), (string) $same);

@@ -52,7 +52,9 @@
         </td>
         <td>
           {% if c.request_status == 'not_sent' %}
-            {% if shortlist.status == 'approved' and c.blocker == 'unavailable' %}
+            {% if shortlist.status == 'approved' and c.blocker == 'not_internal' %}
+              <span class="meta" style="color: var(--rust);">Not an internal lecturer, so cannot supervise — would be passed over if sent now</span>
+            {% elseif shortlist.status == 'approved' and c.blocker == 'unavailable' %}
               <span class="meta" style="color: var(--rust);">Not taking new students — would be passed over if sent now</span>
             {% elseif shortlist.status == 'approved' and c.blocker == 'full' %}
               <span class="meta" style="color: var(--rust);">At full load — would be passed over if sent now</span>

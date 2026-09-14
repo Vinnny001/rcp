@@ -58,7 +58,7 @@ foreach ([$headA, $headB] as $uid) {
     $dh->assign($dept, $uid, $pos, $admin);
 }
 $headIds = array_column($dh->activeForDepartment($dept), 'dept_head_id');
-$lects = $pdo->query("SELECT lecturer_id FROM lecturers
+$lects = $pdo->query("SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id 
                       WHERE user_id <> '{$student['user_id']}' LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
 
 $newMeeting = function (?string $lead, ?string $secretary) use ($m, $student, $proposal, $lects, $headIds, $coordinator): string {
