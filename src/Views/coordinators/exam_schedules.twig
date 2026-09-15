@@ -1,0 +1,218 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Exam Schedules{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+  <div>
+    <h1>Exam schedules</h1>
+    <div class="sub">
+      The exam dates students book. Open as many as you need for a stage — each student chooses the one they will sit,
+      and submits its documents once booked.
+    </div>
+  </div>
+  <div class="ref">EXAM-SCHEDULES</div>
+</div>
+
+{% if success %}
+  <div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>
+{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not programs %}
+  <div class="notice">You do not coordinate any program yet. An administrator assigns coordinators per program.</div>
+{% endif %}
+
+{% for p in programs %}
+  <div class="section-title">{{ p.program_name }}<div class="rule"></div></div>
+
+  {% if not p.thesis_schedules %}
+    <div class="notice" style="margin-bottom:28px;">
+      {{ p.program_name }} has no thesis schedule yet, so no exam can be scheduled for it. An administrator creates thesis schedules.
+    </div>
+  {% else %}
+    <details class="form-card es-add" style="margin-bottom:20px;" {{ p.windows ? '' : 'open' }}>
+      <summary>Add an exam schedule</summary>
+      <form method="POST" action="/coordinator/exam-schedules/create" style="margin-top:16px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="field">
+          <label>Thesis schedule</label>
+          {% if p.thesis_schedules|length == 1 %}
+            {% set ts = p.thesis_schedules|first %}
+            <input type="hidden" name="thesis_schedule_id" value="{{ ts.schedule_id }}">
+            <div style="font-size:.86rem;">{% include 'partials/thesis_schedule_label.twig' with {ts: ts} only %}</div>
+          {% else %}
+            <select name="thesis_schedule_id" required>
+              {% for ts in p.thesis_schedules %}
+                <option value="{{ ts.schedule_id }}">{% include 'partials/thesis_schedule_label.twig' with {ts: ts} only %}</option>
+              {% endfor %}
+            </select>
+            <div class="meta" style="margin-top:6px;">Only students registered on this thesis schedule can book the exam.</div>
+          {% endif %}
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label>Examines which stage</label>
+            <select name="exam_stage_id" required>
+              <option value="">-- Select --</option>
+              {% for s in exam_stages %}<option value="{{ s.stage_id }}">{{ s.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Exam type</label>
+            <select name="exam_type" required>
+              {% for type in exam_types %}<option value="{{ type }}">{{ type|capitalize }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field"><label>Window opens</label><input type="datetime-local" name="starts_at" required></div>
+          <div class="field"><label>Window closes</label><input type="datetime-local" name="ends_at" required></div>
+        </div>
+
+        <div class="field">
+          <label>Description</label>
+          <textarea name="exam_schedule_description" rows="2" placeholder="e.g. Proposal defences — morning session"></textarea>
+        </div>
+
+        <button type="submit" class="btn brass">Add exam schedule</button>
+      </form>
+    </details>
+
+    {% if p.windows %}
+      {% for es in p.windows %}
+        <details class="form-card es-window" style="margin-bottom:14px;">
+          <summary>
+            <span class="strong">{{ es.stage_name ?: 'No stage' }}</span>
+            <span class="meta">
+              · {{ es.starts_at|date('d M Y') }} – {{ es.ends_at|date('d M Y') }}
+              · {{ es.exam_type|capitalize }}
+              · {{ es.booking_count }} booked
+              · {{ es.meeting_count }} exam{{ es.meeting_count != 1 ? 's' : '' }} scheduled
+              {%- if es.exam_schedule_description %} · {{ es.exam_schedule_description }}{% endif %}
+            </span>
+          </summary>
+
+          <div style="margin-top:16px;">
+            <form method="POST" action="/coordinator/exam-schedules/update">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="exam_schedule_id" value="{{ es.exam_schedule_id }}">
+
+              <div class="field">
+                <label>Thesis schedule</label>
+                <select name="thesis_schedule_id" required>
+                  {% for ts in p.thesis_schedules %}
+                    <option value="{{ ts.schedule_id }}" {{ ts.schedule_id == es.thesis_schedule_id ? 'selected' : '' }}>
+                      {% include 'partials/thesis_schedule_label.twig' with {ts: ts} only %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="field-row">
+                <div class="field">
+                  <label>Examines which stage</label>
+                  <select name="exam_stage_id" required>
+                    {% for s in exam_stages %}
+                      <option value="{{ s.stage_id }}" {{ s.stage_id == es.exam_stage_id ? 'selected' : '' }}>{{ s.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Exam type</label>
+                  <select name="exam_type" required>
+                    {% for type in exam_types %}
+                      <option value="{{ type }}" {{ type == es.exam_type ? 'selected' : '' }}>{{ type|capitalize }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div class="field-row">
+                <div class="field">
+                  <label>Window opens</label>
+                  <input type="datetime-local" name="starts_at" value="{{ es.starts_at|date('Y-m-d\\TH:i') }}" required>
+                </div>
+                <div class="field">
+                  <label>Window closes</label>
+                  <input type="datetime-local" name="ends_at" value="{{ es.ends_at|date('Y-m-d\\TH:i') }}" required>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Description</label>
+                <textarea name="exam_schedule_description" rows="2">{{ es.exam_schedule_description }}</textarea>
+              </div>
+
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.74rem;">Save changes</button>
+            </form>
+
+            <div class="section-title" style="margin:22px 0 12px; font-size:.9rem;">Required documents<div class="rule"></div></div>
+            {% if es.document_slots %}
+              <table style="margin-bottom:12px;">
+                <thead><tr><th>Document type</th><th>Submission opens</th><th>Deadline</th><th></th></tr></thead>
+                <tbody>
+                  {% for slot in es.document_slots %}
+                    <tr>
+                      <td class="strong">{{ slot.doc_type_name }}</td>
+                      <td class="mono">{{ slot.document_submission_starts_at ? slot.document_submission_starts_at|date('d M Y H:i') : '—' }}</td>
+                      <td class="mono">{{ slot.document_submission_deadline ? slot.document_submission_deadline|date('d M Y H:i') : '—' }}</td>
+                      <td style="text-align:right;">
+                        <form method="POST" action="/coordinator/exam-schedules/documents/remove" style="display:inline;">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="esd_id" value="{{ slot.esd_id }}">
+                          <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.68rem; color: var(--rust);">Remove</button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <div class="meta" style="margin-bottom:12px;">No documents are required for this exam.</div>
+            {% endif %}
+
+            <form method="POST" action="/coordinator/exam-schedules/documents/add">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="exam_schedule_id" value="{{ es.exam_schedule_id }}">
+              <div class="field-row">
+                <div class="field">
+                  <label>Document type</label>
+                  <select name="document_type_id" required>
+                    <option value="">-- Select --</option>
+                    {% for dt in document_types %}<option value="{{ dt.doc_type_id }}">{{ dt.doc_type_name }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="field"><label>Submission opens</label><input type="datetime-local" name="document_submission_starts_at"></div>
+                <div class="field"><label>Deadline</label><input type="datetime-local" name="document_submission_deadline"></div>
+              </div>
+              <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.74rem;">Add required document</button>
+            </form>
+
+            <form method="POST" action="/coordinator/exam-schedules/delete" style="margin-top:16px;"
+                  onsubmit="return confirm('Delete this exam schedule? This cannot be undone.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="exam_schedule_id" value="{{ es.exam_schedule_id }}">
+              <button type="submit" class="btn ghost" style="padding:5px 12px; font-size:.7rem; color: var(--rust);">Delete exam schedule</button>
+            </form>
+          </div>
+        </details>
+      {% endfor %}
+    {% else %}
+      <div class="meta" style="margin-bottom:28px;">No exam schedules for {{ p.program_name }} yet.</div>
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+<style>
+  .es-add > summary, .es-window > summary{ cursor:pointer; font-size:.88rem; list-style-position:inside; }
+  .es-add > summary{ font-weight:600; }
+</style>
+
+{% endblock %}

@@ -357,6 +357,175 @@ class CoordinatorController
         return $stmt->fetchAll();
     }
 
+    // ------------------------------------------------------------------
+    // Exam schedules — the windows students book their exams in
+    // ------------------------------------------------------------------
+
+    /**
+     * The exam schedules on the programs this coordinator holds. A
+     * window hangs off one of the program's thesis schedules; a program
+     * with none cannot have exams scheduled until an administrator
+     * creates one.
+     */
+    public function examSchedules(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $programs = (new ResearchCoordinator($this->db))->programsForUser($_SESSION['user_id']);
+        $programIds = array_column($programs, 'program_id');
+
+        $thesisSchedules = array_values(array_filter(
+            (new \App\Models\ThesisSchedule($this->db))->all(),
+            fn (array $schedule): bool => in_array($schedule['program_id'], $programIds, true)
+        ));
+
+        $examModel = new \App\Models\ExamSchedule($this->db);
+        $windows = $examModel->forThesisSchedules(array_column($thesisSchedules, 'schedule_id'));
+        foreach ($windows as &$window) {
+            $window['document_slots'] = $examModel->documentSlots($window['exam_schedule_id']);
+        }
+        unset($window);
+
+        foreach ($programs as &$program) {
+            $program['thesis_schedules'] = array_values(array_filter(
+                $thesisSchedules,
+                fn (array $schedule): bool => $schedule['program_id'] === $program['program_id']
+            ));
+            $program['windows'] = array_values(array_filter(
+                $windows,
+                fn (array $window): bool => $window['program_id'] === $program['program_id']
+            ));
+        }
+        unset($program);
+
+        return $this->twig->render($response, 'coordinators/exam_schedules.twig', [
+            'active_page'    => 'l-coordinator-schedules',
+            'first_name'     => $_SESSION['first_name'] ?? '',
+            'last_name'      => $_SESSION['last_name'] ?? '',
+            'programs'       => $programs,
+            'exam_types'     => \App\Models\ExamSchedule::VALID_EXAM_TYPES,
+            'exam_stages'    => (new \App\Models\ExamStage($this->db))->allActive(),
+            'document_types' => $this->db->query("SELECT doc_type_id, doc_type_name FROM document_types ORDER BY doc_type_name")->fetchAll(),
+            'csrf_token'     => $this->csrfToken(),
+            'error'          => $this->takeFlash('flash_error'),
+            'success'        => $this->takeFlash('flash_success'),
+        ]);
+    }
+
+    public function createExamSchedule(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamSchedule($request, $response, function (array $data, \App\Models\ExamSchedule $model): string {
+            $this->authoriseThesisSchedule((string) ($data['thesis_schedule_id'] ?? ''));
+            if ($error = \App\Models\ExamSchedule::validationError($data, true)) {
+                throw new \RuntimeException($error);
+            }
+            $model->create($data);
+
+            return 'Exam schedule created. Add the documents students must submit for it, if any.';
+        });
+    }
+
+    public function updateExamSchedule(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamSchedule($request, $response, function (array $data, \App\Models\ExamSchedule $model): string {
+            $window = $this->authoriseExamSchedule((string) ($data['exam_schedule_id'] ?? ''), $model);
+            // The thesis schedule cannot be moved to another program's.
+            $this->authoriseThesisSchedule((string) ($data['thesis_schedule_id'] ?? ''));
+            if ($error = \App\Models\ExamSchedule::validationError($data, true)) {
+                throw new \RuntimeException($error);
+            }
+            $model->update($window['exam_schedule_id'], $data);
+
+            return 'Exam schedule updated.';
+        });
+    }
+
+    public function deleteExamSchedule(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamSchedule($request, $response, function (array $data, \App\Models\ExamSchedule $model): string {
+            $window = $this->authoriseExamSchedule((string) ($data['exam_schedule_id'] ?? ''), $model);
+            if ($error = $model->delete($window['exam_schedule_id'])) {
+                throw new \RuntimeException($error . ' It cannot be deleted.');
+            }
+
+            return 'Exam schedule deleted.';
+        });
+    }
+
+    public function addExamScheduleDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamSchedule($request, $response, function (array $data, \App\Models\ExamSchedule $model): string {
+            $window = $this->authoriseExamSchedule((string) ($data['exam_schedule_id'] ?? ''), $model);
+            if ($error = \App\Models\ExamSchedule::documentSlotError($data)) {
+                throw new \RuntimeException($error);
+            }
+            $model->addDocumentSlot($window['exam_schedule_id'], $data);
+
+            return 'Required document added.';
+        });
+    }
+
+    public function removeExamScheduleDocument(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamSchedule($request, $response, function (array $data, \App\Models\ExamSchedule $model): string {
+            $esdId = (string) ($data['esd_id'] ?? '');
+            $this->authoriseExamSchedule((string) $model->windowForSlot($esdId), $model);
+            $model->removeDocumentSlot($esdId);
+
+            return 'Required document removed.';
+        });
+    }
+
+    /**
+     * @return array<string, mixed> the exam window
+     */
+    private function authoriseExamSchedule(string $examScheduleId, \App\Models\ExamSchedule $model): array
+    {
+        $window = $examScheduleId !== '' ? $model->findById($examScheduleId) : null;
+        $programId = $window ? $model->programFor($examScheduleId) : null;
+
+        if ($programId === null || !$this->coordinates($programId)) {
+            throw new \RuntimeException('That exam schedule is not on a program you coordinate.');
+        }
+
+        return $window;
+    }
+
+    private function authoriseThesisSchedule(string $thesisScheduleId): void
+    {
+        $schedule = $thesisScheduleId !== '' ? (new \App\Models\ThesisSchedule($this->db))->findById($thesisScheduleId) : null;
+
+        if (!$schedule || !$this->coordinates($schedule['program_id'])) {
+            throw new \RuntimeException('Choose a thesis schedule of a program you coordinate.');
+        }
+    }
+
+    private function handleExamSchedule(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        callable $write
+    ): ResponseInterface {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $data = (array) $request->getParsedBody();
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/coordinator/exam-schedules');
+        }
+
+        try {
+            $_SESSION['flash_success'] = $write($data, new \App\Models\ExamSchedule($this->db));
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+        }
+
+        return $this->redirect($response, '/coordinator/exam-schedules');
+    }
+
     /**
      * Students who have declared themselves ready, with the qualified
      * examiners available for each one's program.

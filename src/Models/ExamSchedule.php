@@ -9,6 +9,11 @@ use PDO;
 /**
  * An exam schedule is the window a viva or examination meeting must
  * fall inside, scoped to a thesis schedule (and so to a programme).
+ *
+ * Administrators create them for any thesis schedule; a research
+ * coordinator creates them for the thesis schedules of the programs they
+ * coordinate. A coordinator may open several windows for the same stage
+ * on different dates, and each student books the one they will sit.
  */
 class ExamSchedule
 {
@@ -19,6 +24,116 @@ class ExamSchedule
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    /**
+     * What is wrong with an exam window's details, or null if nothing is.
+     *
+     * @param array<string, mixed> $data
+     * @param bool $stageRequired a coordinator's window must examine a
+     *                            stage — students book it for that stage
+     */
+    public static function validationError(array $data, bool $stageRequired = false): ?string
+    {
+        if (empty($data['thesis_schedule_id'])) {
+            return 'Please choose the thesis schedule this exam window belongs to.';
+        }
+        if (!in_array($data['exam_type'] ?? '', self::VALID_EXAM_TYPES, true)) {
+            return 'Please choose a valid exam type.';
+        }
+        if ($stageRequired && empty($data['exam_stage_id'])) {
+            return 'Please choose the stage this exam examines — students book it for that stage.';
+        }
+
+        $starts = trim((string) ($data['starts_at'] ?? ''));
+        $ends = trim((string) ($data['ends_at'] ?? ''));
+        if ($starts === '' || $ends === '') {
+            return 'An exam window needs both a start and an end.';
+        }
+        if (strtotime($ends) < strtotime($starts)) {
+            return 'The exam window cannot end before it starts.';
+        }
+
+        return null;
+    }
+
+    /**
+     * What is wrong with a required document's details, or null.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function documentSlotError(array $data): ?string
+    {
+        if (empty($data['document_type_id'])) {
+            return 'Please choose a document type.';
+        }
+
+        $opens = trim((string) ($data['document_submission_starts_at'] ?? ''));
+        $deadline = trim((string) ($data['document_submission_deadline'] ?? ''));
+        if ($opens !== '' && $deadline !== '' && strtotime($deadline) < strtotime($opens)) {
+            return 'The deadline cannot be before submission opens.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Windows on these thesis schedules, soonest first, with how many
+     * students have booked each.
+     *
+     * @param array<int, string> $thesisScheduleIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function forThesisSchedules(array $thesisScheduleIds): array
+    {
+        if ($thesisScheduleIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($thesisScheduleIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT es.*,
+                    p.program_id, p.name AS program_name,
+                    stg.name AS stage_name,
+                    ts.enrollment_start_date, ts.enrollment_end_date,
+                    (SELECT COUNT(*) FROM exam_readiness r
+                      WHERE r.exam_schedule_id = es.exam_schedule_id) AS booking_count,
+                    (SELECT COUNT(*) FROM meetings m
+                      WHERE m.exam_schedule_id = es.exam_schedule_id AND m.status != 'cancelled') AS meeting_count
+             FROM exam_schedule es
+             JOIN thesis_schedules ts ON ts.schedule_id = es.thesis_schedule_id
+             JOIN programs p ON p.program_id = ts.program_id
+             LEFT JOIN exam_stages stg ON stg.stage_id = es.exam_stage_id
+             WHERE es.thesis_schedule_id IN ($placeholders)
+             ORDER BY es.starts_at"
+        );
+        $stmt->execute(array_values($thesisScheduleIds));
+
+        return $stmt->fetchAll();
+    }
+
+    /** The program an exam window belongs to, through its thesis schedule. */
+    public function programFor(string $examScheduleId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT ts.program_id FROM exam_schedule es
+             JOIN thesis_schedules ts ON ts.schedule_id = es.thesis_schedule_id
+             WHERE es.exam_schedule_id = :id LIMIT 1"
+        );
+        $stmt->execute(['id' => $examScheduleId]);
+        $programId = $stmt->fetchColumn();
+
+        return $programId ? (string) $programId : null;
+    }
+
+    /** The exam window a required document belongs to. */
+    public function windowForSlot(string $esdId): ?string
+    {
+        $stmt = $this->db->prepare("SELECT exam_schedule_id FROM exam_schedule_documents WHERE esd_id = :id LIMIT 1");
+        $stmt->execute(['id' => $esdId]);
+        $windowId = $stmt->fetchColumn();
+
+        return $windowId ? (string) $windowId : null;
     }
 
     /**
@@ -121,6 +236,12 @@ class ExamSchedule
         $stmt->execute(['id' => $examScheduleId]);
         if ((int) $stmt->fetchColumn() > 0) {
             return 'Students have already submitted documents against this window.';
+        }
+
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM exam_readiness WHERE exam_schedule_id = :id");
+        $stmt->execute(['id' => $examScheduleId]);
+        if ((int) $stmt->fetchColumn() > 0) {
+            return 'Students have already booked this exam.';
         }
 
         // Document slots are configuration, not student work — they go

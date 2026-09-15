@@ -118,6 +118,12 @@ return function (App $app) {
 
     // Coordinator: exam results waiting to be released to students
     // Coordinator: students ready to be examined
+    $app->get('/coordinator/exam-schedules', [CoordinatorController::class, 'examSchedules']);
+    $app->post('/coordinator/exam-schedules/create', [CoordinatorController::class, 'createExamSchedule']);
+    $app->post('/coordinator/exam-schedules/update', [CoordinatorController::class, 'updateExamSchedule']);
+    $app->post('/coordinator/exam-schedules/delete', [CoordinatorController::class, 'deleteExamSchedule']);
+    $app->post('/coordinator/exam-schedules/documents/add', [CoordinatorController::class, 'addExamScheduleDocument']);
+    $app->post('/coordinator/exam-schedules/documents/remove', [CoordinatorController::class, 'removeExamScheduleDocument']);
     $app->get('/coordinator/exams', [CoordinatorController::class, 'examQueue']);
     $app->post('/coordinator/exams/schedule', [CoordinatorController::class, 'scheduleExam']);
     $app->get('/coordinator/exams/{id}', [CoordinatorController::class, 'examMeeting']);

@@ -1589,7 +1589,7 @@ class AdminController
             return $response->withHeader('Location', '/admin/exam-schedules')->withStatus(302);
         }
 
-        if ($error = $this->validateExamSchedule($data)) {
+        if ($error = \App\Models\ExamSchedule::validationError($data)) {
             $_SESSION['flash_error'] = $error;
             return $response->withHeader('Location', '/admin/exam-schedules')->withStatus(302);
         }
@@ -1617,7 +1617,7 @@ class AdminController
         }
 
         $examScheduleId = (string) ($data['exam_schedule_id'] ?? '');
-        $error = $examScheduleId === '' ? 'Please choose an exam schedule to update.' : $this->validateExamSchedule($data);
+        $error = $examScheduleId === '' ? 'Please choose an exam schedule to update.' : \App\Models\ExamSchedule::validationError($data);
 
         if ($error) {
             $_SESSION['flash_error'] = $error;
@@ -1702,32 +1702,5 @@ class AdminController
         $_SESSION['flash_success'] = 'Document requirement removed.';
 
         return $response->withHeader('Location', '/admin/exam-schedules')->withStatus(302);
-    }
-
-    /**
-     * @return string|null an error message, or null if the data is fine
-     */
-    private function validateExamSchedule(array $data): ?string
-    {
-        if (empty($data['thesis_schedule_id'])) {
-            return 'Please choose the thesis schedule this exam window belongs to.';
-        }
-
-        if (!in_array($data['exam_type'] ?? '', \App\Models\ExamSchedule::VALID_EXAM_TYPES, true)) {
-            return 'Please choose a valid exam type.';
-        }
-
-        $starts = trim((string) ($data['starts_at'] ?? ''));
-        $ends = trim((string) ($data['ends_at'] ?? ''));
-
-        if ($starts === '' || $ends === '') {
-            return 'An exam window needs both a start and an end.';
-        }
-
-        if (strtotime($ends) < strtotime($starts)) {
-            return 'The exam window cannot end before it starts.';
-        }
-
-        return null;
     }
 }
