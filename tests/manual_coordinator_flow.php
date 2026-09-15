@@ -183,15 +183,16 @@ check('and says in what capacity', str_contains($h, 'as research coordinator'));
 $plainName = $pdo->query("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE user_id = " . $pdo->quote($plainCoordinator))->fetchColumn();
 preg_match('/<tbody>.*?<\/tbody>/s', substr($h, strpos($h, '>Votes<')), $votesTable);
 $votesTable = $votesTable[0] ?? '';
-check('their own row in the votes table says You', (bool) preg_match('/<td class="strong">You<\/td>\s*<td class="meta">Research coordinator<\/td>/', $votesTable));
-check('rather than their name', !str_contains($votesTable, '<td class="strong">' . $plainName . '</td>'));
-check('while everyone else still shows by name', substr_count($votesTable, '<td class="strong">You</td>') === 1);
+check('their own row in the votes table says You, with their name',
+    (bool) preg_match('/<td class="strong">You \(' . preg_quote(htmlspecialchars($plainName), '/') . '\)<\/td>\s*<td class="meta">Research coordinator<\/td>/', $votesTable));
+check('rather than their name alone', !str_contains($votesTable, '<td class="strong">' . $plainName . '</td>'));
+check('while everyone else still shows by name', substr_count($votesTable, '<td class="strong">You (') === 1);
 
 echo "\n=== Your own name reads as You ===\n";
 $coordName = $pdo->query("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE user_id = " . $pdo->quote($coordUser))->fetchColumn();
 $h = $render('coordinators/shortlist.twig', $coordVars($m->findWithContext($sid)));
-check('the coordinator who leads the meeting reads "Led by you"', str_contains($h, 'Led by you.'));
-check('and not their own name', !str_contains($h, 'Led by ' . $coordName));
+check('the coordinator who leads the meeting reads "Led by you (their name)"', str_contains($h, 'Led by you (' . htmlspecialchars($coordName) . ').'));
+check('and not their name alone', !str_contains($h, 'Led by ' . $coordName));
 $h = $render('coordinators/shortlist.twig', $asPlain);
 check('another coordinator still sees who leads it', str_contains($h, 'Led by ' . $coordName . '.'));
 
@@ -202,8 +203,9 @@ $asListed = $coordVars($m->findWithContext($sid));
 $asListed['session_user_id'] = $listedUser;
 $h = $render('coordinators/shortlist.twig', $asListed);
 preg_match('/<tbody>.*?<\/tbody>/s', substr($h, strpos($h, "in the student's order")), $listTable);
-check('a coordinator on the supervisor list sees themselves as You',
-    str_contains($listTable[0] ?? '', 'You') && !str_contains($listTable[0] ?? '', $listedName));
+check('a coordinator on the supervisor list sees themselves as You, with their name',
+    str_contains($listTable[0] ?? '', 'You (' . htmlspecialchars($listedName) . ')'));
+check('and nowhere by name alone', substr_count($listTable[0] ?? '', htmlspecialchars($listedName)) === 1);
 
 echo "\n=== Department head view ===\n";
 $headUserId = $pdo->query("SELECT user_id FROM department_heads WHERE dept_head_id = '{$headIds[0]}'")->fetchColumn();
@@ -225,8 +227,8 @@ $h = $render('lecturers/shortlist_meetings.twig', [
     'active_page' => 'l-panel', 'first_name' => 'H', 'last_name' => 'Ead',
     'meetings' => $meetings, 'session_user_id' => $listedUser, 'csrf_token' => 't', 'error' => null, 'success' => null,
 ]);
-check('a head on the proposed list sees themselves as You, preferred main',
-    (bool) preg_match('/<li>You <span class="meta">— preferred main<\/span><\/li>/', $h));
+check('a head on the proposed list sees themselves as You, with their name, preferred main',
+    (bool) preg_match('/<li>You \(' . preg_quote(htmlspecialchars($listedName), '/') . '\) <span class="meta">— preferred main<\/span><\/li>/', $h));
 check('rather than their own name', !str_contains($h, '<li>' . $listedName));
 
 $stranger = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id

@@ -17,7 +17,7 @@
     <div class="pick-grid">
       {% for s in supervisors %}
         {# On the coordinator's screen they may be on the list themselves. #}
-        {% set shown_name = s.user_id == session_user_id|default('') ? 'You' : s.name %}
+        {% set shown_name = s.user_id == session_user_id|default('') ? 'You (' ~ s.name ~ ')' : s.name %}
         <div class="card pick-card" data-id="{{ s.lecturer_id }}" data-name="{{ shown_name }}"
              data-rank="{{ picked[s.lecturer_id]|default('') }}"
              data-main="{{ picked_main == s.lecturer_id ? '1' : '' }}">

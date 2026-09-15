@@ -38,7 +38,7 @@
       <div class="meta" style="margin-top:14px;">Proposed supervisors</div>
       <ol style="font-size:.85rem; margin:6px 0 0 18px; padding:0;">
         {% for c in m.choices %}
-          <li>{{ c.lecturer_user_id == session_user_id ? 'You' : c.lecturer_name }}{% if c.is_preferred_main %} <span class="meta">— preferred main</span>{% endif %}</li>
+          <li>{{ c.lecturer_user_id == session_user_id ? 'You (' ~ c.lecturer_name ~ ')' : c.lecturer_name }}{% if c.is_preferred_main %} <span class="meta">— preferred main</span>{% endif %}</li>
         {% endfor %}
       </ol>
 
