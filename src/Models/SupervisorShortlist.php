@@ -643,15 +643,18 @@ class SupervisorShortlist
     }
 
     /**
-     * Who was invited to a meeting and how they voted, for the tally
-     * the coordinator reads before applying the outcome.
+     * Everyone with a vote at a meeting, and how they voted: the heads
+     * invited to it, then the research coordinators of the student's
+     * program. A coordinator who is also an invited head appears once,
+     * as the head — one person, one vote.
      *
      * @return array<int, array<string, mixed>>
      */
     public function meetingVoters(string $meetingId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT i.dept_head_id, dp.name AS position_name,
+            "SELECT i.dept_head_id, dh.user_id AS voter_user_id, 'head' AS capacity,
+                    dp.name AS position_name,
                     CONCAT(u.first_name, ' ', u.last_name) AS head_name,
                     v.vote, v.comment, v.voted_at
              FROM shortlist_meeting_invitees i
@@ -659,9 +662,56 @@ class SupervisorShortlist
              JOIN department_positions dp ON dp.position_id = dh.position_id
              JOIN users u ON u.user_id = dh.user_id
              LEFT JOIN shortlist_meeting_votes v
-                    ON v.meeting_id = i.meeting_id AND v.dept_head_id = i.dept_head_id
+                    ON v.meeting_id = i.meeting_id AND v.voter_user_id = dh.user_id
              WHERE i.meeting_id = :id
              ORDER BY dp.display_order, u.last_name"
+        );
+        $stmt->execute(['id' => $meetingId]);
+        $voters = $stmt->fetchAll();
+
+        $headUserIds = array_column($voters, 'voter_user_id');
+        foreach ($this->coordinatorsForMeeting($meetingId) as $coordinator) {
+            if (in_array($coordinator['user_id'], $headUserIds, true)) {
+                continue;
+            }
+
+            $vote = $this->db->prepare(
+                "SELECT vote, comment, voted_at FROM shortlist_meeting_votes
+                 WHERE meeting_id = :meeting_id AND voter_user_id = :user_id LIMIT 1"
+            );
+            $vote->execute(['meeting_id' => $meetingId, 'user_id' => $coordinator['user_id']]);
+            $cast = $vote->fetch() ?: ['vote' => null, 'comment' => null, 'voted_at' => null];
+
+            $voters[] = [
+                'dept_head_id'  => null,
+                'voter_user_id' => $coordinator['user_id'],
+                'capacity'      => 'coordinator',
+                'position_name' => 'Research coordinator',
+                'head_name'     => $coordinator['name'],
+            ] + $cast;
+        }
+
+        return $voters;
+    }
+
+    /**
+     * The research coordinators of the program the meeting's student is
+     * registered on — the people who, alongside the invited heads, vote.
+     *
+     * @return array<int, array{user_id: string, name: string}>
+     */
+    private function coordinatorsForMeeting(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT rc.user_id, CONCAT(u.first_name, ' ', u.last_name) AS name, u.last_name, u.first_name
+             FROM shortlist_meetings m
+             JOIN supervisor_shortlists s ON s.shortlist_id = m.shortlist_id
+             JOIN student_thesis_registrations str ON str.student_id = s.student_id
+             JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+             JOIN research_coordinators rc ON rc.program_id = ts.program_id
+             JOIN users u ON u.user_id = rc.user_id
+             WHERE m.meeting_id = :id
+             ORDER BY u.last_name, u.first_name"
         );
         $stmt->execute(['id' => $meetingId]);
 
@@ -834,28 +884,101 @@ class SupervisorShortlist
         )->execute(['id' => $meetingId, 'by' => $approvedBy]);
     }
 
+    /**
+     * A department head's vote. They must have been invited.
+     */
     public function castVote(string $meetingId, string $deptHeadId, string $vote, ?string $comment = null): void
+    {
+        $this->assertVotingOpen($meetingId, $vote);
+
+        $invited = $this->db->prepare(
+            "SELECT dh.user_id FROM shortlist_meeting_invitees i
+             JOIN department_heads dh ON dh.dept_head_id = i.dept_head_id
+             WHERE i.meeting_id = :meeting_id AND i.dept_head_id = :head_id LIMIT 1"
+        );
+        $invited->execute(['meeting_id' => $meetingId, 'head_id' => $deptHeadId]);
+        $userId = $invited->fetchColumn();
+        if (!$userId) {
+            throw new RuntimeException('Only the heads invited to this meeting can vote on it.');
+        }
+
+        $this->recordVote($meetingId, (string) $userId, 'head', $deptHeadId, $vote, $comment);
+    }
+
+    /**
+     * A vote from whoever is signed in, in whatever capacity gives them
+     * one: as an invited head if they are one, otherwise as a research
+     * coordinator of the student's program. Never both — one person,
+     * one vote.
+     */
+    public function castVoteAs(string $meetingId, string $userId, string $vote, ?string $comment = null): string
+    {
+        $this->assertVotingOpen($meetingId, $vote);
+
+        $asHead = $this->db->prepare(
+            "SELECT i.dept_head_id FROM shortlist_meeting_invitees i
+             JOIN department_heads dh ON dh.dept_head_id = i.dept_head_id
+             WHERE i.meeting_id = :meeting_id AND dh.user_id = :user_id LIMIT 1"
+        );
+        $asHead->execute(['meeting_id' => $meetingId, 'user_id' => $userId]);
+        $headId = $asHead->fetchColumn();
+        if ($headId) {
+            $this->recordVote($meetingId, $userId, 'head', (string) $headId, $vote, $comment);
+            return 'head';
+        }
+
+        if (!in_array($userId, array_column($this->coordinatorsForMeeting($meetingId), 'user_id'), true)) {
+            throw new RuntimeException('Only the invited heads and the program\'s research coordinator can vote on this request.');
+        }
+
+        $this->recordVote($meetingId, $userId, 'coordinator', null, $vote, $comment);
+        return 'coordinator';
+    }
+
+    /**
+     * Votes can be changed until the decision is applied, and not after:
+     * a vote cast then would change the count without changing anything
+     * that was decided.
+     */
+    private function assertVotingOpen(string $meetingId, string $vote): void
     {
         if (!in_array($vote, ['approve', 'reject'], true)) {
             throw new RuntimeException('A vote must be either approve or reject.');
         }
 
-        $invited = $this->db->prepare(
-            "SELECT 1 FROM shortlist_meeting_invitees
-             WHERE meeting_id = :meeting_id AND dept_head_id = :head_id LIMIT 1"
+        $stmt = $this->db->prepare(
+            "SELECT s.status FROM shortlist_meetings m
+             JOIN supervisor_shortlists s ON s.shortlist_id = m.shortlist_id
+             WHERE m.meeting_id = :id LIMIT 1"
         );
-        $invited->execute(['meeting_id' => $meetingId, 'head_id' => $deptHeadId]);
-        if (!$invited->fetchColumn()) {
-            throw new RuntimeException('Only the heads invited to this meeting can vote on it.');
-        }
+        $stmt->execute(['id' => $meetingId]);
+        $status = $stmt->fetchColumn();
 
+        if ($status === false) {
+            throw new RuntimeException('That meeting no longer exists.');
+        }
+        if ($status !== 'meeting_scheduled') {
+            throw new RuntimeException('Voting on this request has closed — the department decision has been applied.');
+        }
+    }
+
+    private function recordVote(
+        string $meetingId,
+        string $userId,
+        string $role,
+        ?string $deptHeadId,
+        string $vote,
+        ?string $comment
+    ): void {
         $this->db->prepare(
-            "INSERT INTO shortlist_meeting_votes (vote_id, meeting_id, dept_head_id, vote, comment)
-             VALUES (UUID(), :meeting_id, :head_id, :vote, :comment)
+            "INSERT INTO shortlist_meeting_votes (vote_id, meeting_id, dept_head_id, voter_user_id, voter_role, vote, comment)
+             VALUES (UUID(), :meeting_id, :head_id, :user_id, :role, :vote, :comment)
              ON DUPLICATE KEY UPDATE vote = VALUES(vote), comment = VALUES(comment), voted_at = NOW()"
         )->execute([
             'meeting_id' => $meetingId,
             'head_id'    => $deptHeadId,
+            'user_id'    => $userId,
+            'role'       => $role,
             'vote'       => $vote,
             'comment'    => $comment,
         ]);
@@ -876,13 +999,12 @@ class SupervisorShortlist
             $counts[$row['vote']] = (int) $row['c'];
         }
 
-        $invited = $this->db->prepare("SELECT COUNT(*) FROM shortlist_meeting_invitees WHERE meeting_id = :id");
-        $invited->execute(['id' => $meetingId]);
-
         return [
             'approve' => $counts['approve'],
             'reject'  => $counts['reject'],
-            'invited' => (int) $invited->fetchColumn(),
+            // Everyone with a vote: invited heads and the program's
+            // coordinators, each person counted once.
+            'invited' => count($this->meetingVoters($meetingId)),
             // A tie rejects: approval needs a majority of those who voted.
             'outcome' => $counts['approve'] > $counts['reject'] ? 'approved' : 'rejected',
         ];

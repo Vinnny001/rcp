@@ -36,6 +36,10 @@ function check(string $l, bool $ok, string $d = ''): void {
     printf("  %s  %s%s\n", $ok ? 'PASS' : 'FAIL', $l, $d ? "  ($d)" : '');
 }
 
+function throws(callable $fn): ?string {
+    try { $fn(); return null; } catch (\Throwable $e) { return $e->getMessage(); }
+}
+
 $pdo->beginTransaction();
 
 $m  = new SupervisorShortlist($pdo);
@@ -128,6 +132,54 @@ check('votes show on the coordinator view', str_contains($h, '2 approve'), '2 ap
 check('and it blocks applying until minutes are final', str_contains($h, 'Finalise the minutes to move this forward'));
 check('with no apply button offered yet', !str_contains($h, 'Apply the decision'));
 
+echo "\n=== The coordinator votes too ===\n";
+// A coordinator of this program who is not one of the invited heads.
+$quotedHeads = implode(',', array_map([$pdo, 'quote'], $headUsers));
+$plainCoordinator = $pdo->query(
+    "SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+     WHERE u.user_id NOT IN ($quotedHeads) AND u.user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 1"
+)->fetchColumn();
+$rc->assign($program['program_id'], $plainCoordinator, $admin);
+
+$voterRow = fn (string $userId): array => array_values(array_filter(
+    $m->meetingVoters($meeting), fn ($v) => $v['voter_user_id'] === $userId
+));
+$before = $m->tally($meeting);
+
+check('the program coordinator is listed among the voters', count($voterRow($plainCoordinator)) === 1);
+check('as research coordinator', ($voterRow($plainCoordinator)[0]['capacity'] ?? '') === 'coordinator');
+check('and counted among those with a vote', $before['invited'] === count($m->meetingVoters($meeting)), $before['invited'] . ' voters');
+
+check('a coordinator who is not a head can vote', $m->castVoteAs($meeting, $plainCoordinator, 'reject', 'Not convinced.') === 'coordinator');
+check('and the vote counts', $m->tally($meeting)['reject'] === $before['reject'] + 1);
+check('with their comment', ($voterRow($plainCoordinator)[0]['comment'] ?? '') === 'Not convinced.');
+
+$m->castVoteAs($meeting, $plainCoordinator, 'approve');
+$after = $m->tally($meeting);
+check('changing it replaces the vote rather than adding one',
+    $after['reject'] === $before['reject'] && $after['approve'] === $before['approve'] + 1);
+
+// The fixture coordinator is also one of the invited heads.
+check('a coordinator who is also an invited head votes as the head', $m->castVoteAs($meeting, $coordUser, 'approve') === 'head');
+check('so they appear only once among the voters', count($voterRow($coordUser)) === 1);
+check('and hold a single vote',
+    (int) $pdo->query("SELECT COUNT(*) FROM shortlist_meeting_votes WHERE meeting_id = " . $pdo->quote($meeting)
+        . " AND voter_user_id = " . $pdo->quote($coordUser))->fetchColumn() === 1);
+
+$outsider = $pdo->query(
+    "SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+     WHERE u.user_id NOT IN ($quotedHeads) AND u.user_id <> " . $pdo->quote($plainCoordinator) . "
+       AND u.user_id NOT IN (SELECT user_id FROM research_coordinators) LIMIT 1"
+)->fetchColumn();
+check('a lecturer who is neither a head nor the coordinator cannot vote',
+    $outsider === false || throws(fn () => $m->castVoteAs($meeting, $outsider, 'approve')) !== null);
+
+$asPlain = $coordVars($m->findWithContext($sid));
+$asPlain['session_user_id'] = $plainCoordinator;
+$h = $render('coordinators/shortlist.twig', $asPlain);
+check('the coordinator page offers them their vote', str_contains($h, 'action="/coordinator/shortlists/vote"'));
+check('and says in what capacity', str_contains($h, 'as research coordinator'));
+
 echo "\n=== Department head view ===\n";
 $headUserId = $pdo->query("SELECT user_id FROM department_heads WHERE dept_head_id = '{$headIds[0]}'")->fetchColumn();
 $meetings = $m->meetingsForHead($headUserId);
@@ -171,6 +223,10 @@ $h = $render('coordinators/shortlist.twig', $coordVars($ctx));
 check('the coordinator view now reports it as applied', str_contains($h, 'Department decision applied'));
 check('and the minutes are locked', str_contains($h, 'readonly'));
 check('and offers to send it to every supervisor at once', str_contains($h, '/coordinator/shortlists/send'));
+check('voting closes once the decision is applied — for the coordinator',
+    str_contains((string) throws(fn () => $m->castVoteAs($meeting, $plainCoordinator, 'reject')), 'closed'));
+check('and for the heads', str_contains((string) throws(fn () => $m->castVote($meeting, $headIds[0], 'reject')), 'closed'));
+check('so the vote form is gone', !str_contains($h, 'action="/coordinator/shortlists/vote"'));
 
 echo "\n=== Sending ===\n";
 $sent = $m->sendRequests($sid, $coordUser);

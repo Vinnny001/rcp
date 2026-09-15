@@ -111,6 +111,7 @@ return function (App $app) {
     $app->post('/coordinator/shortlists/minutes', [CoordinatorController::class, 'saveMinutes']);
     $app->post('/coordinator/shortlists/approve-minutes', [CoordinatorController::class, 'approveMinutes']);
     $app->post('/coordinator/shortlists/apply', [CoordinatorController::class, 'applyOutcome']);
+    $app->post('/coordinator/shortlists/vote', [CoordinatorController::class, 'castVote']);
     $app->post('/coordinator/shortlists/send', [CoordinatorController::class, 'sendRequests']);
     $app->post('/coordinator/shortlists/grant-edit', [CoordinatorController::class, 'grantEdit']);
     $app->post('/coordinator/shortlists/revise', [CoordinatorController::class, 'reviseList']);

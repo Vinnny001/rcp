@@ -502,6 +502,29 @@ class CoordinatorController
     }
 
     /**
+     * The coordinator's own vote at the department meeting. A coordinator
+     * who was also invited as a head votes once, as that head.
+     */
+    public function castVote(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {
+            $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
+            if (!$shortlist['meeting_id']) {
+                throw new \RuntimeException('Schedule the meeting before voting.');
+            }
+
+            $model->castVoteAs(
+                $shortlist['meeting_id'],
+                $_SESSION['user_id'],
+                (string) ($data['vote'] ?? ''),
+                trim((string) ($data['comment'] ?? '')) ?: null
+            );
+
+            return 'Your vote has been recorded.';
+        });
+    }
+
+    /**
      * Sends an approved request to every supervisor on the list at once.
      */
     public function sendRequests(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
