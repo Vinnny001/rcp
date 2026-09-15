@@ -19,6 +19,9 @@
 <div class="section-title">Your students' exams<div class="rule"></div></div>
 <div style="font-size:.82rem; color:var(--slate); margin-bottom:12px;">
   Students book their exam date and the research coordinator schedules the exam. You can see where each stands and remind your student.
+  {% if supervisee_exams|filter(e => e.you_coordinate)|length > 0 %}
+    Where you also coordinate the student's program, scheduling the exam is yours — from the <a href="/coordinator/exams">Exam Queue</a>.
+  {% endif %}
 </div>
 
 {% if supervisee_exams %}
@@ -35,6 +38,9 @@
           </div>
           {% if e.booked.meeting_id %}
             <span class="stamp mini approved">Exam scheduled</span>
+            {% if e.you_coordinate %}
+              <a href="/coordinator/exams/{{ e.booked.meeting_id }}" style="font-size:.76rem; margin-left:6px;">Open in the Exam Queue</a>
+            {% endif %}
             <div class="meta" style="margin-top:6px;">
               {{ e.booked.meeting_at|date('D, j M Y · g:i A') }}{% if e.booked.meeting_mode %} · {{ e.booked.meeting_mode|capitalize }}{% endif %}
               {%- if e.booked.meeting_location %} · {{ e.booked.meeting_location }}{% endif %}
@@ -45,6 +51,10 @@
             <ul style="font-size:.8rem; margin:6px 0 0 16px; padding:0; color: var(--rust);">
               {% for b in e.booked.blockers %}<li>{{ b }}</li>{% endfor %}
             </ul>
+          {% elseif e.you_coordinate %}
+            {# The supervisor is this student's coordinator too: it is waiting on them. #}
+            <span class="stamp mini pending">Ready for you to schedule</span>
+            <div class="meta" style="margin-top:6px;">You coordinate this program. <a href="/coordinator/exams">Schedule it in the Exam Queue</a>.</div>
           {% else %}
             <span class="stamp mini pending">Waiting for the coordinator to schedule it</span>
           {% endif %}

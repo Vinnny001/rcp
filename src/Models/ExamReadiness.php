@@ -307,14 +307,25 @@ class ExamReadiness
      * their stage are left out.
      *
      * The supervisor only sees and reminds; the coordinator schedules.
+     * A supervisor may also coordinate the student's program, and then
+     * the exam is theirs to schedule — each row says so ('you_coordinate').
      *
      * @return array<int, array<string, mixed>>
      */
     public function forSupervisor(string $lecturerId): array
     {
+        $supervisorUser = $this->db->prepare("SELECT user_id FROM lecturers WHERE lecturer_id = :id LIMIT 1");
+        $supervisorUser->execute(['id' => $lecturerId]);
+        $supervisorUserId = (string) $supervisorUser->fetchColumn();
+        $coordinators = new ResearchCoordinator($this->db);
+
         $stmt = $this->db->prepare(
             "SELECT DISTINCT st.student_id, st.user_id AS student_user_id, st.student_number,
-                    u.first_name, CONCAT(u.first_name, ' ', u.last_name) AS student_name
+                    u.first_name, CONCAT(u.first_name, ' ', u.last_name) AS student_name,
+                    (SELECT ts.program_id FROM student_thesis_registrations str
+                     JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+                     WHERE str.student_id = st.student_id AND str.status <> 'withdrawn'
+                     ORDER BY str.registered_at DESC LIMIT 1) AS program_id
              FROM supervision_assignments sa
              JOIN students st ON st.student_id = sa.student_id
              JOIN users u ON u.user_id = st.user_id
@@ -334,11 +345,14 @@ class ExamReadiness
             }
 
             $stage = $booked['stage_name'] ?? ($windows[0]['stage_name'] ?? 'exam');
+            $youCoordinate = $student['program_id'] !== null
+                && $coordinators->isCoordinatorFor($supervisorUserId, $student['program_id']);
             $exams[] = $student + [
-                'stage_name' => $stage,
-                'booked'     => $booked,
-                'open_dates' => $open,
-                'reminder'   => $this->reminderFor($student['first_name'], $stage, $booked, $open),
+                'stage_name'     => $stage,
+                'booked'         => $booked,
+                'open_dates'     => $open,
+                'you_coordinate' => $youCoordinate,
+                'reminder'       => $this->reminderFor($student['first_name'], $stage, $booked, $open, $youCoordinate),
             ];
         }
 
@@ -349,7 +363,7 @@ class ExamReadiness
      * @param array<string, mixed>|null $booked
      * @return array{subject: string, message: string}
      */
-    private function reminderFor(string $firstName, string $stage, ?array $booked, int $openDates): array
+    private function reminderFor(string $firstName, string $stage, ?array $booked, int $openDates, bool $youCoordinate): array
     {
         if ($booked === null) {
             return [
@@ -382,7 +396,7 @@ class ExamReadiness
         return [
             'subject' => 'Your ' . $stage . ' exam',
             'message' => 'Hello ' . $firstName . ', your ' . $stage . ' exam booked for ' . $dates
-                . ' is ready to be scheduled. Your research coordinator will confirm the date.',
+                . ' is ready to be scheduled. ' . ($youCoordinate ? 'I will confirm the date shortly.' : 'Your research coordinator will confirm the date.'),
         ];
     }
 

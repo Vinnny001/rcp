@@ -230,6 +230,17 @@ try {
     check('the reminder reaches the student', (int) $pdo->query("SELECT COUNT(*) FROM notifications WHERE user_id = " . $pdo->quote($pair['student_user_id']))->fetchColumn() === $before + 1);
     check('and the supervisor is taken back to the meetings page', $response->getHeaderLine('Location') === '/lecturer/meetings');
 
+    check('a booking ready to schedule waits on the coordinator', str_contains($page, 'Waiting for the coordinator to schedule it'));
+
+    // The supervisor who also coordinates the student's program.
+    $pdo->prepare("UPDATE research_coordinators SET user_id = ? WHERE program_id = ?")->execute([$supervisor, $pair['program_id']]);
+    $page = (string) send($pdo, 'GET', '/lecturer/meetings', $supervisor)->getBody();
+    check('a supervisor who coordinates the program is told it is theirs to schedule',
+        str_contains($page, 'Ready for you to schedule') && str_contains($page, 'href="/coordinator/exams"')
+        && !str_contains($page, 'Waiting for the coordinator to schedule it'));
+    check('and the reminder does not send the student to "your coordinator"', str_contains($page, 'I will confirm the date shortly.'));
+    $pdo->prepare("UPDATE research_coordinators SET user_id = ? WHERE program_id = ?")->execute([$coordinator, $pair['program_id']]);
+
     $readinessId = $pdo->query("SELECT readiness_id FROM exam_readiness WHERE student_id = " . $pdo->quote($pair['student_id']) . " AND exam_schedule_id = " . $pdo->quote($window))->fetchColumn();
     $examiner = $pdo->prepare("SELECT lecturer_id FROM lecturers WHERE user_id NOT IN (?, ?) LIMIT 1");
     $examiner->execute([$pair['student_user_id'], $coordinator]);
