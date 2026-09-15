@@ -103,7 +103,8 @@ try {
     $blocked = true;
 }
 check('unfinalised minutes still block the decision', $blocked);
-$m->saveMinutes($meeting, 'Approved by the panel.', true);
+$m->saveMinutes($meeting, 'Approved by the panel.', 'Approved.');
+$m->finalizeMinutes($meeting);
 $m->approveMinutes($meeting, $admin);
 check('and finalising unlocks it', $m->recordOutcome($meeting) === 'approved');
 

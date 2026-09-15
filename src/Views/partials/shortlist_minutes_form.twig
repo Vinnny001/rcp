@@ -1,0 +1,55 @@
+{#
+  The form the minutes author writes a supervisor-request meeting's
+  minutes in, until they are finalised. Used by the coordinator screen
+  and by a head's meetings page.
+
+  Finalising needs the summary, and the minutes typed or uploaded (or
+  both). The summary is marked required so the browser asks for it on
+  Finalise; Save draft skips that, since a draft can be incomplete. The
+  typed-or-uploaded rule is the server's to enforce.
+
+  Vars: meeting (see shortlist_minutes.twig), action, id_field, id_value,
+  csrf_token.
+#}
+<form method="POST" action="{{ action }}" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="{{ id_field }}" value="{{ id_value }}">
+
+  <div class="field">
+    <label for="minutes-summary-{{ meeting.meeting_id }}">Summary — required</label>
+    <div class="meta" style="margin:0 0 6px;">
+      A few sentences on what the meeting decided and why. Once the minutes are final this is what everyone reads first,
+      and it is all the student ever sees.
+    </div>
+    <textarea id="minutes-summary-{{ meeting.meeting_id }}" name="summary" rows="3" maxlength="{{ constant('App\\Models\\SupervisorShortlist::SUMMARY_MAX_LENGTH') }}" required>{{ meeting.summary }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="minutes-text-{{ meeting.meeting_id }}">Minutes</label>
+    <div class="meta" style="margin:0 0 6px;">
+      Type them here, upload them below, or both — at least one is needed to finalise. Only the people at this meeting can read them.
+    </div>
+    <textarea id="minutes-text-{{ meeting.meeting_id }}" name="minutes" rows="6">{{ meeting.minutes }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="minutes-file-{{ meeting.meeting_id }}">Minutes document</label>
+    {% if meeting.has_minutes_file %}
+      <div style="font-size:.84rem; margin:0 0 6px;">
+        On file: <a href="/lecturer/shortlist-meetings/{{ meeting.meeting_id }}/minutes-document" target="_blank" rel="noopener">{{ meeting.minutes_file_name }}</a>
+        <span class="meta">· {{ meeting.minutes_file_size_kb }} KB. Uploading another replaces it.</span>
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:.82rem; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; color:var(--ink-text);">
+        <input type="checkbox" name="remove_minutes_file" value="1" style="width:auto;"> Remove this document
+      </label>
+    {% endif %}
+    <input id="minutes-file-{{ meeting.meeting_id }}" type="file" name="minutes_file" accept=".pdf,.doc,.docx">
+    <div class="meta" style="margin-top:4px;">PDF or Word, up to 10MB.</div>
+  </div>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="submit" name="finalize" value="0" class="btn ghost" formnovalidate>Save draft</button>
+    <button type="submit" name="finalize" value="1" class="btn brass"
+            onclick="return confirm('Finalise these minutes? They cannot be edited afterwards.');">Finalise minutes</button>
+  </div>
+</form>

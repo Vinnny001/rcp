@@ -112,7 +112,8 @@ $m->castVote($meeting, $headIds[0], 'approve');
 $m->castVote($meeting, $headIds[1], 'approve');
 $m->castVote($meeting, $headIds[2], 'reject', 'Prefer a different methodologist.');
 check('two to one carries as approved', $m->tally($meeting)['outcome'] === 'approved');
-$m->saveMinutes($meeting, 'Approved 2-1.', true);
+$m->saveMinutes($meeting, 'Approved 2-1.', 'Approved, two votes to one.');
+$m->finalizeMinutes($meeting);
 $m->approveMinutes($meeting, $coordUser);
 check('decision applies', $m->recordOutcome($meeting) === 'approved');
 

@@ -108,13 +108,13 @@ $meeting = $scheduleAndVote($sid, ['approve', 'approve', 'reject']);
 $err = throws(fn() => $m->recordOutcome($meeting));
 check('refuses to apply the vote before minutes are finalised', $err !== null, $err ?? '');
 
-$m->saveMinutes($meeting, 'Panel discussed and approved the shortlist.', false);
+$m->saveMinutes($meeting, 'Panel discussed and approved the shortlist.', 'Approved.');
 check('saving a draft does not unlock it', throws(fn() => $m->recordOutcome($meeting)) !== null);
 
 check('minutes cannot be approved while still a draft',
     throws(fn() => $m->approveMinutes($meeting, $admin)) !== null);
 
-$m->saveMinutes($meeting, 'Panel discussed and approved the shortlist.', true);
+$m->finalizeMinutes($meeting);
 $err = throws(fn() => $m->recordOutcome($meeting));
 check('finalising alone is not enough — the coordinator must approve', $err !== null, $err ?? '');
 
@@ -135,17 +135,20 @@ $m->castVote($meeting2, $headIds[0], 'reject'); // change of mind, not a second 
 $t = $m->tally($meeting2);
 check('re-voting replaces rather than stacks', $t['approve'] + $t['reject'] === 2, "total={$t['approve']}+{$t['reject']}");
 
-echo "\n=== 4. Rejection carries the minutes as the reason ===\n";
-$m->saveMinutes($meeting2, 'Panel felt the shortlist lacked methodological fit.', true);
+echo "\n=== 4. Rejection carries the summary as the reason ===\n";
+$m->saveMinutes($meeting2, 'Head 1 questioned the methods; head 2 agreed.', 'Panel felt the shortlist lacked methodological fit.');
+$m->finalizeMinutes($meeting2);
 $m->approveMinutes($meeting2, $admin);
 $outcome = $m->recordOutcome($meeting2);
 $row = $pdo->query("SELECT status, rejection_reason FROM supervisor_shortlists WHERE shortlist_id='$sid2'")->fetch();
 check('rejected shortlist records the reason', $outcome === 'rejected' && str_contains((string) $row['rejection_reason'], 'methodological'), $row['status']);
+check('from the summary, not the full minutes', !str_contains((string) $row['rejection_reason'], 'Head 1'));
 
 echo "\n=== 5. Approval asks nobody; the order is stored as it will be used ===\n";
 $sid3 = $makeShortlist();
 $meeting3 = $scheduleAndVote($sid3, ['approve', 'approve', 'reject']);
-$m->saveMinutes($meeting3, 'Approved.', true);
+$m->saveMinutes($meeting3, 'Approved.', 'Approved.');
+$m->finalizeMinutes($meeting3);
 $m->approveMinutes($meeting3, $admin);
 $m->recordOutcome($meeting3);
 check('approving does not contact any lecturer — the coordinator sends it',

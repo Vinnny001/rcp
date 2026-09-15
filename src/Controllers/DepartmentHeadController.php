@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\SupervisorShortlist;
+use App\Services\MeetingMinutes;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Views\Twig;
@@ -13,10 +14,12 @@ use PDO;
 /**
  * A department head's shortlist meetings and their vote.
  *
- * Heads read the minutes as soon as the coordinator saves them — a
- * draft is visible, which is the point: the minutes are what a head is
- * voting against. The model refuses a vote from anyone who was not
- * invited, so this controller does not have to police that itself.
+ * Heads read the minutes as soon as they are saved — a draft is
+ * visible, which is the point: the minutes are what a head is voting
+ * against. Once they are final the summary leads, and the full minutes
+ * stay with the people who belong to the meeting. The model refuses a
+ * vote from anyone who was not invited, so this controller does not
+ * have to police that itself.
  */
 class DepartmentHeadController
 {
@@ -117,10 +120,13 @@ class DepartmentHeadController
                 throw new \RuntimeException('You are not the one writing the minutes for that meeting.');
             }
 
-            $finalize = ($data['finalize'] ?? '') === '1';
-            $model->saveMinutes($meetingId, (string) ($data['minutes'] ?? ''), $finalize);
+            $finalized = (new MeetingMinutes($model))->save(
+                $meetingId,
+                $data,
+                $request->getUploadedFiles()['minutes_file'] ?? null
+            );
 
-            $_SESSION['flash_success'] = $finalize
+            $_SESSION['flash_success'] = $finalized
                 ? 'Minutes finalised. The coordinator can now apply the decision.'
                 : 'Minutes saved as a draft.';
         } catch (\Throwable $e) {
@@ -128,6 +134,34 @@ class DepartmentHeadController
         }
 
         return $this->redirect($response, '/lecturer/shortlist-meetings');
+    }
+
+    /**
+     * The minutes as an uploaded document. Only for the people who
+     * belong to the meeting; everyone else gets the summary, which is on
+     * the pages themselves.
+     */
+    public function minutesDocument(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface
+    {
+        if ($redirect = $this->requireLecturer()) {
+            return $this->redirect($response, $redirect);
+        }
+
+        $model = new SupervisorShortlist($this->db);
+        $meetingId = (string) ($args['id'] ?? '');
+
+        if (!$model->belongsToMeeting($meetingId, $_SESSION['user_id'])) {
+            $response->getBody()->write('Only the people at this meeting can read its full minutes.');
+            return $response->withStatus(403)->withHeader('Content-Type', 'text/plain; charset=utf-8');
+        }
+
+        $document = $model->minutesDocument($meetingId);
+        if ($document === null) {
+            $response->getBody()->write('These minutes have no document.');
+            return $response->withStatus(404)->withHeader('Content-Type', 'text/plain; charset=utf-8');
+        }
+
+        return (new MeetingMinutes($model))->send($response, $document);
     }
 
     /**

@@ -207,7 +207,8 @@ $stranger = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.use
 check('a lecturer who is not a head sees nothing', $stranger === false || count($m->meetingsForHead($stranger)) === 0);
 
 echo "\n=== Applying the outcome ===\n";
-$m->saveMinutes($meeting, 'Panel approved the shortlist as submitted.', true);
+$m->saveMinutes($meeting, 'Panel approved the shortlist as submitted.', 'Approved as submitted.');
+$m->finalizeMinutes($meeting);
 
 // Finalised but not yet approved: the view should ask for approval,
 // not offer to apply the decision.
@@ -228,7 +229,9 @@ check('approval on its own contacts nobody', $asked === 0, $asked . ' asked');
 $ctx = $m->findWithContext($sid);
 $h = $render('coordinators/shortlist.twig', $coordVars($ctx));
 check('the coordinator view now reports it as applied', str_contains($h, 'Department decision applied'));
-check('and the minutes are locked', str_contains($h, 'readonly'));
+check('and the minutes can no longer be edited', !str_contains($h, 'action="/coordinator/shortlists/minutes"'));
+check('the summary leads, with the full minutes beneath it',
+    str_contains($h, 'Approved as submitted.') && str_contains($h, 'Full minutes') && str_contains($h, 'Panel approved the shortlist as submitted.'));
 check('and offers to send it to every supervisor at once', str_contains($h, '/coordinator/shortlists/send'));
 check('voting closes once the decision is applied — for the coordinator',
     str_contains((string) throws(fn () => $m->castVoteAs($meeting, $plainCoordinator, 'reject')), 'closed'));

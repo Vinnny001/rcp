@@ -9,6 +9,7 @@ use App\Models\Lecturer;
 use App\Models\ResearchCoordinator;
 use App\Models\SupervisorProfile;
 use App\Models\SupervisorShortlist;
+use App\Services\MeetingMinutes;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Views\Twig;
@@ -141,7 +142,7 @@ class CoordinatorController
 
     public function saveMinutes(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
-        return $this->handle($request, $response, function (array $data, SupervisorShortlist $model): string {
+        return $this->handle($request, $response, function (array $data, SupervisorShortlist $model) use ($request): string {
             $shortlist = $this->authorisedShortlist($data['shortlist_id'] ?? '', $model);
             if (!$shortlist['meeting_id']) {
                 throw new \RuntimeException('Schedule the meeting before writing minutes.');
@@ -157,11 +158,14 @@ class CoordinatorController
                 );
             }
 
-            $finalize = ($data['finalize'] ?? '') === '1';
-            $model->saveMinutes($shortlist['meeting_id'], (string) ($data['minutes'] ?? ''), $finalize);
+            $finalized = (new MeetingMinutes($model))->save(
+                $shortlist['meeting_id'],
+                $data,
+                $request->getUploadedFiles()['minutes_file'] ?? null
+            );
 
-            return $finalize
-                ? 'Minutes finalised. The decision can now be applied.'
+            return $finalized
+                ? 'Minutes finalised. Once you approve them the decision can be applied.'
                 : 'Minutes saved as a draft.';
         });
     }

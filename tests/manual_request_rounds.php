@@ -159,7 +159,12 @@ $answer = fn (string $sid, int $rank, bool $accept) => $m->respondToRequest($cho
 $approve = function (string $sid, string $vote = 'approve') use ($m, $headIds, $coordinator): string {
     $meeting = $m->scheduleMeeting($sid, '2026-10-01 10:00:00', 'physical', 'Boardroom', null, $headIds, $coordinator);
     $m->castVote($meeting, $headIds[0], $vote);
-    $m->saveMinutes($meeting, $vote === 'approve' ? 'Approved.' : 'The topic overlaps an existing thesis.', true);
+    $m->saveMinutes(
+        $meeting,
+        'Discussion recorded in full.',
+        $vote === 'approve' ? 'Approved.' : 'The topic overlaps an existing thesis.'
+    );
+    $m->finalizeMinutes($meeting);
     $m->approveMinutes($meeting, $coordinator);
     return $m->recordOutcome($meeting);
 };

@@ -48,9 +48,12 @@
       </div>
     {% endif %}
 
-    {% if latest.status == 'rejected' and latest.rejection_reason %}
-      <div class="notice" style="margin-top:12px; border-left-color: var(--rust); background:#f6eae7;">
-        <span class="strong">From the meeting minutes:</span><br>{{ latest.rejection_reason }}
+    {# The student is given the meeting's summary, never its minutes. #}
+    {% set meeting_summary = latest.meeting_summary ?: (latest.status == 'rejected' ? latest.rejection_reason : null) %}
+    {% if meeting_summary %}
+      <div class="notice" style="margin-top:12px;{% if latest.status == 'rejected' %} border-left-color: var(--rust); background:#f6eae7;{% endif %}">
+        <span class="strong">What the department meeting decided:</span>
+        <div style="white-space:pre-wrap; margin-top:4px;">{{ meeting_summary }}</div>
       </div>
     {% endif %}
 
@@ -278,13 +281,16 @@
           <td>
             {% if h.status == 'rejected' %}
               <span class="stamp mini rejected">Not approved</span>
-              {% if h.rejection_reason %}<div class="meta" style="font-size:.72rem;">{{ h.rejection_reason }}</div>{% endif %}
+              {% if h.meeting_summary ?: h.rejection_reason %}<div class="meta" style="font-size:.72rem;">{{ h.meeting_summary ?: h.rejection_reason }}</div>{% endif %}
             {% elseif h.status == 'exhausted' %}
               <span class="stamp mini rejected">Nobody appointed</span>
             {% elseif h.status == 'successful' %}
               <span class="stamp mini approved">Appointed</span>
             {% else %}
               <span class="meta">{{ h.status|replace({'_': ' '})|capitalize }}</span>
+            {% endif %}
+            {% if h.status != 'rejected' and h.meeting_summary %}
+              <div class="meta" style="font-size:.72rem;">Department meeting: {{ h.meeting_summary }}</div>
             {% endif %}
           </td>
         </tr>

@@ -71,6 +71,9 @@ class SupervisorShortlist
     /** Attempts that ended without anyone appointed. */
     private const FAILED = ['rejected', 'exhausted'];
 
+    /** A meeting summary is a few sentences; the detail is in the minutes. */
+    public const SUMMARY_MAX_LENGTH = 1000;
+
     private PDO $db;
 
     public function __construct(PDO $db)
@@ -454,7 +457,12 @@ class SupervisorShortlist
     public function latestSentForStudent(string $studentId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT s.* FROM supervisor_shortlists s
+            "SELECT s.*,
+                    (SELECT m.summary FROM shortlist_meetings m
+                      WHERE m.shortlist_id = s.shortlist_id
+                        AND s.status NOT IN ('pending_coordinator', 'meeting_scheduled')
+                      LIMIT 1) AS meeting_summary
+             FROM supervisor_shortlists s
              WHERE s.student_id = :student_id
                AND s.status NOT IN ('draft', 'superseded')
                AND NOT EXISTS (
@@ -498,7 +506,11 @@ class SupervisorShortlist
     {
         $stmt = $this->db->prepare(
             "SELECT s.*,
-                    (SELECT COUNT(*) FROM supervisor_shortlist_choices c WHERE c.shortlist_id = s.shortlist_id) AS choice_count
+                    (SELECT COUNT(*) FROM supervisor_shortlist_choices c WHERE c.shortlist_id = s.shortlist_id) AS choice_count,
+                    (SELECT m.summary FROM shortlist_meetings m
+                      WHERE m.shortlist_id = s.shortlist_id
+                        AND s.status NOT IN ('pending_coordinator', 'meeting_scheduled')
+                      LIMIT 1) AS meeting_summary
              FROM supervisor_shortlists s
              WHERE s.student_id = :student_id AND s.status NOT IN ('draft', 'superseded')
              ORDER BY s.created_at DESC"
@@ -591,7 +603,9 @@ class SupervisorShortlist
                     p.program_id, p.name AS program_name,
                     d.department_id, d.name AS department_name,
                     m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
-                    m.minutes, m.minutes_finalized_at, m.minutes_approved_at,
+                    m.minutes, m.summary, m.minutes_finalized_at, m.minutes_approved_at,
+                    m.minutes_file_name, m.minutes_file_size_kb, m.minutes_file_uploaded_at,
+                    m.minutes_file_path IS NOT NULL AS has_minutes_file,
                     m.lead_user_id, m.secretary_user_id,
                     COALESCE(m.secretary_user_id, m.lead_user_id) AS minutes_author_id,
                     CONCAT(lu.first_name, ' ', lu.last_name) AS lead_name,
@@ -728,7 +742,9 @@ class SupervisorShortlist
     {
         $stmt = $this->db->prepare(
             "SELECT m.meeting_id, m.scheduled_at, m.mode, m.location, m.virtual_link,
-                    m.minutes, m.minutes_finalized_at, m.minutes_approved_at,
+                    m.minutes, m.summary, m.minutes_finalized_at, m.minutes_approved_at,
+                    m.minutes_file_name, m.minutes_file_size_kb, m.minutes_file_uploaded_at,
+                    m.minutes_file_path IS NOT NULL AS has_minutes_file,
                     COALESCE(m.secretary_user_id, m.lead_user_id) AS minutes_author_id,
                     s.shortlist_id, s.status,
                     i.dept_head_id, v.vote, v.comment,
@@ -844,15 +860,180 @@ class SupervisorShortlist
         return $author ? (string) $author : null;
     }
 
-    public function saveMinutes(string $meetingId, string $minutes, bool $finalize): void
+    /**
+     * Saves the minutes as a draft: the typed minutes, the summary, and
+     * optionally a document that replaces (or a flag that removes) the
+     * one on file. Anything may be missing from a draft — the rules
+     * apply when it is finalised.
+     *
+     * The caller stores an uploaded document before calling and passes
+     * where it went; it gets back the path of a document this save
+     * replaced or removed, to delete once the save has gone through.
+     *
+     * @param array{name: string, path: string, size_kb: int}|null $document
+     */
+    public function saveMinutes(
+        string $meetingId,
+        string $minutes,
+        string $summary = '',
+        ?array $document = null,
+        bool $removeDocument = false
+    ): ?string {
+        // Browsers count a line break as one character against the
+        // form's limit but send it as two.
+        $summary = trim(str_replace("\r\n", "\n", $summary));
+        if (mb_strlen($summary) > self::SUMMARY_MAX_LENGTH) {
+            throw new RuntimeException(
+                'Keep the summary to ' . self::SUMMARY_MAX_LENGTH . ' characters — the detail belongs in the minutes.'
+            );
+        }
+
+        return $this->atomically(function () use ($meetingId, $minutes, $summary, $document, $removeDocument): ?string {
+            $meeting = $this->lockMeeting($meetingId);
+            if ($meeting['minutes_finalized_at'] !== null) {
+                throw new RuntimeException('These minutes are finalised and can no longer be changed.');
+            }
+
+            $params = [
+                'id'      => $meetingId,
+                'minutes' => trim($minutes) === '' ? null : $minutes,
+                'summary' => $summary === '' ? null : $summary,
+            ];
+
+            // The document columns are only touched when this save
+            // brings a new document or removes the old one.
+            $replacing = $document !== null || $removeDocument;
+            $documentSql = '';
+            if ($replacing) {
+                $documentSql = ', minutes_file_name = :file_name, minutes_file_path = :file_path,
+                                  minutes_file_size_kb = :file_size,
+                                  minutes_file_uploaded_at = ' . ($document !== null ? 'NOW()' : 'NULL');
+                $params += [
+                    'file_name' => $document['name'] ?? null,
+                    'file_path' => $document['path'] ?? null,
+                    'file_size' => $document['size_kb'] ?? null,
+                ];
+            }
+
+            $this->db->prepare(
+                "UPDATE shortlist_meetings SET minutes = :minutes, summary = :summary $documentSql
+                 WHERE meeting_id = :id"
+            )->execute($params);
+
+            return $replacing ? $meeting['minutes_file_path'] : null;
+        });
+    }
+
+    /**
+     * Finalises the minutes as saved. They need a summary, and the
+     * minutes themselves — typed, as a document, or both. Finalising
+     * again changes nothing.
+     */
+    public function finalizeMinutes(string $meetingId): void
+    {
+        $this->atomically(function () use ($meetingId): void {
+            $meeting = $this->lockMeeting($meetingId);
+            if ($meeting['minutes_finalized_at'] !== null) {
+                return;
+            }
+
+            if (trim((string) $meeting['summary']) === '') {
+                throw new RuntimeException(
+                    'Write a summary before finalising — once the minutes are final it is what the student and everyone outside the meeting read.'
+                );
+            }
+            if (trim((string) $meeting['minutes']) === '' && $meeting['minutes_file_path'] === null) {
+                throw new RuntimeException('Type the minutes or upload them as a document before finalising.');
+            }
+
+            $this->db->prepare(
+                "UPDATE shortlist_meetings SET minutes_finalized_at = NOW() WHERE meeting_id = :id"
+            )->execute(['id' => $meetingId]);
+        });
+    }
+
+    /**
+     * Whether this person belongs to the meeting and may read its full
+     * minutes: whoever scheduled it, its lead and secretary, the heads
+     * invited to it, and the research coordinators of the student's
+     * program. Everyone else — the student included — gets the summary.
+     */
+    public function belongsToMeeting(string $meetingId, string $userId): bool
     {
         $stmt = $this->db->prepare(
-            "UPDATE shortlist_meetings
-             SET minutes = :minutes,
-                 minutes_finalized_at = CASE WHEN :finalize = 1 THEN COALESCE(minutes_finalized_at, NOW()) ELSE minutes_finalized_at END
-             WHERE meeting_id = :id"
+            "SELECT 1 FROM shortlist_meetings m
+             WHERE m.meeting_id = :meeting_id
+               AND (
+                   :user1 IN (m.created_by, m.lead_user_id, m.secretary_user_id)
+                   OR EXISTS (
+                       SELECT 1 FROM shortlist_meeting_invitees i
+                       JOIN department_heads dh ON dh.dept_head_id = i.dept_head_id
+                       WHERE i.meeting_id = m.meeting_id AND dh.user_id = :user2
+                   )
+               )
+             LIMIT 1"
         );
-        $stmt->execute(['id' => $meetingId, 'minutes' => $minutes, 'finalize' => $finalize ? 1 : 0]);
+        $stmt->execute(['meeting_id' => $meetingId, 'user1' => $userId, 'user2' => $userId]);
+        if ($stmt->fetchColumn()) {
+            return true;
+        }
+
+        return in_array($userId, array_column($this->coordinatorsForMeeting($meetingId), 'user_id'), true);
+    }
+
+    /**
+     * The document the minutes were uploaded as, if there is one.
+     *
+     * @return array{name: string, path: string}|null
+     */
+    public function minutesDocument(string $meetingId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT minutes_file_name AS name, minutes_file_path AS path
+             FROM shortlist_meetings WHERE meeting_id = :id AND minutes_file_path IS NOT NULL LIMIT 1"
+        );
+        $stmt->execute(['id' => $meetingId]);
+
+        return $stmt->fetch() ?: null;
+    }
+
+    /**
+     * What a meeting decided, in words, from the votes alone — for a
+     * meeting whose minutes were finalised before summaries existed.
+     * The migration that added summaries writes the same wording.
+     */
+    public static function decisionSummary(string $outcome, int $approve, int $reject): string
+    {
+        $counts = $approve . ' for and ' . $reject . ' against';
+
+        if ($outcome === 'approved') {
+            return 'The department approved this supervisor request, with ' . $counts . '.';
+        }
+        if ($approve === $reject) {
+            return 'The department did not approve this supervisor request: the vote was tied, ' . $counts
+                . ', and a tie does not approve.';
+        }
+
+        return 'The department did not approve this supervisor request, with ' . $counts . '.';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function lockMeeting(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT minutes, summary, minutes_file_path, minutes_finalized_at
+             FROM shortlist_meetings WHERE meeting_id = :id FOR UPDATE"
+        );
+        $stmt->execute(['id' => $meetingId]);
+        $meeting = $stmt->fetch();
+
+        if (!$meeting) {
+            throw new RuntimeException('That meeting no longer exists.');
+        }
+
+        return $meeting;
     }
 
     /**
@@ -1021,7 +1202,7 @@ class SupervisorShortlist
     public function recordOutcome(string $meetingId): string
     {
         $stmt = $this->db->prepare(
-            "SELECT m.shortlist_id, m.minutes, m.minutes_finalized_at, m.minutes_approved_at, s.status
+            "SELECT m.shortlist_id, m.summary, m.minutes_finalized_at, m.minutes_approved_at, s.status
              FROM shortlist_meetings m
              JOIN supervisor_shortlists s ON s.shortlist_id = m.shortlist_id
              WHERE m.meeting_id = :id LIMIT 1"
@@ -1050,12 +1231,22 @@ class SupervisorShortlist
             throw new RuntimeException('No votes have been cast yet.');
         }
 
+        // Minutes finalised before summaries existed have none; the
+        // record still says what was decided, so write it from that.
+        if (trim((string) $meeting['summary']) === '') {
+            $meeting['summary'] = self::decisionSummary($tally['outcome'], $tally['approve'], $tally['reject']);
+            $this->db->prepare(
+                "UPDATE shortlist_meetings SET summary = :summary WHERE meeting_id = :id"
+            )->execute(['id' => $meetingId, 'summary' => $meeting['summary']]);
+        }
+
         if ($tally['outcome'] === 'rejected') {
+            // The student is given the summary, never the full minutes.
             $this->db->prepare(
                 "UPDATE supervisor_shortlists
                  SET status = 'rejected', rejection_reason = :reason, decided_at = NOW()
                  WHERE shortlist_id = :id"
-            )->execute(['id' => $meeting['shortlist_id'], 'reason' => $meeting['minutes']]);
+            )->execute(['id' => $meeting['shortlist_id'], 'reason' => $meeting['summary']]);
 
             return 'rejected';
         }

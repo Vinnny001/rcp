@@ -42,34 +42,21 @@
         {% endfor %}
       </ol>
 
-      {% if m.minutes_author_id == session_user_id %}
-        {# This head holds the pen for this meeting — secretary, or lead with no secretary. #}
-        <div class="meta" style="margin-top:14px;">
-          You are writing the minutes for this meeting.
-          {% if m.minutes_finalized_at %}Finalised {{ m.minutes_finalized_at|date('d M Y, g:i A') }}.{% endif %}
-        </div>
-        <form method="POST" action="/lecturer/shortlist-meetings/minutes" style="margin-top:8px;">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="meeting_id" value="{{ m.meeting_id }}">
-          <div class="field">
-            <textarea name="minutes" rows="5" {{ m.minutes_finalized_at ? 'readonly' : '' }}>{{ m.minutes }}</textarea>
-          </div>
-          {% if not m.minutes_finalized_at %}
-            <div style="display:flex; gap:8px; margin-top:8px;">
-              <button type="submit" name="finalize" value="0" class="btn ghost">Save draft</button>
-              <button type="submit" name="finalize" value="1" class="btn brass"
-                      onclick="return confirm('Finalise these minutes? They cannot be edited afterwards.');">Finalise minutes</button>
-            </div>
-          {% endif %}
-        </form>
-      {% elseif m.minutes %}
-        <div class="meta" style="margin-top:14px;">
-          Minutes{% if not m.minutes_finalized_at %} <span style="color: var(--rust);">(draft)</span>{% endif %}
-        </div>
-        <p style="font-size:.85rem; line-height:1.6; white-space:pre-wrap; margin-top:4px;">{{ m.minutes }}</p>
-      {% else %}
-        <div class="meta" style="margin-top:14px;">No minutes have been written yet.</div>
-      {% endif %}
+      <div style="margin-top:14px;">
+        {% if m.minutes_author_id == session_user_id and not m.minutes_finalized_at %}
+          {# This head holds the pen for this meeting — secretary, or lead with no secretary. #}
+          <div class="meta" style="margin-bottom:8px;">You are writing the minutes for this meeting.</div>
+          {% include 'partials/shortlist_minutes_form.twig' with {
+            meeting: m,
+            action: '/lecturer/shortlist-meetings/minutes',
+            id_field: 'meeting_id',
+            id_value: m.meeting_id,
+            csrf_token: csrf_token
+          } only %}
+        {% else %}
+          {% include 'partials/shortlist_minutes.twig' with {meeting: m} only %}
+        {% endif %}
+      </div>
 
       <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--hairline, #e2dccd);">
         {% if m.vote %}

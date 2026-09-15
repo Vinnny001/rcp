@@ -225,37 +225,32 @@
   <div class="section-title">Minutes<div class="rule"></div></div>
   <div class="meta" style="margin-bottom:12px;">
     Led by {{ shortlist.lead_name }}{% if shortlist.secretary_name %}, minuted by {{ shortlist.secretary_name }}{% endif %}.
-    Heads can read these as soon as they are saved. Finalising is what unlocks the decision — and cannot be undone.
+    {% if not shortlist.minutes_finalized_at %}
+      Heads can read the draft as soon as it is saved. Finalising is what unlocks the decision — and cannot be undone.
+    {% endif %}
   </div>
 
-  {% if shortlist.minutes_author_id != session_user_id and not shortlist.minutes_finalized_at %}
-    <div class="notice" style="margin-bottom:22px;">
-      {{ shortlist.secretary_name ?: shortlist.lead_name }} writes the minutes for this meeting. You will be able to apply the decision once they finalise them.
-      {% if shortlist.minutes %}
-        <p style="font-size:.85rem; line-height:1.6; white-space:pre-wrap; margin-top:10px;">{{ shortlist.minutes }}</p>
-      {% endif %}
+  {% if shortlist.minutes_finalized_at %}
+    <div style="margin-bottom:22px;">
+      {% include 'partials/shortlist_minutes.twig' with {meeting: shortlist} only %}
+    </div>
+  {% elseif shortlist.minutes_author_id == session_user_id %}
+    <div class="form-card" style="margin-bottom:22px;">
+      {% include 'partials/shortlist_minutes_form.twig' with {
+        meeting: shortlist,
+        action: '/coordinator/shortlists/minutes',
+        id_field: 'shortlist_id',
+        id_value: shortlist.shortlist_id,
+        csrf_token: csrf_token
+      } only %}
     </div>
   {% else %}
-  <div class="form-card" style="margin-bottom:22px;">
-    <form method="POST" action="/coordinator/shortlists/minutes">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="shortlist_id" value="{{ shortlist.shortlist_id }}">
-      <div class="field">
-        <label>What the meeting decided{% if shortlist.status == 'rejected' %} — this is what the student is shown as the reason{% endif %}</label>
-        <textarea name="minutes" rows="6" {{ shortlist.minutes_finalized_at ? 'readonly' : '' }}>{{ shortlist.minutes }}</textarea>
+    <div class="notice" style="margin-bottom:22px;">
+      {{ shortlist.secretary_name ?: shortlist.lead_name }} writes the minutes for this meeting. You will be able to apply the decision once they finalise them.
+      <div style="margin-top:10px;">
+        {% include 'partials/shortlist_minutes.twig' with {meeting: shortlist} only %}
       </div>
-
-      {% if shortlist.minutes_finalized_at %}
-        <div class="meta">Finalised {{ shortlist.minutes_finalized_at|date('d M Y, g:i A') }}.</div>
-      {% else %}
-        <div style="display:flex; gap:8px; margin-top:10px;">
-          <button type="submit" name="finalize" value="0" class="btn ghost">Save draft</button>
-          <button type="submit" name="finalize" value="1" class="btn brass"
-                  onclick="return confirm('Finalise these minutes? They cannot be edited afterwards.');">Finalise minutes</button>
-        </div>
-      {% endif %}
-    </form>
-  </div>
+    </div>
   {% endif %}
 
   {% if shortlist.status != 'meeting_scheduled' %}

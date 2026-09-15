@@ -140,6 +140,7 @@ return function (App $app) {
     $app->get('/lecturer/shortlist-meetings', [DepartmentHeadController::class, 'meetings']);
     $app->post('/lecturer/shortlist-meetings/vote', [DepartmentHeadController::class, 'vote']);
     $app->post('/lecturer/shortlist-meetings/minutes', [DepartmentHeadController::class, 'saveMinutes']);
+    $app->get('/lecturer/shortlist-meetings/{id}/minutes-document', [DepartmentHeadController::class, 'minutesDocument']);
 
     // Lecturer documents route
     $app->get('/lecturer/documents', [LecturerDocumentsController::class, 'show']);
