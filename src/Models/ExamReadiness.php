@@ -441,14 +441,26 @@ class ExamReadiness
         return $stmt->fetchAll();
     }
 
+    /** Roles a lecturer can be invited in besides examiner. */
+    public const OTHER_ATTENDEE_ROLES = ['chairperson', 'supervisor', 'observer'];
+
     /**
      * Schedules the exam and invites the panel.
      *
      * Every examiner is re-checked against the program's qualified
      * list here. The picker is filtered too, but a filtered dropdown
-     * is not enforcement — this is.
+     * is not enforcement — this is. An internal exam invites internal
+     * lecturers only, an external exam external ones, a hybrid exam
+     * either — examiners and every other lecturer invited alike.
+     *
+     * $options:
+     *   include_student  bool, default true — invite the student
+     *   attendees        list of [user_id, role] — chairs, supervisors, observers
+     *   resource_documents  document ids from the student or the scheduler
+     *   resource_links   list of {url, label}
      *
      * @param array<int, string> $examinerLecturerIds
+     * @param array<string, mixed> $options
      */
     public function scheduleExam(
         string $readinessId,
@@ -459,7 +471,8 @@ class ExamReadiness
         string $mode,
         ?string $location,
         ?string $virtualLink,
-        string $createdBy
+        string $createdBy,
+        array $options = []
     ): string {
         if ($examinerLecturerIds === []) {
             throw new RuntimeException('Invite at least one examiner.');
@@ -495,6 +508,46 @@ class ExamReadiness
             }
         }
 
+        // Internal exams take internal lecturers, external exams external
+        // ones — for the panel and for everyone else invited.
+        $windowStmt = $this->db->prepare(
+            "SELECT exam_type, starts_at, ends_at FROM exam_schedule WHERE exam_schedule_id = :id LIMIT 1"
+        );
+        $windowStmt->execute(['id' => $readiness['exam_schedule_id']]);
+        $examWindow = $windowStmt->fetch();
+        $lecturers = new Lecturer($this->db);
+        $examType = $examWindow['exam_type'] ?? 'hybrid';
+
+        foreach ($examinerLecturerIds as $lecturerId) {
+            $kind = $lecturers->getTypeByUserId((string) $own->userForLecturer($lecturerId));
+            if ($examType !== 'hybrid' && $kind !== $examType) {
+                throw new RuntimeException('Only ' . $examType . ' lecturers can examine an ' . $examType . ' exam.');
+            }
+        }
+
+        $studentUserId = $own->userForStudent($readiness['student_id']);
+        $attendees = [];
+        foreach ((array) ($options['attendees'] ?? []) as [$userId, $role]) {
+            if (!in_array($role, self::OTHER_ATTENDEE_ROLES, true)) {
+                throw new RuntimeException('Choose chairperson, supervisor or observer for everyone else invited.');
+            }
+            if ($userId === $studentUserId) {
+                throw new RuntimeException('The student attends as the student, not as a lecturer — use "Invite the student".');
+            }
+            $kind = $lecturers->getTypeByUserId((string) $userId);
+            if ($kind === null) {
+                throw new RuntimeException('Only lecturers can be invited to the exam.');
+            }
+            if ($examType !== 'hybrid' && $kind !== $examType) {
+                throw new RuntimeException('Only ' . $examType . ' lecturers can be invited to an ' . $examType . ' exam.');
+            }
+            $attendees[$userId] = $role;
+        }
+
+        if ($error = ExamMeeting::detailsError($scheduledAt, $mode, $location, $virtualLink, $examWindow ?: null)) {
+            throw new RuntimeException($error);
+        }
+
         // Last, whether the student is ready to sit it: the booking is for
         // the stage they are on, and fees and documents are settled.
         $booked = $this->window($readiness['student_id'], $readiness['student_user_id'], $readiness['exam_schedule_id']);
@@ -511,7 +564,7 @@ class ExamReadiness
             // type's — that is what lets a new stage be added without
             // touching the enum.
             'meeting_type'     => 'exam',
-            'scheduled_at'     => $scheduledAt,
+            'scheduled_at'     => date('Y-m-d H:i:s', (int) strtotime($scheduledAt)),
             'mode'             => $mode,
             'location'         => $location ?: null,
             'virtual_link'     => $virtualLink ?: null,
@@ -536,6 +589,28 @@ class ExamReadiness
         if ($panelLeaderLecturerId !== null) {
             $userIdFor->execute(['id' => $panelLeaderLecturerId]);
             (new Rubric($this->db))->designateLeader($meetingId, (string) $userIdFor->fetchColumn());
+        }
+
+        $invited = array_filter(array_map(fn (string $id): ?string => $own->userForLecturer($id), $examinerLecturerIds));
+        if (($options['include_student'] ?? true) && $studentUserId !== null) {
+            $meeting->addAttendee($meetingId, $studentUserId, 'student');
+            $invited[] = $studentUserId;
+        }
+        foreach ($attendees as $userId => $role) {
+            if (!in_array($userId, $invited, true)) {
+                $meeting->addAttendee($meetingId, (string) $userId, $role);
+                $invited[] = $userId;
+            }
+        }
+
+        // Documents and links everyone attending can open, not scored:
+        // the student's own documents, or the scheduler's.
+        $resources = new \App\Services\MeetingResources($this->db);
+        foreach ($resources->ownedDocumentIds((array) ($options['resource_documents'] ?? []), [$studentUserId, $createdBy]) as $documentId) {
+            $meeting->attachResourceDocument($meetingId, $documentId, $createdBy);
+        }
+        foreach ((array) ($options['resource_links'] ?? []) as $link) {
+            $meeting->attachResourceLink($meetingId, $link['url'], $link['label'] ?? null, $createdBy);
         }
 
         $this->db->prepare("UPDATE exam_readiness SET meeting_id = :meeting_id WHERE readiness_id = :id")

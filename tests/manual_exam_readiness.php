@@ -160,13 +160,16 @@ check('fees appear among them',
 check('documents appear among them',
     count(array_filter($w['blockers'], fn($b) => str_contains($b, 'not been submitted'))) > 0);
 
-$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers WHERE user_id <> '{$student['user_id']}' LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+// Internal examiners, for the internal exam window; an exam date inside it.
+$lecturers = $pdo->query("SELECT l.lecturer_id FROM lecturers l JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id WHERE l.user_id <> '{$student['user_id']}' LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+$pdo->prepare("UPDATE exam_schedule SET exam_type = 'internal' WHERE exam_schedule_id = ?")->execute([$window]);
+$examAt = date('Y-m-d H:i:s', strtotime('+10 days 10:00'));
 [$qualifiedA, $qualifiedB, $unqualified] = $lecturers;
 $quals->add($qualifiedA, $student['program_id'], $admin);
 $quals->add($qualifiedB, $student['program_id'], $admin);
 $err = throws(fn() => $readiness->scheduleExam(
     $mine($student['program_id'])[0]['readiness_id'], $student['program_id'], [$qualifiedA], null,
-    '2026-11-01 10:00:00', 'physical', 'Boardroom', null, $admin
+    $examAt, 'physical', 'Boardroom', null, $admin
 ));
 check('the coordinator cannot schedule the exam while anything is outstanding', str_contains((string) $err, 'outstanding'), substr((string) $err, 0, 70) . '…');
 
@@ -200,7 +203,7 @@ $readinessId = $mine($student['program_id'])[0]['readiness_id'];
 
 $err = throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA, $unqualified], null,
-    '2026-11-01 10:00:00', 'physical', 'Boardroom', null, $admin
+    $examAt, 'physical', 'Boardroom', null, $admin
 ));
 check('an unqualified examiner is refused even when posted directly', $err !== null, $err ?? '');
 check('and nothing was scheduled from the refused attempt',
@@ -208,18 +211,18 @@ check('and nothing was scheduled from the refused attempt',
 
 $err = throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA], $qualifiedB,
-    '2026-11-01 10:00:00', 'physical', 'Boardroom', null, $admin
+    $examAt, 'physical', 'Boardroom', null, $admin
 ));
 check('a panel leader who is not on the panel is refused', $err !== null, $err ?? '');
 
 check('an empty panel is refused', throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [], null,
-    '2026-11-01 10:00:00', 'physical', 'Boardroom', null, $admin
+    $examAt, 'physical', 'Boardroom', null, $admin
 )) !== null);
 
 $meetingId = $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA, $qualifiedB], $qualifiedA,
-    '2026-11-01 10:00:00', 'physical', 'Boardroom', null, $admin
+    $examAt, 'physical', 'Boardroom', null, $admin
 );
 check('a qualified panel schedules', $meetingId !== '');
 
@@ -234,7 +237,7 @@ check('the student leaves the ready queue',
     count($mine($student['program_id'])) === 0);
 check('scheduling twice is refused', throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA], null,
-    '2026-11-02 10:00:00', 'physical', 'Boardroom', null, $admin
+    $examAt, 'physical', 'Boardroom', null, $admin
 )) !== null);
 
 $pdo->rollBack();

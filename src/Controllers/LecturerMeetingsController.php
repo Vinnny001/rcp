@@ -8,6 +8,7 @@ use App\Models\Document;
 use App\Models\DocumentReviewScore;
 use App\Models\Lecturer;
 use App\Models\Meeting;
+use App\Services\MeetingResources;
 use App\Models\Examination;
 use App\Models\ThesisRegistration;
 use Psr\Http\Message\ResponseInterface;
@@ -126,46 +127,15 @@ class LecturerMeetingsController
      */
     private function validResourceDocumentIds(array $candidateIds, ?string $studentUserId): array
     {
-        $documentModel = new Document($this->db);
-
-        $ownedIds = array_column($documentModel->findByOwner($_SESSION['user_id']), 'document_id');
-        if ($studentUserId) {
-            $ownedIds = array_merge($ownedIds, array_column($documentModel->findByOwner($studentUserId), 'document_id'));
-        }
-
-        return array_values(array_intersect($candidateIds, $ownedIds));
+        return (new MeetingResources($this->db))->ownedDocumentIds($candidateIds, [$_SESSION['user_id'], $studentUserId]);
     }
 
     /**
-     * Parses parallel resource_links[]/resource_link_labels[] arrays
-     * into [{url, label}, ...], keeping only well-formed http(s) URLs —
-     * a javascript: or data: URL never reaches the database, since this
-     * value is later rendered as a plain href.
-     *
      * @return array<int, array{url: string, label: ?string}>
      */
     private function parseResourceLinks(array $data): array
     {
-        $urls = (array) ($data['resource_links'] ?? []);
-        $labels = (array) ($data['resource_link_labels'] ?? []);
-        $links = [];
-
-        foreach ($urls as $i => $url) {
-            $url = trim((string) $url);
-            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
-                continue;
-            }
-            if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
-                continue;
-            }
-
-            $links[] = [
-                'url'   => $url,
-                'label' => trim((string) ($labels[$i] ?? '')) ?: null,
-            ];
-        }
-
-        return $links;
+        return MeetingResources::parseLinks($data);
     }
 
     private function requireLecturer(): ?string

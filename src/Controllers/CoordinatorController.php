@@ -223,6 +223,8 @@ class CoordinatorController
                 ? $rubric->panelResults($meeting['meeting_id'], (string) ($rubric->templateForStage($meeting['exam_stage_id'])['template_id'] ?? ''))
                 : [],
             'attendees'    => $this->examinersFor($meeting['meeting_id']),
+            'others'       => $model->otherAttendees($meeting['meeting_id']),
+            'resources'    => (new \App\Models\Meeting($this->db))->findResources($meeting['meeting_id']),
             // Examiners enter it to submit a review; on an exam meeting
             // only the coordinator holds it, to read out in the room.
             'secure_code'  => (new \App\Models\Meeting($this->db))->ensureSecureCode($meeting['meeting_id']),
@@ -549,14 +551,30 @@ class CoordinatorController
         $qualifications = new \App\Models\ExaminerQualification($this->db);
         $own = new OwnRecord($this->db);
         $bookings = new \App\Models\ExamReadiness($this->db);
+        $lecturers = new Lecturer($this->db);
+        $resources = new \App\Services\MeetingResources($this->db);
         foreach ($queue as &$row) {
             // Only lecturers qualified for this program can be offered —
-            // and never the candidate's own lecturer account.
-            $candidate = $own->userForStudent($row['student_id']);
+            // never the candidate's own lecturer account, and for an
+            // internal exam only internal lecturers, for an external one
+            // only external.
+            $candidate = (string) $own->userForStudent($row['student_id']);
+            $examType = $row['exam_type'];
             $row['examiners'] = array_values(array_filter(
                 $qualifications->qualifiedForProgram($row['program_id']),
                 fn (array $examiner): bool => $examiner['user_id'] !== $candidate
+                    && ($examType === 'hybrid' || $examiner['kind'] === $examType)
             ));
+            // Anyone else invited follows the same internal/external rule.
+            $row['invitable'] = match ($examType) {
+                'internal' => $lecturers->listInternalLecturersExcept($candidate),
+                'external' => $lecturers->listExternalLecturersExcept($candidate),
+                default    => array_merge(
+                    $lecturers->listInternalLecturersExcept($candidate),
+                    $lecturers->listExternalLecturersExcept($candidate)
+                ),
+            };
+            $row['student_documents'] = $resources->documentsOwnedBy($candidate);
             // A booking is in the queue from the start; the exam can be
             // scheduled once the student's fees and documents are settled.
             $booked = $bookings->window($row['student_id'], $row['student_user_id'], $row['exam_schedule_id']);
@@ -569,6 +587,7 @@ class CoordinatorController
         return $this->twig->render($response, 'coordinators/exams.twig', [
             'active_page' => 'l-coordinator-exams',
             'first_name'  => $_SESSION['first_name'] ?? '',
+            'my_documents' => $resources->documentsOwnedBy($_SESSION['user_id']),
             'last_name'   => $_SESSION['last_name'] ?? '',
             'programs'    => $programs,
             'queue'       => $queue,
@@ -609,15 +628,66 @@ class CoordinatorController
                 (string) ($data['mode'] ?? 'physical'),
                 (string) ($data['location'] ?? ''),
                 (string) ($data['virtual_link'] ?? ''),
-                $_SESSION['user_id']
+                $_SESSION['user_id'],
+                [
+                    'include_student'    => ($data['include_student'] ?? '') === '1',
+                    'attendees'          => $this->postedAttendees($data),
+                    'resource_documents' => array_values((array) ($data['resource_documents'] ?? [])),
+                    'resource_links'     => \App\Services\MeetingResources::parseLinks($data),
+                ]
             );
 
-            $_SESSION['flash_success'] = 'Exam scheduled and the panel invited.';
+            $_SESSION['flash_success'] = 'Exam scheduled and everyone invited.';
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = $e->getMessage();
         }
 
         return $this->redirect($response, '/coordinator/exams');
+    }
+
+    /**
+     * Parallel attendee_user_ids[] / attendee_roles[] from the form.
+     *
+     * @param array<string, mixed> $data
+     * @return array<int, array{0: string, 1: string}>
+     */
+    private function postedAttendees(array $data): array
+    {
+        $ids = array_values((array) ($data['attendee_user_ids'] ?? []));
+        $roles = array_values((array) ($data['attendee_roles'] ?? []));
+
+        $attendees = [];
+        foreach ($ids as $i => $userId) {
+            if ((string) $userId !== '') {
+                $attendees[] = [(string) $userId, (string) ($roles[$i] ?? '')];
+            }
+        }
+
+        return $attendees;
+    }
+
+    public function rescheduleExam(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamMeeting($request, $response, function (array $data, array $meeting, \App\Models\ExamMeeting $model): string {
+            $model->reschedule(
+                $meeting['meeting_id'],
+                (string) ($data['scheduled_at'] ?? ''),
+                (string) ($data['mode'] ?? ''),
+                (string) ($data['location'] ?? ''),
+                (string) ($data['virtual_link'] ?? '')
+            );
+
+            return 'Exam rescheduled.';
+        });
+    }
+
+    public function cancelExam(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->handleExamMeeting($request, $response, function (array $data, array $meeting, \App\Models\ExamMeeting $model): string {
+            $model->cancel($meeting['meeting_id'], (string) ($data['reason'] ?? ''));
+
+            return 'Exam cancelled. The student is back in your queue, and can switch to another date until you schedule them again.';
+        });
     }
 
     /**

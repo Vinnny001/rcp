@@ -107,6 +107,124 @@ class ExamMeeting
         return $author ? (string) $author : null;
     }
 
+    /**
+     * What is wrong with an exam's date and venue, or null. It has to fall
+     * inside the exam window the student booked, and a physical or hybrid
+     * exam needs a place, a virtual or hybrid one a link.
+     *
+     * @param array{starts_at: string, ends_at: string}|null $window
+     */
+    public static function detailsError(string $scheduledAt, string $mode, ?string $location, ?string $virtualLink, ?array $window): ?string
+    {
+        $when = strtotime($scheduledAt);
+        if ($scheduledAt === '' || $when === false) {
+            return 'Choose the date and time of the exam.';
+        }
+        if ($window !== null && ($when < strtotime($window['starts_at']) || $when > strtotime($window['ends_at']))) {
+            return 'The exam has to take place within its window, '
+                . date('d M Y, g:i A', strtotime($window['starts_at'])) . ' to ' . date('d M Y, g:i A', strtotime($window['ends_at'])) . '.';
+        }
+        if (!in_array($mode, ['physical', 'virtual', 'hybrid'], true)) {
+            return 'Choose whether the exam is physical, virtual or hybrid.';
+        }
+        if (in_array($mode, ['physical', 'hybrid'], true) && trim((string) $location) === '') {
+            return 'A ' . $mode . ' exam needs a location.';
+        }
+        if (in_array($mode, ['virtual', 'hybrid'], true) && trim((string) $virtualLink) === '') {
+            return 'A ' . $mode . ' exam needs a meeting link.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Moves a scheduled exam to a new date or venue, within its window.
+     */
+    public function reschedule(string $meetingId, string $scheduledAt, string $mode, ?string $location, ?string $virtualLink): void
+    {
+        $meeting = $this->find($meetingId);
+        if (!$meeting) {
+            throw new RuntimeException('That exam no longer exists.');
+        }
+        if ($meeting['status'] !== 'scheduled') {
+            throw new RuntimeException('Only an exam that has not started can be rescheduled.');
+        }
+        if ($error = self::detailsError($scheduledAt, $mode, $location, $virtualLink, $this->windowOf($meeting))) {
+            throw new RuntimeException($error);
+        }
+
+        $this->db->prepare(
+            "UPDATE meetings SET scheduled_at = :scheduled_at, mode = :mode, location = :location, virtual_link = :virtual_link
+             WHERE meeting_id = :id AND status = 'scheduled'"
+        )->execute([
+            'id'           => $meetingId,
+            'scheduled_at' => date('Y-m-d H:i:s', (int) strtotime($scheduledAt)),
+            'mode'         => $mode,
+            'location'     => trim((string) $location) ?: null,
+            'virtual_link' => trim((string) $virtualLink) ?: null,
+        ]);
+    }
+
+    /**
+     * Cancels an exam, saying why — the student sees the reason. Their
+     * booking stays, back in the coordinator's queue, and until the exam
+     * is scheduled again they may switch to another date.
+     */
+    public function cancel(string $meetingId, string $reason): void
+    {
+        if (trim($reason) === '') {
+            throw new RuntimeException('Give a reason for cancelling — the student sees it.');
+        }
+
+        $meeting = $this->find($meetingId);
+        if (!$meeting) {
+            throw new RuntimeException('That exam no longer exists.');
+        }
+        if (!in_array($meeting['status'], ['scheduled', 'in_progress'], true)) {
+            throw new RuntimeException('This exam has already been ' . $meeting['status'] . '.');
+        }
+
+        (new Meeting($this->db))->changeStatus($meetingId, 'cancelled', trim($reason));
+        $this->db->prepare("UPDATE exam_readiness SET meeting_id = NULL WHERE meeting_id = :id")
+            ->execute(['id' => $meetingId]);
+    }
+
+    /**
+     * Everyone invited besides the panel: the student, and any chair,
+     * supervisor or observer.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function otherAttendees(string $meetingId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT ma.user_id, ma.role_in_meeting, CONCAT(u.first_name, ' ', u.last_name) AS name
+             FROM meeting_attendees ma
+             JOIN users u ON u.user_id = ma.user_id
+             WHERE ma.meeting_id = :id AND ma.role_in_meeting <> 'examiner'
+             ORDER BY FIELD(ma.role_in_meeting, 'student', 'chairperson', 'supervisor', 'observer'), u.last_name"
+        );
+        $stmt->execute(['id' => $meetingId]);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * @param array<string, mixed> $meeting
+     * @return array{starts_at: string, ends_at: string}|null
+     */
+    private function windowOf(array $meeting): ?array
+    {
+        if (empty($meeting['exam_schedule_id'])) {
+            return null;
+        }
+
+        $stmt = $this->db->prepare("SELECT starts_at, ends_at FROM exam_schedule WHERE exam_schedule_id = :id LIMIT 1");
+        $stmt->execute(['id' => $meeting['exam_schedule_id']]);
+
+        return $stmt->fetch() ?: null;
+    }
+
     public function setRoles(string $meetingId, ?string $leadUserId, ?string $secretaryUserId): void
     {
         $meeting = $this->find($meetingId);

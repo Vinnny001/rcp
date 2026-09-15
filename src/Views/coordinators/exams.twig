@@ -48,7 +48,8 @@
         </div>
       {% elseif not q.examiners %}
         <div class="notice" style="margin-top:14px; border-left-color: var(--rust); background:#f6eae7;">
-          No lecturer is qualified to examine {{ q.program_name }}. An administrator sets that under Examiner Qualifications.
+          No {{ q.exam_type != 'hybrid' ? q.exam_type ~ ' ' }}lecturer is qualified to examine {{ q.program_name }}{{ q.exam_type != 'hybrid' ? ', and this is an ' ~ q.exam_type ~ ' exam' }}.
+          An administrator sets qualifications under Examiner Qualifications.
         </div>
       {% else %}
         <form method="POST" action="/coordinator/exams/schedule" style="margin-top:16px;">
@@ -71,13 +72,20 @@
             <div class="field"><label>Location</label><input type="text" name="location" placeholder="Boardroom"></div>
             <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" placeholder="https://…"></div>
           </div>
+          <div class="meta" style="margin:-6px 0 12px;">
+            Within the booked window, {{ q.starts_at|date('d M Y, g:i A') }} to {{ q.ends_at|date('d M Y, g:i A') }}.
+          </div>
+
+          <label class="exam-check">
+            <input type="checkbox" name="include_student" value="1" checked> Invite {{ q.student_name }} to attend
+          </label>
 
           <label style="font-size:.8rem; display:block; margin:14px 0 6px;">
-            Panel — only lecturers qualified to examine {{ q.program_name }}
+            Panel — lecturers qualified to examine {{ q.program_name }}{% if q.exam_type != 'hybrid' %}, {{ q.exam_type }} only for an {{ q.exam_type }} exam{% endif %}
           </label>
           <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:12px;">
             {% for e in q.examiners %}
-              <label style="font-size:.82rem; display:flex; gap:8px; align-items:center;">
+              <label class="exam-check">
                 <input type="checkbox" name="examiner_ids[]" value="{{ e.lecturer_id }}">
                 {{ e.lecturer_name }} <span class="meta">({{ e.kind }})</span>
               </label>
@@ -96,6 +104,52 @@
           <div class="meta" style="margin:6px 0 14px;">
             The leader has to be one of the examiners you tick above. Leave it empty for a scheme that needs no averaging.
           </div>
+
+          <div class="exam-extra" data-invite>
+            <label>Others attending <span class="meta">— chair, supervisors, observers{% if q.exam_type != 'hybrid' %}; {{ q.exam_type }} lecturers only{% endif %}</span></label>
+            <div class="field-row">
+              <div class="field">
+                <select data-invite-select>
+                  <option value="">Select a lecturer</option>
+                  {% for l in q.invitable %}
+                    <option value="{{ l.user_id }}" data-name="{{ l.name }}">{{ l.name }}{% if l.affiliation %} — {{ l.affiliation }}{% endif %}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <select data-invite-role>
+                  <option value="chairperson">Chairperson</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="observer">Observer</option>
+                </select>
+              </div>
+            </div>
+            <button type="button" class="btn ghost" style="padding:6px 14px; font-size:.72rem;" data-invite-add>Invite</button>
+            <div class="exam-chips" data-invite-list></div>
+          </div>
+
+          <details class="exam-extra" data-links>
+            <summary>Resources (optional) — documents or links everyone attending can open, not scored</summary>
+            <div class="meta" style="margin:12px 0 6px;">{{ q.student_name }}'s documents</div>
+            {% for d in q.student_documents %}
+              <label class="exam-check"><input type="checkbox" name="resource_documents[]" value="{{ d.document_id }}"> {{ d.doc_type_name }} — {{ d.file_name }}</label>
+            {% else %}
+              <div class="meta">None uploaded.</div>
+            {% endfor %}
+            {% if my_documents %}
+              <div class="meta" style="margin:12px 0 6px;">Your documents</div>
+              {% for d in my_documents %}
+                <label class="exam-check"><input type="checkbox" name="resource_documents[]" value="{{ d.document_id }}"> {{ d.doc_type_name }} — {{ d.file_name }}</label>
+              {% endfor %}
+            {% endif %}
+            <div class="meta" style="margin:12px 0 6px;">Add a link</div>
+            <div class="field-row">
+              <div class="field"><input type="url" placeholder="https://…" data-link-url></div>
+              <div class="field"><input type="text" placeholder="Label (e.g. Marking guide)" data-link-label></div>
+            </div>
+            <button type="button" class="btn ghost" style="padding:6px 14px; font-size:.72rem;" data-link-add>Add link</button>
+            <div class="exam-chips" data-link-list></div>
+          </details>
 
           <button type="submit" class="btn brass">Schedule the exam</button>
         </form>
@@ -149,4 +203,71 @@
   </table>
 {% endif %}
 
+<style>
+  .exam-check{ display:flex; align-items:center; gap:8px; margin:4px 0; font-size:.82rem; text-transform:none; letter-spacing:0;
+               font-family:'IBM Plex Sans',sans-serif; color:var(--ink-text); }
+  .exam-check input{ width:auto; }
+  .exam-check .meta{ margin:0; }
+  .exam-extra{ margin:16px 0; padding-top:12px; border-top:1px solid var(--paper-line); }
+  .exam-extra > summary{ cursor:pointer; font-size:.84rem; font-weight:600; }
+  .exam-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .exam-chip{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--paper-line);
+              border-radius:var(--radius); background:#fff; font-size:.78rem; }
+  .exam-chip button{ border:none; background:none; cursor:pointer; color:var(--rust); font-size:.8rem; padding:0; }
+</style>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    // Each queue card has its own form, so everything is scoped to it.
+    function chip(list, text, inputs) {
+      var el = document.createElement('span');
+      el.className = 'exam-chip';
+      el.appendChild(document.createTextNode(text));
+      inputs.forEach(function (pair) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = pair[0];
+        input.value = pair[1];
+        el.appendChild(input);
+      });
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', 'Remove');
+      remove.textContent = '✕';
+      remove.addEventListener('click', function () { el.remove(); });
+      el.appendChild(remove);
+      list.appendChild(el);
+    }
+
+    document.querySelectorAll('[data-invite]').forEach(function (box) {
+      var select = box.querySelector('[data-invite-select]');
+      var role = box.querySelector('[data-invite-role]');
+      var list = box.querySelector('[data-invite-list]');
+      box.querySelector('[data-invite-add]').addEventListener('click', function () {
+        if (!select.value) { return; }
+        if (list.querySelector('input[value="' + select.value + '"]')) { return; }
+        var option = select.options[select.selectedIndex];
+        chip(list, option.dataset.name + ' (' + role.options[role.selectedIndex].text + ')',
+          [['attendee_user_ids[]', select.value], ['attendee_roles[]', role.value]]);
+        select.value = '';
+      });
+    });
+
+    document.querySelectorAll('[data-links]').forEach(function (box) {
+      var url = box.querySelector('[data-link-url]');
+      var label = box.querySelector('[data-link-label]');
+      var list = box.querySelector('[data-link-list]');
+      box.querySelector('[data-link-add]').addEventListener('click', function () {
+        var value = url.value.trim();
+        if (!/^https?:\/\//i.test(value)) { url.focus(); return; }
+        chip(list, label.value.trim() || value, [['resource_links[]', value], ['resource_link_labels[]', label.value.trim()]]);
+        url.value = '';
+        label.value = '';
+      });
+    });
+  })();
+</script>
 {% endblock %}

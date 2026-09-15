@@ -129,6 +129,8 @@ return function (App $app) {
     $app->post('/coordinator/exams/schedule', [CoordinatorController::class, 'scheduleExam']);
     $app->get('/coordinator/exams/{id}', [CoordinatorController::class, 'examMeeting']);
     $app->post('/coordinator/exams/roles', [CoordinatorController::class, 'setExamRoles']);
+    $app->post('/coordinator/exams/reschedule', [CoordinatorController::class, 'rescheduleExam']);
+    $app->post('/coordinator/exams/cancel', [CoordinatorController::class, 'cancelExam']);
     $app->post('/coordinator/exams/minutes', [CoordinatorController::class, 'saveExamMinutes']);
     $app->post('/coordinator/exams/minutes/approve', [CoordinatorController::class, 'approveExamMinutes']);
     $app->post('/coordinator/exams/documents/add', [CoordinatorController::class, 'addExamDocument']);

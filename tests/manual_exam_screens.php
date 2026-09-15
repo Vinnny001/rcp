@@ -202,7 +202,8 @@ if ($pdo->query("SELECT COUNT(*) FROM examiner_program_qualifications WHERE prog
     check('and no schedule form is offered', !str_contains($h, 'Schedule the exam'));
 }
 
-$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers WHERE user_id <> '{$student['user_id']}' LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
+$lecturers = $pdo->query("SELECT l.lecturer_id FROM lecturers l JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id WHERE l.user_id <> '{$student['user_id']}' LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
+$pdo->prepare("UPDATE exam_schedule SET exam_type = 'internal' WHERE exam_schedule_id = ?")->execute([$window]);
 foreach ($lecturers as $l) { $quals->add($l, $student['program_id'], $admin); }
 $h = render($twig, 'coordinators/exams.twig', $coordVars($queueFor()));
 check('with qualified examiners and nothing outstanding, the form appears', str_contains($h, 'Schedule the exam'));
@@ -217,13 +218,14 @@ $pdo->prepare("INSERT INTO thesis_payments (thesis_payment_id, thesis_registrati
                VALUES (UUID(),?,NULL,'thesis_registration',1000,'mpesa','confirmed')")->execute([$student['thesis_registration_id']]);
 
 echo "\n=== Student page: scheduled ===\n";
-$panel = $pdo->query("SELECT l.lecturer_id FROM lecturers l JOIN examiner_program_qualifications q ON q.lecturer_id = l.lecturer_id
+$panel = $pdo->query("SELECT l.lecturer_id FROM lecturers l JOIN internal_lecturers il ON il.lecturer_id = l.lecturer_id JOIN examiner_program_qualifications q ON q.lecturer_id = l.lecturer_id
                       WHERE q.program_id = '{$student['program_id']}' AND l.user_id <> '{$student['user_id']}' LIMIT 1")->fetchColumn();
 $readinessId = $pdo->query("SELECT readiness_id FROM exam_readiness WHERE student_id = '{$student['student_id']}' AND exam_schedule_id = '$window'")->fetchColumn();
-$readiness->scheduleExam($readinessId, $student['program_id'], [$panel], null, '2026-10-21 10:30:00', 'hybrid', 'Senate Room', 'https://meet.example/exam', $coordUser);
+$examAt = strtotime('+20 days 10:30');
+$readiness->scheduleExam($readinessId, $student['program_id'], [$panel], null, date('Y-m-d H:i:s', $examAt), 'hybrid', 'Senate Room', 'https://meet.example/exam', $coordUser);
 $h = render($twig, 'students/exam.twig', $studentVars());
 check('the student sees when and where the exam is',
-    str_contains($h, '21 Oct 2026, 10:30 AM') && str_contains($h, 'Hybrid') && str_contains($h, 'Senate Room') && str_contains($h, 'https://meet.example/exam'));
+    str_contains($h, date('d M Y, g:i A', $examAt)) && str_contains($h, 'Hybrid') && str_contains($h, 'Senate Room') && str_contains($h, 'https://meet.example/exam'));
 check('and that it is scheduled', str_contains($h, 'Exam scheduled'));
 check('the booking can no longer be cancelled', !str_contains($h, 'action="/student/exam/cancel-booking"'));
 check('or switched', str_contains($h, 'Your exam is already scheduled') && !str_contains($h, 'Switch to this date'));

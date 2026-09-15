@@ -1,4 +1,5 @@
 {% extends 'layouts/lecturer.twig' %}
+{% import 'partials/_resources_macro.twig' as resources_macro %}
 
 {% block title %}Exam Meeting{% endblock %}
 
@@ -21,6 +22,12 @@
 
 <div class="card" style="margin-bottom:22px;">
   <h3>{{ meeting.scheduled_at|date('d M Y, g:i A') }}</h3>
+  {% if meeting.status == 'cancelled' %}
+    <span class="stamp mini rejected">Cancelled</span>
+    {% if meeting.status_description %}<div class="meta" style="margin-top:6px;">Reason: {{ meeting.status_description }}</div>{% endif %}
+  {% elseif meeting.status != 'scheduled' %}
+    <span class="stamp mini approved">{{ meeting.status|replace({'_': ' '})|capitalize }}</span>
+  {% endif %}
   <div class="meta">
     {{ meeting.mode|capitalize }}{% if meeting.location %} · {{ meeting.location }}{% endif %}
     {%- if meeting.virtual_link %} · <a href="{{ meeting.virtual_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
@@ -30,6 +37,14 @@
       Panel: {% for a in attendees %}{{ a.name }}{% if not loop.last %}, {% endif %}{% endfor %}
     </div>
   {% endif %}
+  {% if others %}
+    <div class="meta" style="margin-top:4px;">
+      Also invited: {% for o in others %}{{ o.name }} ({{ o.role_in_meeting }}){% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+  {% else %}
+    <div class="meta" style="margin-top:4px;">The student is not invited.</div>
+  {% endif %}
+  {{ resources_macro.resources_block(resources) }}
   {% if secure_code and meeting.status != 'cancelled' %}
     <div class="notice" style="margin-top:12px; border-left-color: var(--brass-deep); background:#faf6ec;">
       <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.09em; color:var(--slate);">Attendance code — yours only</div>
@@ -38,6 +53,46 @@
     </div>
   {% endif %}
 </div>
+
+{% if meeting.status in ['scheduled', 'in_progress'] %}
+  <div class="section-title">Reschedule or cancel<div class="rule"></div></div>
+  <div class="grid cols-2" style="margin-bottom:26px;">
+    {% if meeting.status == 'scheduled' %}
+      <div class="form-card">
+        <form method="POST" action="/coordinator/exams/reschedule">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+          <div class="field"><label>Date and time</label>
+            <input type="datetime-local" name="scheduled_at" value="{{ meeting.scheduled_at|date('Y-m-d\\TH:i') }}" required></div>
+          <div class="field"><label>Mode</label>
+            <select name="mode">
+              {% for mode in ['physical', 'virtual', 'hybrid'] %}
+                <option value="{{ mode }}" {{ meeting.mode == mode ? 'selected' : '' }}>{{ mode|capitalize }}</option>
+              {% endfor %}
+            </select></div>
+          <div class="field"><label>Location</label><input type="text" name="location" value="{{ meeting.location }}"></div>
+          <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" value="{{ meeting.virtual_link }}"></div>
+          <button type="submit" class="btn brass">Reschedule</button>
+        </form>
+      </div>
+    {% endif %}
+    <div class="form-card">
+      <form method="POST" action="/coordinator/exams/cancel"
+            onsubmit="return confirm('Cancel this exam? The student goes back into your queue.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+        <div class="field">
+          <label>Reason for cancelling <span class="meta">— the student sees it</span></label>
+          <textarea name="reason" rows="3" required placeholder="e.g. The external examiner is unavailable — a new date will follow."></textarea>
+        </div>
+        <div class="meta" style="margin-bottom:10px;">
+          The student keeps their booking and returns to your queue. Until you schedule them again they may switch to another date.
+        </div>
+        <button type="submit" class="btn ghost" style="color: var(--rust);">Cancel the exam</button>
+      </form>
+    </div>
+  </div>
+{% endif %}
 
 <div class="section-title">Who runs it<div class="rule"></div></div>
 <div class="meta" style="margin-bottom:12px;">

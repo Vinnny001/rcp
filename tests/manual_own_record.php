@@ -333,7 +333,7 @@ try {
     $readiness = new ExamReadiness($pdo);
     $scheduleExam = fn (array $panel, ?string $leader = null, ?string $by = null) => throws(
         fn () => $readiness->scheduleExam($readinessId, $student['program_id'], $panel, $leader,
-            '2026-10-20 09:00:00', 'physical', 'Boardroom', null, $by ?? $coordinator['user_id'])
+            date('Y-m-d H:i:s', strtotime('+10 days 09:00')), 'physical', 'Boardroom', null, $by ?? $coordinator['user_id'])
     );
     $err = $scheduleExam([$examiner['lecturer_id'], $myLecturerId]);
     check('the student cannot be on their own exam panel', str_contains($err, 'cannot examine their own work'), $err);
@@ -348,8 +348,11 @@ try {
     check('the exam queue offers a panel for their exam', $form !== '' && str_contains($form, $examiner['lecturer_id']));
     check('without them on it', $form !== '' && !str_contains($form, $myLecturerId));
 
+    // Without inviting the student: below, they are slipped onto the
+    // attendee list as an examiner instead, to check that never counts.
     $examMeeting = $readiness->scheduleExam($readinessId, $student['program_id'], [$examiner['lecturer_id']], null,
-        '2026-10-20 09:00:00', 'physical', 'Boardroom', null, $coordinator['user_id']);
+        date('Y-m-d H:i:s', strtotime('+10 days 09:00')), 'physical', 'Boardroom', null, $coordinator['user_id'],
+        ['include_student' => false]);
     check('with a proper panel the exam is scheduled', $examMeeting !== '');
 
     $exams = new ExamMeeting($pdo);
