@@ -38,7 +38,8 @@ class ExamReadiness
                     es.exam_schedule_description,
                     s.stage_id, s.name AS stage_name,
                     r.readiness_id, r.marked_ready_at, r.meeting_id,
-                    m.scheduled_at AS meeting_at
+                    m.scheduled_at AS meeting_at, m.mode AS meeting_mode,
+                    m.location AS meeting_location, m.virtual_link AS meeting_link
              FROM student_thesis_registrations str
              JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
              JOIN exam_schedule es ON es.thesis_schedule_id = ts.schedule_id
@@ -66,7 +67,8 @@ class ExamReadiness
     }
 
     /**
-     * Which required documents have been submitted for a window.
+     * Which documents a window requires, and where each one stands:
+     * submitted, not open yet, open, or past its deadline.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -74,6 +76,7 @@ class ExamReadiness
     {
         $stmt = $this->db->prepare(
             "SELECT dt.doc_type_name,
+                    esd.document_submission_starts_at,
                     esd.document_submission_deadline,
                     (SELECT COUNT(*)
                        FROM exam_documents ed
@@ -89,7 +92,25 @@ class ExamReadiness
         );
         $stmt->execute(['user_id' => $userId, 'exam_schedule_id' => $examScheduleId]);
 
-        return array_map(static fn (array $r): array => $r + ['is_submitted' => (int) $r['submitted'] > 0], $stmt->fetchAll());
+        // Same clock as the Requirements page, which decides when a
+        // document can actually be uploaded.
+        $now = new \DateTimeImmutable();
+
+        return array_map(static function (array $r) use ($now): array {
+            $submitted = (int) $r['submitted'] > 0;
+            $opens = $r['document_submission_starts_at'] ? new \DateTimeImmutable($r['document_submission_starts_at']) : null;
+            $due = $r['document_submission_deadline'] ? new \DateTimeImmutable($r['document_submission_deadline']) : null;
+
+            return $r + [
+                'is_submitted' => $submitted,
+                'state'        => match (true) {
+                    $submitted                   => 'submitted',
+                    $opens !== null && $now < $opens => 'not_open',
+                    $due !== null && $now > $due     => 'closed',
+                    default                      => 'open',
+                },
+            ];
+        }, $stmt->fetchAll());
     }
 
     /**

@@ -50,10 +50,13 @@
         <option value="">-- Select --</option>
         {% for ts in thesis_schedules %}
           <option value="{{ ts.schedule_id }}">
-            {{ ts.program_name }}{% if ts.enrollment_start_date %} — opens {{ ts.enrollment_start_date|date('d M Y') }}{% endif %}
+            {% include 'partials/thesis_schedule_label.twig' with {ts: ts} only %}
           </option>
         {% endfor %}
       </select>
+      <div class="meta" style="margin-top:6px;">
+        Only students registered on this thesis schedule see the exam. A program can have more than one — pick the one those students registered on.
+      </div>
     </div>
 
     <div class="field-row">
@@ -108,7 +111,10 @@
     <details class="form-card" style="margin-bottom:18px;">
       <summary>
         <span class="meta">
-          <strong style="color:var(--ink-text); font-weight:600;">{{ es.program_name }}</strong> · {{ es.exam_type|capitalize }}
+          <strong style="color:var(--ink-text); font-weight:600;">{{ es.program_name }}</strong>
+          {%- if es.enrollment_start_date %} (enrolment from {{ es.enrollment_start_date|date('d M Y') }}){% endif %}
+          · {{ es.student_count }} student{{ es.student_count != 1 ? 's' : '' }}
+          · {{ es.exam_type|capitalize }}
           {%- if es.stage_name %} · {{ es.stage_name }}
           {%- else %} · <span style="color: var(--rust);">no stage — invisible to students</span>{% endif %}
           · {{ es.meeting_count }} meeting{{ es.meeting_count != 1 ? 's' : '' }} scheduled
@@ -127,7 +133,7 @@
           <select name="thesis_schedule_id" required>
             {% for ts in thesis_schedules %}
               <option value="{{ ts.schedule_id }}" {{ ts.schedule_id == es.thesis_schedule_id ? 'selected' : '' }}>
-                {{ ts.program_name }}{% if ts.enrollment_start_date %} — opens {{ ts.enrollment_start_date|date('d M Y') }}{% endif %}
+                {% include 'partials/thesis_schedule_label.twig' with {ts: ts} only %}
               </option>
             {% endfor %}
           </select>

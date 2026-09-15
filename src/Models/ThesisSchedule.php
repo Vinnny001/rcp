@@ -32,6 +32,8 @@ class ThesisSchedule
                     tvr.amount AS review_amount,       tvr.currency AS review_currency,
                     (SELECT COUNT(*) FROM student_thesis_registrations str
                       WHERE str.thesis_schedule_id = ts.schedule_id) AS registration_count,
+                    (SELECT COUNT(*) FROM student_thesis_registrations str
+                      WHERE str.thesis_schedule_id = ts.schedule_id AND str.status = 'active') AS active_registration_count,
                     (SELECT COUNT(*) FROM exam_schedule es
                       WHERE es.thesis_schedule_id = ts.schedule_id) AS exam_schedule_count
              FROM thesis_schedules ts

@@ -79,7 +79,32 @@ $studentVars = fn() => [
 
 echo "\n=== Student page: blocked ===\n";
 $h = render($twig, 'students/exam.twig', $studentVars());
-check('the readiness section appears', str_contains($h, 'Ready to be examined?'));
+check('the exams section appears', str_contains($h, 'Your exams'));
+
+$windowRow = $pdo->query("SELECT * FROM exam_schedule WHERE exam_schedule_id = '$window'")->fetch();
+$spareName = $pdo->query("SELECT doc_type_name FROM document_types WHERE doc_type_id = '$spare'")->fetchColumn();
+check('with the exam\'s details: type and window',
+    str_contains($h, ucfirst($windowRow['exam_type']) . ' examination')
+    && str_contains($h, date('d M Y', strtotime($windowRow['starts_at']))));
+check('and that it is not scheduled yet', str_contains($h, 'Not scheduled yet'));
+check('it lists the documents the exam requires', str_contains($h, 'Documents required') && str_contains($h, $spareName));
+check('with where each one stands', (bool) preg_match('/' . preg_quote($spareName, '/') . '.*?(Not submitted|Opens |Deadline passed)/s', $h));
+
+// A second window that needs no documents says so.
+$noDocs = $pdo->query("SELECT UUID()")->fetchColumn();
+$pdo->prepare("INSERT INTO exam_schedule (exam_schedule_id, thesis_schedule_id, starts_at, ends_at, exam_type, exam_stage_id, exam_schedule_description)
+               VALUES (?, ?, '2026-11-02 09:00:00', '2026-11-20 17:00:00', 'external', ?, 'Oral defence')")
+    ->execute([$noDocs, $student['schedule_id'], $stage]);
+$h = render($twig, 'students/exam.twig', $studentVars());
+check('an exam that requires no documents says so', str_contains($h, 'No documents are required for this exam.'));
+check('and shows its own details', str_contains($h, 'External examination') && str_contains($h, 'Oral defence') && str_contains($h, '02 Nov 2026'));
+$pdo->prepare("DELETE FROM exam_schedule WHERE exam_schedule_id = ?")->execute([$noDocs]);
+
+$empty = $studentVars();
+$empty['exam_windows'] = [];
+check('with no exam set, the page says so rather than showing nothing',
+    str_contains(render($twig, 'students/exam.twig', $empty), 'No exam set for your thesis timeline yet'));
+$h = render($twig, 'students/exam.twig', $studentVars());
 check('blockers are listed', str_contains($h, 'Outstanding before you can be examined'));
 check('naming the missing document', str_contains($h, 'has not been submitted'));
 check('and the ready button is withheld', !str_contains($h, 'I am ready to be examined'));
@@ -103,6 +128,7 @@ foreach ($pdo->query("SELECT document_type_id FROM exam_schedule_documents WHERE
 }
 $h = render($twig, 'students/exam.twig', $studentVars());
 check('the ready button now appears', str_contains($h, 'I am ready to be examined'));
+check('and every required document shows as submitted', !str_contains($h, 'Not submitted') && str_contains($h, '>Submitted<'));
 check('and no blockers remain', !str_contains($h, 'Outstanding before you can be examined'));
 
 echo "\n=== Student page: declared ===\n";
@@ -140,6 +166,17 @@ $h = render($twig, 'coordinators/exams.twig', $coordVars($queue));
 check('with qualified examiners the form appears', str_contains($h, 'Schedule the exam'));
 check('offering exactly the qualified ones', substr_count($h, 'name="examiner_ids[]"') === 2, substr_count($h, 'name="examiner_ids[]"'));
 check('and a panel leader picker', str_contains($h, 'name="panel_leader_id"'));
+
+echo "\n=== Student page: scheduled ===\n";
+$panel = $pdo->query("SELECT l.lecturer_id FROM lecturers l JOIN examiner_program_qualifications q ON q.lecturer_id = l.lecturer_id
+                      WHERE q.program_id = '{$student['program_id']}' AND l.user_id <> '{$student['user_id']}' LIMIT 1")->fetchColumn();
+$readinessId = $pdo->query("SELECT readiness_id FROM exam_readiness WHERE student_id = '{$student['student_id']}' AND exam_schedule_id = '$window'")->fetchColumn();
+$scheduleBy = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id WHERE u.user_id <> '{$student['user_id']}' LIMIT 1")->fetchColumn();
+$readiness->scheduleExam($readinessId, $student['program_id'], [$panel], null, '2026-10-21 10:30:00', 'hybrid', 'Senate Room', 'https://meet.example/exam', $scheduleBy);
+$h = render($twig, 'students/exam.twig', $studentVars());
+check('the student sees when and where the exam is',
+    str_contains($h, '21 Oct 2026, 10:30 AM') && str_contains($h, 'Hybrid') && str_contains($h, 'Senate Room') && str_contains($h, 'https://meet.example/exam'));
+check('and that it is scheduled', str_contains($h, 'Exam scheduled'));
 
 $pdo->rollBack();
 printf("\n%s\n%d passed, %d failed\n", str_repeat('-', 56), $pass, $fail);

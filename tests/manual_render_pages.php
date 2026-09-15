@@ -445,6 +445,10 @@ if ($examSchedules) {
     // window with no stage is invisible to every student.
     assertThat('exam windows can be tagged with the stage they examine', str_contains($examSchedules, 'name="exam_stage_id"'));
     assertThat('and an untagged window is called out', str_contains($examSchedules, 'invisible to students'));
+    // A program can run two thesis schedules at once; the program name
+    // alone let an admin attach a window to the wrong students.
+    assertThat('each thesis schedule is told apart by its enrolment dates and students',
+        (bool) preg_match('/— enrolment [^<]+ registered\s*<\/option>/u', $examSchedules));
 }
 
 if ($rubrics) {

@@ -31,6 +31,10 @@ class ExamSchedule
                     p.name AS program_name,
                     stg.name AS stage_name,
                     ts.enrollment_start_date, ts.enrollment_end_date,
+                    -- Only this schedule's students see the window; a
+                    -- program with two intakes has two sets of students.
+                    (SELECT COUNT(*) FROM student_thesis_registrations str
+                      WHERE str.thesis_schedule_id = es.thesis_schedule_id AND str.status = 'active') AS student_count,
                     (SELECT COUNT(*) FROM meetings m
                       WHERE m.exam_schedule_id = es.exam_schedule_id AND m.status != 'cancelled') AS meeting_count,
                     (SELECT COUNT(*) FROM exam_schedule_documents esd

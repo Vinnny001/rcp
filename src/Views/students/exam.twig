@@ -20,30 +20,78 @@
   <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
+<div class="section-title">Your exams<div class="rule"></div></div>
+
 {% if exam_windows %}
-  <div class="section-title">Ready to be examined?<div class="rule"></div></div>
-  <div class="meta" style="margin-bottom:16px;">
-    Tell your coordinator when you are ready and they will schedule the exam. Fees and documents have to be settled first.
+  <div style="font-size:.82rem; color:var(--slate); margin-bottom:16px;">
+    The exams set for your thesis timeline, and what each one needs from you. When fees and documents are settled,
+    tell your coordinator you are ready and they will schedule the exam.
   </div>
 
   <div class="grid cols-2" style="margin-bottom:32px;">
     {% for w in exam_windows %}
       <div class="card">
         <h3>{{ w.stage_name }}</h3>
-        <div class="meta">
-          {{ w.exam_type|capitalize }} · {{ w.starts_at|date('d M Y') }}
-          {%- if w.ends_at %} to {{ w.ends_at|date('d M Y') }}{% endif %}
-        </div>
-        {% if w.exam_schedule_description %}
-          <div class="meta" style="margin-top:4px;">{{ w.exam_schedule_description }}</div>
+
+        <dl class="exam-facts">
+          <dt>Exam</dt>
+          <dd>{{ w.exam_type|capitalize }} examination</dd>
+          <dt>Window</dt>
+          <dd>{{ w.starts_at|date('d M Y') }}{% if w.ends_at %} – {{ w.ends_at|date('d M Y') }}{% endif %}</dd>
+          {% if w.exam_schedule_description %}
+            <dt>About</dt>
+            <dd>{{ w.exam_schedule_description }}</dd>
+          {% endif %}
+          <dt>Date</dt>
+          <dd>
+            {% if w.meeting_id %}
+              {{ w.meeting_at|date('d M Y, g:i A') }}
+              {%- if w.meeting_mode %} · {{ w.meeting_mode|capitalize }}{% endif %}
+              {%- if w.meeting_location %} · {{ w.meeting_location }}{% endif %}
+              {%- if w.meeting_link %} · <a href="{{ w.meeting_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+            {% else %}
+              <span class="meta">Not scheduled yet — your coordinator sets it once you are ready</span>
+            {% endif %}
+          </dd>
+        </dl>
+
+        <div class="exam-docs-head">Documents required</div>
+        {% if w.documents %}
+          <ul class="exam-docs">
+            {% for d in w.documents %}
+              <li>
+                <div>
+                  <span class="strong">{{ d.doc_type_name }}</span>
+                  <div class="meta">
+                    {% if d.document_submission_starts_at %}{{ d.document_submission_starts_at|date('d M Y') }} – {% endif %}
+                    {{- d.document_submission_deadline ? 'due ' ~ d.document_submission_deadline|date('d M Y, g:i A') : 'no deadline set' }}
+                  </div>
+                </div>
+                {% if d.state == 'submitted' %}
+                  <span class="stamp mini approved">Submitted</span>
+                {% elseif d.state == 'open' %}
+                  <span class="stamp mini pending">Not submitted</span>
+                {% elseif d.state == 'not_open' %}
+                  <span class="meta">Opens {{ d.document_submission_starts_at|date('d M Y') }}</span>
+                {% else %}
+                  <span class="stamp mini rejected">Deadline passed</span>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+          {% if w.documents|filter(d => d.state == 'open')|length > 0 %}
+            <a class="exam-docs-link" href="/student/requirements">Submit them on the Requirements page</a>
+          {% endif %}
+        {% else %}
+          <div style="font-size:.84rem; margin-top:4px;">No documents are required for this exam.</div>
         {% endif %}
 
+        <div class="exam-docs-head">Where it stands</div>
         {% if w.meeting_id %}
-          <span class="stamp mini approved" style="margin-top:12px;">Exam scheduled</span>
-          <div class="meta" style="margin-top:6px;">{{ w.meeting_at|date('d M Y, g:i A') }}</div>
+          <span class="stamp mini approved">Exam scheduled</span>
 
         {% elseif w.marked_ready_at %}
-          <span class="stamp mini pending" style="margin-top:12px;">Waiting on your coordinator</span>
+          <span class="stamp mini pending">Waiting on your coordinator</span>
           <div class="meta" style="margin-top:6px;">You marked yourself ready on {{ w.marked_ready_at|date('d M Y') }}.</div>
           <form method="POST" action="/student/exam/ready" style="margin-top:10px;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -53,13 +101,13 @@
           </form>
 
         {% elseif w.blockers %}
-          <div class="meta" style="margin-top:12px;">Outstanding before you can be examined</div>
+          <div class="meta">Outstanding before you can be examined</div>
           <ul style="font-size:.8rem; margin:6px 0 0 16px; padding:0; color: var(--rust);">
             {% for b in w.blockers %}<li>{{ b }}</li>{% endfor %}
           </ul>
 
         {% else %}
-          <div class="meta" style="margin-top:12px;">Everything is settled — fees confirmed and documents in.</div>
+          <div class="meta">Everything is settled — fees confirmed and documents in.</div>
           <form method="POST" action="/student/exam/ready" style="margin-top:10px;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="exam_schedule_id" value="{{ w.exam_schedule_id }}">
@@ -68,6 +116,28 @@
         {% endif %}
       </div>
     {% endfor %}
+  </div>
+
+  <style>
+    .exam-facts{ display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:10px 0 0; font-size:.84rem; }
+    .exam-facts dt{ font-family:'IBM Plex Mono',monospace; font-size:.68rem; letter-spacing:.05em; text-transform:uppercase;
+                    color:var(--slate); padding-top:2px; }
+    .exam-facts dd{ margin:0; }
+    .exam-docs-head{ font-family:'IBM Plex Mono',monospace; font-size:.68rem; letter-spacing:.05em; text-transform:uppercase;
+                     color:var(--slate); margin:16px 0 6px; padding-top:12px; border-top:1px solid var(--paper-line); }
+    .exam-docs{ list-style:none; margin:0; padding:0; }
+    .exam-docs li{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 0; font-size:.84rem; }
+    .exam-docs li + li{ border-top:1px dashed var(--paper-line); }
+    .exam-docs .meta{ margin-bottom:0; }
+    .exam-docs-link{ display:inline-block; margin-top:6px; font-size:.78rem; font-weight:600; color:var(--brass-deep);
+                     text-decoration:underline; text-underline-offset:2px; }
+  </style>
+{% else %}
+  <div class="card" style="margin-bottom:32px;">
+    <h3>No exam set for your thesis timeline yet</h3>
+    <div class="meta">
+      When the graduate school sets an exam for your thesis timeline, its dates and any documents it requires appear here.
+    </div>
   </div>
 {% endif %}
 

@@ -1,0 +1,12 @@
+{#
+  How a thesis schedule is named where an admin picks one. A program can
+  have more than one schedule running at once, so the program name alone
+  cannot tell them apart: the enrolment dates and how many students are
+  registered on each do.
+
+  Vars: ts — a row from ThesisSchedule::all().
+#}
+{{- ts.program_name -}}
+{%- if ts.enrollment_start_date %} — enrolment {{ ts.enrollment_start_date|date('d M Y') }}
+  {%- if ts.enrollment_end_date %} to {{ ts.enrollment_end_date|date('d M Y') }}{% endif %}
+{%- endif %} · {{ ts.active_registration_count }} student{{ ts.active_registration_count != 1 ? 's' : '' }} registered
