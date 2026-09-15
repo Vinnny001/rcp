@@ -69,6 +69,10 @@
                 </div>
                 {% if d.state == 'submitted' %}
                   <span class="stamp mini approved">Submitted</span>
+                {% elseif d.state == 'draft' %}
+                  <span class="stamp mini pending">Draft</span>
+                {% elseif d.state == 'resubmit' %}
+                  <span class="stamp mini rejected">Resubmit</span>
                 {% elseif d.state == 'open' %}
                   <span class="stamp mini pending">Not submitted</span>
                 {% elseif d.state == 'not_open' %}
@@ -79,7 +83,7 @@
               </li>
             {% endfor %}
           </ul>
-          {% if w.documents|filter(d => d.state == 'open')|length > 0 %}
+          {% if w.documents|filter(d => d.state in ['open', 'draft', 'resubmit'])|length > 0 %}
             <a class="exam-docs-link" href="/student/requirements">Submit them on the Requirements page</a>
           {% endif %}
         {% else %}

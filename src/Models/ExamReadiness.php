@@ -68,46 +68,57 @@ class ExamReadiness
 
     /**
      * Which documents a window requires, and where each one stands:
-     * submitted, not open yet, open, or past its deadline.
+     * submitted, a draft, sent back for resubmission, not open yet,
+     * open, or past its deadline.
+     *
+     * Only a submitted document counts. An uploaded draft does not, and
+     * neither does one an exam sent back — the same rule the Requirements
+     * page uses (Document::findLatestSubmission), looking at the latest
+     * upload for the slot.
      *
      * @return array<int, array<string, mixed>>
      */
     private function documentStatus(string $userId, string $examScheduleId): array
     {
+        $latest = "FROM exam_documents ed
+                   JOIN documents d ON d.document_id = ed.document_id
+                   WHERE ed.exam_schedule_id = esd.exam_schedule_id
+                     AND ed.document_type_id = esd.document_type_id
+                     AND d.user_id = %s
+                   ORDER BY ed.submitted_at DESC LIMIT 1";
         $stmt = $this->db->prepare(
             "SELECT dt.doc_type_name,
                     esd.document_submission_starts_at,
                     esd.document_submission_deadline,
-                    (SELECT COUNT(*)
-                       FROM exam_documents ed
-                       JOIN thesis_proposals tp ON tp.proposal_id = ed.proposal_id
-                       JOIN students st ON st.student_id = tp.student_id
-                      WHERE ed.exam_schedule_id = esd.exam_schedule_id
-                        AND ed.document_type_id = esd.document_type_id
-                        AND st.user_id = :user_id) AS submitted
+                    (SELECT d.document_status " . sprintf($latest, ':user_id') . ") AS latest_status,
+                    (SELECT ed.requires_resubmit " . sprintf($latest, ':user_id2') . ") AS latest_resubmit
              FROM exam_schedule_documents esd
              JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
              WHERE esd.exam_schedule_id = :exam_schedule_id
              ORDER BY dt.doc_type_name"
         );
-        $stmt->execute(['user_id' => $userId, 'exam_schedule_id' => $examScheduleId]);
+        $stmt->execute(['user_id' => $userId, 'user_id2' => $userId, 'exam_schedule_id' => $examScheduleId]);
 
         // Same clock as the Requirements page, which decides when a
         // document can actually be uploaded.
         $now = new \DateTimeImmutable();
 
         return array_map(static function (array $r) use ($now): array {
-            $submitted = (int) $r['submitted'] > 0;
+            $resubmit = (int) $r['latest_resubmit'] === 1;
+            $submitted = $r['latest_status'] === 'submitted' && !$resubmit;
             $opens = $r['document_submission_starts_at'] ? new \DateTimeImmutable($r['document_submission_starts_at']) : null;
             $due = $r['document_submission_deadline'] ? new \DateTimeImmutable($r['document_submission_deadline']) : null;
 
             return $r + [
                 'is_submitted' => $submitted,
                 'state'        => match (true) {
-                    $submitted                   => 'submitted',
-                    $opens !== null && $now < $opens => 'not_open',
-                    $due !== null && $now > $due     => 'closed',
-                    default                      => 'open',
+                    $submitted                        => 'submitted',
+                    // Sent back for resubmission: open again whatever the dates.
+                    $resubmit                         => 'resubmit',
+                    $opens !== null && $now < $opens  => 'not_open',
+                    $due !== null && $now > $due      => 'closed',
+                    $r['latest_status'] === 'draft'   => 'draft',
+                    default                           => 'open',
                 },
             ];
         }, $stmt->fetchAll());
@@ -130,9 +141,14 @@ class ExamReadiness
         }
 
         foreach ($window['documents'] as $doc) {
-            if (!$doc['is_submitted']) {
-                $blockers[] = $doc['doc_type_name'] . ' has not been submitted.';
+            if ($doc['is_submitted']) {
+                continue;
             }
+            $blockers[] = match ($doc['state']) {
+                'draft'    => $doc['doc_type_name'] . ' is still a draft — submit it on the Requirements page.',
+                'resubmit' => $doc['doc_type_name'] . ' has to be resubmitted.',
+                default    => $doc['doc_type_name'] . ' has not been submitted.',
+            };
         }
 
         return $blockers;

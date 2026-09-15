@@ -203,18 +203,7 @@ class ThesisRegistration
         // Review fees only apply once the student has an assigned
         // supervisor — no point charging for document review before
         // anyone is actually in place to review it.
-        $supervisorStmt = $this->db->prepare(
-            "SELECT tp.assigned_supervisor_id
-             FROM thesis_proposals tp
-             WHERE tp.student_id = :student_id
-               AND tp.assigned_supervisor_id IS NOT NULL
-             ORDER BY tp.created_at DESC
-             LIMIT 1"
-        );
-        $supervisorStmt->execute(['student_id' => $registration['student_id']]);
-        $hasSupervisor = (bool) $supervisorStmt->fetchColumn();
-
-        if (!$hasSupervisor) {
+        if (!$this->hasSupervisor($registration['student_id'])) {
             return $owed;
         }
 
@@ -352,6 +341,27 @@ class ThesisRegistration
 
 
     /**
+     * Whether the student has a supervisor in place. Supervisors are
+     * appointed as supervision_assignments rows now; the proposal's
+     * assigned_supervisor_id column is only ever set by the old
+     * direct-assignment path, so it counts too but is not relied on.
+     */
+    private function hasSupervisor(string $studentId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM supervision_assignments
+             WHERE student_id = :student_id AND is_active = 1
+             UNION ALL
+             SELECT 1 FROM thesis_proposals
+             WHERE student_id = :student_id2 AND assigned_supervisor_id IS NOT NULL
+             LIMIT 1"
+        );
+        $stmt->execute(['student_id' => $studentId, 'student_id2' => $studentId]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+
+    /**
      * due_after_weeks is null-safe: a rate with no due_after_weeks set
      * has no deadline, matching the old due_date-can-be-null behaviour.
      */
@@ -442,16 +452,7 @@ class ThesisRegistration
         }
 
         // Same supervisor gate as computeOwed().
-        $supervisorStmt = $this->db->prepare(
-            "SELECT tp.assigned_supervisor_id
-             FROM thesis_proposals tp
-             WHERE tp.student_id = :student_id
-               AND tp.assigned_supervisor_id IS NOT NULL
-             ORDER BY tp.created_at DESC
-             LIMIT 1"
-        );
-        $supervisorStmt->execute(['student_id' => $registration['student_id']]);
-        if (!$supervisorStmt->fetchColumn()) {
+        if (!$this->hasSupervisor($registration['student_id'])) {
             return [];
         }
 

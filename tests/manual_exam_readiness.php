@@ -93,6 +93,34 @@ $spareDocType = $pdo->query(
 $pdo->prepare("INSERT INTO exam_schedule_documents (esd_id, exam_schedule_id, document_type_id) VALUES (UUID(), ?, ?)")
     ->execute([$window, $spareDocType]);
 
+// A fee is owed only where a rate charges it, so charge a registration
+// fee — otherwise the fee half of the gate has nothing to hold back.
+$pdo->prepare("DELETE FROM thesis_payments WHERE thesis_registration_id = ?")->execute([$student['thesis_registration_id']]);
+$pdo->prepare(
+    "INSERT INTO thesis_registration_rates (rate_id, program_id, amount, currency, due_after_weeks)
+     VALUES (UUID(), ?, 1000, 'KES', 1) ON DUPLICATE KEY UPDATE amount = 1000"
+)->execute([$student['program_id']]);
+$pdo->prepare(
+    "UPDATE thesis_schedules SET thesis_registration_rates_id = (SELECT rate_id FROM thesis_registration_rates WHERE program_id = ?)
+     WHERE schedule_id = ?"
+)->execute([$student['program_id'], $student['schedule_id']]);
+
+// Only a submitted document the student owns counts — the latest upload
+// for the slot, as on the Requirements page.
+$uploadSeconds = 0;
+$upload = function (string $docTypeId, string $status) use ($pdo, $student, $window, &$uploadSeconds): void {
+    $documentId = $pdo->query("SELECT UUID()")->fetchColumn();
+    $pdo->prepare(
+        "INSERT INTO documents (document_id, user_id, uploaded_by, file_name, file_path, file_size_kb, mime_type, document_type_id, document_status)
+         VALUES (?, ?, ?, 'test.pdf', 'uploads/documents/test.pdf', 1, 'application/pdf', ?, ?)"
+    )->execute([$documentId, $student['user_id'], $student['user_id'], $docTypeId, $status]);
+    $proposalId = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' AND status <> 'rejected' LIMIT 1")->fetchColumn();
+    $pdo->prepare(
+        "INSERT INTO exam_documents (exam_document_id, document_id, proposal_id, exam_schedule_id, document_type_id, submitted_at)
+         VALUES (UUID(), ?, ?, ?, ?, NOW() + INTERVAL ? MINUTE)"
+    )->execute([$documentId, $proposalId, $window, $docTypeId, 60 + ++$uploadSeconds]);
+};
+
 echo "\n=== An untagged window is not examinable ===\n";
 $untagged = $pdo->query(
     "SELECT exam_schedule_id FROM exam_schedule
@@ -127,14 +155,11 @@ $pdo->prepare("INSERT INTO thesis_payments (thesis_payment_id, thesis_registrati
     ->execute([$student['thesis_registration_id'], $window]);
 
 $proposalId = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' AND status <> 'rejected' LIMIT 1")->fetchColumn();
-$docId = $pdo->query("SELECT document_id FROM documents LIMIT 1")->fetchColumn();
 foreach ($pdo->query("SELECT document_type_id FROM exam_schedule_documents WHERE exam_schedule_id = '$window'")->fetchAll(PDO::FETCH_COLUMN) as $dt) {
     $pdo->prepare("INSERT INTO document_payment (document_payment_id, thesis_registration_id, exam_schedule_id, document_type_id, amount, payment_method, status)
                    VALUES (UUID(), ?, ?, ?, 500, 'mpesa', 'confirmed')")
         ->execute([$student['thesis_registration_id'], $window, $dt]);
-    $pdo->prepare("INSERT INTO exam_documents (exam_document_id, document_id, proposal_id, exam_schedule_id, document_type_id)
-                   VALUES (UUID(), ?, ?, ?, ?)")
-        ->execute([$docId, $proposalId, $window, $dt]);
+    $upload($dt, 'submitted');
 }
 
 $w = array_values(array_filter($readiness->windowsFor($student['student_id'], $student['user_id']),

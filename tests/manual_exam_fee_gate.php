@@ -4,12 +4,14 @@
  * Manual exercise of the exam fee gate against the real database,
  * wrapped in a transaction that is always rolled back.
  *
- * Three charges have to clear before a student can sit an exam:
- * thesis registration, the thesis review fee for that exam schedule,
- * and a review fee per document the schedule requires. The cases that
- * matter are the partial ones — a pending payment blocks but must not
- * be reported as unpaid, and a rejected-then-paid history must read as
- * paid rather than as the most recent failure.
+ * The gate holds a student back only for what the Thesis Fees page says
+ * they owe (ThesisRegistration::computeOwed), so the two pages cannot
+ * disagree. The cases that matter: a waived (zero) or unset fee is not
+ * owed; a charged one blocks until paid in full; a pending payment
+ * blocks but reads as pending, not unpaid; a rejected payment reads as
+ * rejected; review and document fees start once a supervisor is
+ * appointed, and a review fee paid for its year counts even though the
+ * payment names no exam window.
  *
  * Run: php tests/manual_exam_fee_gate.php
  */
@@ -19,6 +21,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\Models\ExamFeeGate;
+use App\Models\ThesisRegistration;
 
 $env = parse_ini_file(__DIR__ . '/../.env');
 $pdo = new PDO(
@@ -41,77 +44,159 @@ function check(string $label, bool $ok, string $detail = ''): void
 $pdo->beginTransaction();
 
 $gate = new ExamFeeGate($pdo);
+$registrations = new ThesisRegistration($pdo);
 
+// ---- a registered student, with a clean fee history --------------------
 $reg = $pdo->query(
-    "SELECT str.thesis_registration_id, str.student_id, ts.program_id
+    "SELECT str.*, ts.program_id, ts.enrollment_start_date
      FROM student_thesis_registrations str
-     JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id LIMIT 1"
+     JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+     WHERE str.status = 'active' AND ts.enrollment_start_date <= NOW()
+     LIMIT 1"
 )->fetch();
+$regId = $reg['thesis_registration_id'];
+$pdo->prepare("DELETE FROM thesis_payments WHERE thesis_registration_id = ?")->execute([$regId]);
+$pdo->prepare("DELETE FROM document_payment WHERE thesis_registration_id = ?")->execute([$regId]);
+$pdo->prepare("UPDATE supervision_assignments SET is_active = 0 WHERE student_id = ?")->execute([$reg['student_id']]);
+$pdo->prepare("UPDATE thesis_proposals SET assigned_supervisor_id = NULL WHERE student_id = ?")->execute([$reg['student_id']]);
 
-// An exam schedule that actually requires documents, so the per-document
-// half of the gate is exercised rather than skipped.
-$schedule = $pdo->query(
-    "SELECT esd.exam_schedule_id, COUNT(*) doc_count
-     FROM exam_schedule_documents esd
-     GROUP BY esd.exam_schedule_id ORDER BY doc_count DESC LIMIT 1"
-)->fetch();
-$docTypes = $pdo->query(
-    "SELECT document_type_id FROM exam_schedule_documents WHERE exam_schedule_id = '{$schedule['exam_schedule_id']}'"
-)->fetchAll(PDO::FETCH_COLUMN);
-
-$payThesis = function (string $feeType, string $status, ?string $scheduleId) use ($pdo, $reg): void {
-    $pdo->prepare(
-        "INSERT INTO thesis_payments
-            (thesis_payment_id, thesis_registration_id, exam_schedule_id, fee_type, amount, payment_method, status)
-         VALUES (UUID(), ?, ?, ?, 1000, 'mpesa', ?)"
-    )->execute([$reg['thesis_registration_id'], $scheduleId, $feeType, $status]);
-};
-$payDoc = function (string $docTypeId, string $status) use ($pdo, $reg, $schedule): void {
-    $pdo->prepare(
-        "INSERT INTO document_payment
-            (document_payment_id, thesis_registration_id, exam_schedule_id, document_type_id, amount, payment_method, status)
-         VALUES (UUID(), ?, ?, ?, 500, 'mpesa', ?)"
-    )->execute([$reg['thesis_registration_id'], $schedule['exam_schedule_id'], $docTypeId, $status]);
-};
-
-echo "\n=== Nothing paid ===\n";
-$s = $gate->statusFor($reg['student_id'], $schedule['exam_schedule_id']);
-check('the gate is closed', $s['clear'] === false);
-check('every charge is listed', count($s['items']) === 2 + count($docTypes), count($s['items']) . ' items for ' . count($docTypes) . ' documents');
-check('all read as unpaid', array_unique(array_column($s['items'], 'state')) === ['unpaid']);
-check('it is not described as awaiting verification', $s['awaiting_verification'] === false);
-
-echo "\n=== Registration paid, review fee pending ===\n";
-$payThesis('thesis_registration', 'confirmed', null);
-$payThesis('thesis_review_fee', 'pending', $schedule['exam_schedule_id']);
-$s = $gate->statusFor($reg['student_id'], $schedule['exam_schedule_id']);
-$byLabel = array_column($s['items'], null, 'label');
-check('registration reads as confirmed', $byLabel['Thesis registration']['state'] === 'confirmed');
-check('the review fee reads as pending, not unpaid', $byLabel['Thesis review fee']['state'] === 'pending');
-check('a pending payment still blocks', $s['clear'] === false);
-check('but the wording tells them it is being verified',
-    str_contains($byLabel['Thesis review fee']['detail'], 'waiting for the registrar'));
-
-echo "\n=== Document fees ===\n";
-$payThesis('thesis_review_fee', 'confirmed', $schedule['exam_schedule_id']);
-foreach (array_slice($docTypes, 0, -1) as $dt) {
-    $payDoc($dt, 'confirmed');
+// The schedule's registration rate, which the test sets as it goes.
+$regRate = $pdo->prepare("SELECT rate_id FROM thesis_registration_rates WHERE program_id = ?");
+$regRate->execute([$reg['program_id']]);
+$regRateId = $regRate->fetchColumn();
+if (!$regRateId) {
+    $regRateId = $pdo->query("SELECT UUID()")->fetchColumn();
+    $pdo->prepare("INSERT INTO thesis_registration_rates (rate_id, program_id, amount, currency, due_after_weeks) VALUES (?, ?, 0, 'KES', 1)")
+        ->execute([$regRateId, $reg['program_id']]);
 }
-$s = $gate->statusFor($reg['student_id'], $schedule['exam_schedule_id']);
-check('one outstanding document fee still closes the gate', $s['clear'] === false);
-$unpaid = array_values(array_filter($s['items'], fn($i) => $i['state'] === 'unpaid'));
-check('and exactly that one is flagged', count($unpaid) === 1, $unpaid[0]['label'] ?? '?');
+$pdo->prepare("UPDATE thesis_schedules SET thesis_registration_rates_id = ? WHERE schedule_id = ?")
+    ->execute([$regRateId, $reg['thesis_schedule_id']]);
+$setRegistrationFee = fn (float $amount) => $pdo->prepare("UPDATE thesis_registration_rates SET amount = ? WHERE rate_id = ?")
+    ->execute([$amount, $regRateId]);
 
-echo "\n=== A rejected payment followed by a good one ===\n";
-$last = end($docTypes);
-$payDoc($last, 'rejected');
-$s = $gate->statusFor($reg['student_id'], $schedule['exam_schedule_id']);
-check('a rejected payment does not open the gate', $s['clear'] === false);
-$payDoc($last, 'confirmed');
-$s = $gate->statusFor($reg['student_id'], $schedule['exam_schedule_id']);
-check('paying again after a rejection clears it', $s['clear'] === true);
-check('the confirmed payment wins over the later rejection record',
-    array_unique(array_column($s['items'], 'state')) === ['confirmed']);
+// A window of this schedule requiring one document, open for a month.
+$window = $pdo->query("SELECT UUID()")->fetchColumn();
+$pdo->prepare(
+    "INSERT INTO exam_schedule (exam_schedule_id, thesis_schedule_id, starts_at, ends_at, exam_type, exam_schedule_description)
+     VALUES (?, ?, NOW() - INTERVAL 30 DAY, NOW() + INTERVAL 30 DAY, 'internal', 'Fee gate test')"
+)->execute([$window, $reg['thesis_schedule_id']]);
+$docType = $pdo->query("SELECT doc_type_id FROM document_types LIMIT 1")->fetchColumn();
+$docName = $pdo->query("SELECT doc_type_name FROM document_types WHERE doc_type_id = " . $pdo->quote($docType))->fetchColumn();
+$pdo->prepare(
+    "INSERT INTO exam_schedule_documents (esd_id, exam_schedule_id, document_type_id, document_submission_starts_at, document_submission_deadline)
+     VALUES (UUID(), ?, ?, NOW() - INTERVAL 30 DAY, NOW() + INTERVAL 30 DAY)"
+)->execute([$window, $docType]);
+$setDocumentFee = function (float $amount) use ($pdo, $reg, $docType): void {
+    $pdo->prepare(
+        "INSERT INTO document_review_rates (rate_id, program_id, document_type_id, amount, currency, due_after_weeks)
+         VALUES (UUID(), ?, ?, ?, 'KES', 1)
+         ON DUPLICATE KEY UPDATE amount = VALUES(amount), due_after_weeks = 1"
+    )->execute([$reg['program_id'], $docType, $amount]);
+};
+$setDocumentFee(0);
+
+$paymentSeconds = 0;
+$payThesis = function (string $feeType, float $amount, string $status, ?int $year = null) use ($pdo, $regId, &$paymentSeconds): string {
+    $id = $pdo->query("SELECT UUID()")->fetchColumn();
+    // As the Thesis Fees page records it: a year, never an exam window.
+    // Each a second later than the last, so "newest" is unambiguous.
+    $pdo->prepare(
+        "INSERT INTO thesis_payments (thesis_payment_id, thesis_registration_id, exam_schedule_id, fee_type, thesis_year, amount, payment_method, status, created_at)
+         VALUES (?, ?, NULL, ?, ?, ?, 'mpesa', ?, NOW() + INTERVAL ? SECOND)"
+    )->execute([$id, $regId, $feeType, $year, $amount, $status, ++$paymentSeconds]);
+    return $id;
+};
+$payDoc = function (float $amount, string $status) use ($pdo, $regId, $window, $docType): void {
+    $pdo->prepare(
+        "INSERT INTO document_payment (document_payment_id, thesis_registration_id, exam_schedule_id, document_type_id, amount, payment_method, status)
+         VALUES (UUID(), ?, ?, ?, ?, 'mpesa', ?)"
+    )->execute([$regId, $window, $docType, $amount, $status]);
+};
+
+$status = fn () => $gate->statusFor($reg['student_id'], $window);
+$byLabel = fn (array $s) => array_column($s['items'], null, 'label');
+// What the Thesis Fees page says is owed that this exam cares about.
+$pageOwes = fn () => array_values(array_filter(
+    $registrations->computeOwed($reg),
+    fn ($o) => $o['fee_type'] !== 'document_review_fee' || $o['exam_schedule_id'] === $window
+));
+
+echo "\n=== A waived fee is not owed ===\n";
+$setRegistrationFee(0);
+$s = $status();
+check('with the registration fee at zero, the gate is open', $s['clear'] === true);
+check('and nothing reads as unpaid', !in_array('unpaid', array_column($s['items'], 'state'), true), implode(', ', array_column($s['items'], 'state')));
+check('the registration fee says nothing is owed', $byLabel($s)['Thesis registration']['detail'] === 'Nothing owed.');
+check('agreeing with the Thesis Fees page', $pageOwes() === []);
+
+$pdo->prepare("UPDATE thesis_schedules SET thesis_registration_rates_id = NULL WHERE schedule_id = ?")->execute([$reg['thesis_schedule_id']]);
+check('with no registration rate set at all, nothing is owed either', $status()['clear'] === true);
+$pdo->prepare("UPDATE thesis_schedules SET thesis_registration_rates_id = ? WHERE schedule_id = ?")->execute([$regRateId, $reg['thesis_schedule_id']]);
+
+echo "\n=== A charged registration fee ===\n";
+$setRegistrationFee(1000);
+$s = $status();
+check('blocks until it is paid', $s['clear'] === false && $byLabel($s)['Thesis registration']['state'] === 'unpaid');
+check('saying how much', str_contains($byLabel($s)['Thesis registration']['detail'], '1,000.00 not paid yet'));
+check('as the Thesis Fees page does', count($pageOwes()) === 1);
+
+$pending = $payThesis('thesis_registration', 1000, 'pending');
+$s = $status();
+check('a payment awaiting the registrar reads as pending, not unpaid', $byLabel($s)['Thesis registration']['state'] === 'pending');
+check('still blocks', $s['clear'] === false);
+check('and is described as being verified', $s['awaiting_verification'] === true
+    && str_contains($byLabel($s)['Thesis registration']['detail'], 'waiting for the registrar'));
+
+$pdo->prepare("UPDATE thesis_payments SET status = 'rejected' WHERE thesis_payment_id = ?")->execute([$pending]);
+$s = $status();
+check('a rejected payment reads as rejected', $byLabel($s)['Thesis registration']['state'] === 'unpaid'
+    && str_contains($byLabel($s)['Thesis registration']['detail'], 'rejected'));
+
+$payThesis('thesis_registration', 600, 'confirmed');
+check('part of the fee is not enough', $status()['clear'] === false);
+$payThesis('thesis_registration', 400, 'confirmed');
+$s = $status();
+check('paying the rest opens the gate', $s['clear'] === true);
+check('and the fee reads as paid', $byLabel($s)['Thesis registration']['state'] === 'confirmed');
+
+echo "\n=== Review and document fees, once a supervisor is appointed ===\n";
+$setDocumentFee(500);
+check('without a supervisor they are not charged yet', $status()['clear'] === true);
+
+$supervisor = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 1")->fetchColumn();
+$proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = " . $pdo->quote($reg['student_id']) . " LIMIT 1")->fetchColumn();
+$pdo->prepare(
+    "INSERT INTO supervision_assignments (assignment_id, proposal_id, student_id, supervisor_id, role, appointed_by, appointment_date, is_active)
+     VALUES (UUID(), ?, ?, ?, 'main', ?, CURDATE(), 1)"
+)->execute([$proposal, $reg['student_id'], $supervisor, $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn()]);
+
+$startYear = (int) date('Y', strtotime($reg['enrollment_start_date']));
+$pdo->prepare(
+    "INSERT INTO thesis_review_fee_rates (rate_id, program_id, academic_year, amount, currency, due_after_months, created_by)
+     VALUES (UUID(), ?, ?, 6000, 'KES', 0, ?)
+     ON DUPLICATE KEY UPDATE amount = 6000, due_after_months = 0"
+)->execute([$reg['program_id'], $startYear, $pdo->query("SELECT user_id FROM users LIMIT 1")->fetchColumn()]);
+
+$s = $status();
+check('a supervisor appointed through a request counts — the fees start', $s['clear'] === false);
+check('the review fee for the year is owed', $byLabel($s)['Thesis review fee']['state'] === 'unpaid');
+check('and so is the document\'s review fee', $byLabel($s)[$docName . ' review fee']['state'] === 'unpaid');
+check('matching the Thesis Fees page item for item', count($pageOwes()) === 2);
+
+$payThesis('thesis_review_fee', 6000, 'confirmed', $startYear);
+$s = $status();
+check('a review fee paid for its year clears, though the payment names no exam window',
+    $byLabel($s)['Thesis review fee']['state'] === 'confirmed');
+
+$setDocumentFee(0);
+check('a document fee set to zero is not owed', $status()['clear'] === true);
+$setDocumentFee(500);
+$payDoc(500, 'rejected');
+check('a rejected document payment does not clear it', $status()['clear'] === false);
+$payDoc(500, 'confirmed');
+$s = $status();
+check('a confirmed one does', $s['clear'] === true && $byLabel($s)[$docName . ' review fee']['state'] === 'confirmed');
+check('and the Thesis Fees page agrees nothing is owed', $pageOwes() === []);
 
 echo "\n=== A student with no thesis registration ===\n";
 $stray = $pdo->query(
@@ -119,7 +204,7 @@ $stray = $pdo->query(
      WHERE student_id NOT IN (SELECT student_id FROM student_thesis_registrations) LIMIT 1"
 )->fetchColumn();
 if ($stray) {
-    $s = $gate->statusFor($stray, $schedule['exam_schedule_id']);
+    $s = $gate->statusFor($stray, $window);
     check('the gate is closed and says why', $s['clear'] === false
         && str_contains($s['items'][0]['detail'], 'not registered for a thesis'));
 } else {

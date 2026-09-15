@@ -70,6 +70,34 @@ $spare = $pdo->query("SELECT doc_type_id FROM document_types WHERE doc_type_id N
 $pdo->prepare("INSERT INTO exam_schedule_documents (esd_id, exam_schedule_id, document_type_id) VALUES (UUID(),?,?)")
     ->execute([$window, $spare]);
 
+// A fee is owed only where a rate charges it, so charge a registration
+// fee — otherwise the fee half of the gate has nothing to hold back.
+$pdo->prepare("DELETE FROM thesis_payments WHERE thesis_registration_id = ?")->execute([$student['thesis_registration_id']]);
+$pdo->prepare(
+    "INSERT INTO thesis_registration_rates (rate_id, program_id, amount, currency, due_after_weeks)
+     VALUES (UUID(), ?, 1000, 'KES', 1) ON DUPLICATE KEY UPDATE amount = 1000"
+)->execute([$student['program_id']]);
+$pdo->prepare(
+    "UPDATE thesis_schedules SET thesis_registration_rates_id = (SELECT rate_id FROM thesis_registration_rates WHERE program_id = ?)
+     WHERE schedule_id = ?"
+)->execute([$student['program_id'], $student['schedule_id']]);
+
+// Only a submitted document the student owns counts — the latest upload
+// for the slot, as on the Requirements page.
+$uploadSeconds = 0;
+$upload = function (string $docTypeId, string $status) use ($pdo, $student, $window, &$uploadSeconds): void {
+    $documentId = $pdo->query("SELECT UUID()")->fetchColumn();
+    $pdo->prepare(
+        "INSERT INTO documents (document_id, user_id, uploaded_by, file_name, file_path, file_size_kb, mime_type, document_type_id, document_status)
+         VALUES (?, ?, ?, 'test.pdf', 'uploads/documents/test.pdf', 1, 'application/pdf', ?, ?)"
+    )->execute([$documentId, $student['user_id'], $student['user_id'], $docTypeId, $status]);
+    $proposalId = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id = '{$student['student_id']}' AND status <> 'rejected' LIMIT 1")->fetchColumn();
+    $pdo->prepare(
+        "INSERT INTO exam_documents (exam_document_id, document_id, proposal_id, exam_schedule_id, document_type_id, submitted_at)
+         VALUES (UUID(), ?, ?, ?, ?, NOW() + INTERVAL ? MINUTE)"
+    )->execute([$documentId, $proposalId, $window, $docTypeId, 60 + ++$uploadSeconds]);
+};
+
 $studentVars = fn() => [
     'active_page' => 'exam', 'first_name' => 'S', 'student_number' => $student['student_number'],
     'proposal' => null, 'internal_exam' => null, 'external_exam' => null, 'graduation' => null,
@@ -109,22 +137,23 @@ check('blockers are listed', str_contains($h, 'Outstanding before you can be exa
 check('naming the missing document', str_contains($h, 'has not been submitted'));
 check('and the ready button is withheld', !str_contains($h, 'I am ready to be examined'));
 
+// A draft is not a submission.
+$upload($spare, 'draft');
+$h = render($twig, 'students/exam.twig', $studentVars());
+check('an uploaded draft reads as a draft, not as submitted',
+    (bool) preg_match('/' . preg_quote($spareName, '/') . '.*?>Draft</s', $h));
+check('and still holds the student back, saying why', str_contains($h, $spareName . ' is still a draft'));
+check('the fee that is charged shows as not paid', str_contains($h, 'Thesis registration is not paid'));
+
 echo "\n=== Student page: clear ===\n";
 $pdo->prepare("INSERT INTO thesis_payments (thesis_payment_id, thesis_registration_id, exam_schedule_id, fee_type, amount, payment_method, status)
                VALUES (UUID(),?,NULL,'thesis_registration',1000,'mpesa','confirmed')")->execute([$student['thesis_registration_id']]);
 $pdo->prepare("INSERT INTO thesis_payments (thesis_payment_id, thesis_registration_id, exam_schedule_id, fee_type, amount, payment_method, status)
                VALUES (UUID(),?,?,'thesis_review_fee',1000,'mpesa','confirmed')")->execute([$student['thesis_registration_id'], $window]);
-$proposalId = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_id='{$student['student_id']}' AND status<>'rejected' LIMIT 1")->fetchColumn();
-$docId = $pdo->query("SELECT document_id FROM documents LIMIT 1")->fetchColumn();
 foreach ($pdo->query("SELECT document_type_id FROM exam_schedule_documents WHERE exam_schedule_id='$window'")->fetchAll(PDO::FETCH_COLUMN) as $dt) {
     $pdo->prepare("INSERT INTO document_payment (document_payment_id, thesis_registration_id, exam_schedule_id, document_type_id, amount, payment_method, status)
                    VALUES (UUID(),?,?,?,500,'mpesa','confirmed')")->execute([$student['thesis_registration_id'], $window, $dt]);
-    $exists = $pdo->prepare("SELECT COUNT(*) FROM exam_documents WHERE exam_schedule_id=? AND document_type_id=? AND proposal_id=?");
-    $exists->execute([$window, $dt, $proposalId]);
-    if (!(int) $exists->fetchColumn()) {
-        $pdo->prepare("INSERT INTO exam_documents (exam_document_id, document_id, proposal_id, exam_schedule_id, document_type_id)
-                       VALUES (UUID(),?,?,?,?)")->execute([$docId, $proposalId, $window, $dt]);
-    }
+    $upload($dt, 'submitted');
 }
 $h = render($twig, 'students/exam.twig', $studentVars());
 check('the ready button now appears', str_contains($h, 'I am ready to be examined'));
