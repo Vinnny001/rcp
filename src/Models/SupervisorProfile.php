@@ -27,11 +27,18 @@ class SupervisorProfile
     }
 
     /**
+     * Internal lecturers a supervisor list can name.
+     *
+     * $studentUserId leaves out the student's own lecturer account, for
+     * staff studying for their own degree. Saving the list refuses it
+     * anyway (SupervisorShortlist::assertNotSelf); this keeps it off the
+     * page as well.
+     *
      * @return array<int, array<string, mixed>>
      */
-    public function browsable(): array
+    public function browsable(?string $studentUserId = null): array
     {
-        $lecturers = $this->db->query(
+        $stmt = $this->db->prepare(
             "SELECT l.lecturer_id, u.user_id,
                     CONCAT(u.first_name, ' ', u.last_name) AS name,
                     u.email,
@@ -50,8 +57,11 @@ class SupervisorProfile
              JOIN users u ON u.user_id = l.user_id
              JOIN departments d ON d.department_id = il.department_id
              WHERE u.is_active = 1
+               AND u.user_id <> :student_user_id
              ORDER BY u.last_name, u.first_name"
-        )->fetchAll();
+        );
+        $stmt->execute(['student_user_id' => (string) $studentUserId]);
+        $lecturers = $stmt->fetchAll();
 
         if ($lecturers === []) {
             return [];

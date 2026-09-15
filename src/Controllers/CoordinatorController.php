@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Models\DepartmentHead;
 use App\Models\Lecturer;
+use App\Models\OwnRecord;
 use App\Models\ResearchCoordinator;
 use App\Models\SupervisorProfile;
 use App\Models\SupervisorShortlist;
@@ -27,6 +28,8 @@ use PDO;
  */
 class CoordinatorController
 {
+    private const OWN_RECORD = 'This is your own record. You cannot coordinate your own studies — an administrator needs to assign another coordinator for your program.';
+
     private PDO $db;
     private Twig $twig;
 
@@ -46,7 +49,8 @@ class CoordinatorController
         $model = new SupervisorShortlist($this->db);
         // No scheduler: windows that closed unseen are settled here.
         $model->resolveDue();
-        $shortlists = $model->queueForPrograms(array_column($programs, 'program_id'));
+        $all = $model->queueForPrograms(array_column($programs, 'program_id'));
+        $shortlists = $this->withoutOwn($all);
 
         return $this->twig->render($response, 'coordinators/queue.twig', [
             'active_page' => 'l-coordinator',
@@ -54,6 +58,7 @@ class CoordinatorController
             'last_name'   => $_SESSION['last_name'] ?? '',
             'programs'    => $programs,
             'shortlists'  => $shortlists,
+            'own_hidden'  => count($all) !== count($shortlists),
             'error'       => $this->takeFlash('flash_error'),
             'success'     => $this->takeFlash('flash_success'),
         ]);
@@ -71,6 +76,10 @@ class CoordinatorController
 
         if (!$shortlist || !$this->coordinates($shortlist['program_id'])) {
             $_SESSION['flash_error'] = 'That request is not on a program you coordinate.';
+            return $this->redirect($response, '/coordinator/shortlists');
+        }
+        if ($shortlist['student_user_id'] === $_SESSION['user_id']) {
+            $_SESSION['flash_error'] = self::OWN_RECORD;
             return $this->redirect($response, '/coordinator/shortlists');
         }
 
@@ -104,14 +113,19 @@ class CoordinatorController
             'files'         => $model->filesFor($shortlist['shortlist_id']),
             'decision'      => $decision,
             'previous'      => $shortlist['previous_shortlist_id'] ? $model->findWithContext($shortlist['previous_shortlist_id']) : null,
-            'supervisors'   => $decision['can_decide'] ? (new SupervisorProfile($this->db))->browsable() : [],
+            'supervisors'   => $decision['can_decide'] ? (new SupervisorProfile($this->db))->browsable($shortlist['student_user_id']) : [],
             'picked'        => $picked,
             'picked_main'   => $pickedMain,
             'max_choices'   => SupervisorShortlist::MAX_CHOICES,
             'response_days' => SupervisorShortlist::RESPONSE_DAYS,
             'voters'      => $shortlist['meeting_id'] ? $model->meetingVoters($shortlist['meeting_id']) : [],
             'tally'       => $shortlist['meeting_id'] ? $model->tally($shortlist['meeting_id']) : null,
-            'heads'       => (new DepartmentHead($this->db))->activeForDepartment($shortlist['department_id']),
+            // A head who is this student is not offered: they cannot be
+            // invited to decide their own request.
+            'heads'       => array_values(array_filter(
+                (new DepartmentHead($this->db))->activeForDepartment($shortlist['department_id']),
+                fn (array $head): bool => $head['user_id'] !== $shortlist['student_user_id']
+            )),
             'session_user_id' => $_SESSION['user_id'],
             'csrf_token'  => $this->csrfToken(),
             'error'       => $this->takeFlash('flash_error'),
@@ -188,6 +202,10 @@ class CoordinatorController
 
         if (!$meeting || $programId === null || !$this->coordinates($programId)) {
             $_SESSION['flash_error'] = 'That exam is not on a program you coordinate.';
+            return $this->redirect($response, '/coordinator/exams');
+        }
+        if ((new OwnRecord($this->db))->isStudent($_SESSION['user_id'], $meeting['student_id'])) {
+            $_SESSION['flash_error'] = self::OWN_RECORD;
             return $this->redirect($response, '/coordinator/exams');
         }
 
@@ -308,6 +326,10 @@ class CoordinatorController
             $_SESSION['flash_error'] = 'That exam is not on a program you coordinate.';
             return $this->redirect($response, '/coordinator/exams');
         }
+        if ((new OwnRecord($this->db))->isStudent($_SESSION['user_id'], $meeting['student_id'])) {
+            $_SESSION['flash_error'] = self::OWN_RECORD;
+            return $this->redirect($response, '/coordinator/exams');
+        }
 
         try {
             $_SESSION['flash_success'] = $write($data, $meeting, $model);
@@ -346,13 +368,22 @@ class CoordinatorController
         }
 
         $programs = (new ResearchCoordinator($this->db))->programsForUser($_SESSION['user_id']);
-        $queue = (new \App\Models\ExamReadiness($this->db))
+        $allReady = (new \App\Models\ExamReadiness($this->db))
             ->queueForPrograms(array_column($programs, 'program_id'));
+        $queue = $this->withoutOwn($allReady);
+        $allScheduled = (new \App\Models\ExamMeeting($this->db))->forPrograms(array_column($programs, 'program_id'));
+        $scheduled = $this->withoutOwn($allScheduled);
 
         $qualifications = new \App\Models\ExaminerQualification($this->db);
+        $own = new OwnRecord($this->db);
         foreach ($queue as &$row) {
-            // Only lecturers qualified for this program can be offered.
-            $row['examiners'] = $qualifications->qualifiedForProgram($row['program_id']);
+            // Only lecturers qualified for this program can be offered —
+            // and never the candidate's own lecturer account.
+            $candidate = $own->userForStudent($row['student_id']);
+            $row['examiners'] = array_values(array_filter(
+                $qualifications->qualifiedForProgram($row['program_id']),
+                fn (array $examiner): bool => $examiner['user_id'] !== $candidate
+            ));
         }
         unset($row);
 
@@ -364,8 +395,8 @@ class CoordinatorController
             'queue'       => $queue,
             // Already scheduled, so no longer in the queue above — but
             // still the coordinator's to minute and document.
-            'scheduled'   => (new \App\Models\ExamMeeting($this->db))
-                                ->forPrograms(array_column($programs, 'program_id')),
+            'scheduled'   => $scheduled,
+            'own_hidden'  => count($allReady) !== count($queue) || count($allScheduled) !== count($scheduled),
             'csrf_token'  => $this->csrfToken(),
             'error'       => $this->takeFlash('flash_error'),
             'success'     => $this->takeFlash('flash_success'),
@@ -421,8 +452,9 @@ class CoordinatorController
         }
 
         $programs = (new ResearchCoordinator($this->db))->programsForUser($_SESSION['user_id']);
-        $pending = (new \App\Models\ExaminerAssignment($this->db))
+        $allPending = (new \App\Models\ExaminerAssignment($this->db))
             ->awaitingApproval(array_column($programs, 'program_id'));
+        $pending = $this->withoutOwn($allPending);
 
         $rubric = new \App\Models\Rubric($this->db);
         foreach ($pending as &$row) {
@@ -441,6 +473,7 @@ class CoordinatorController
             'last_name'   => $_SESSION['last_name'] ?? '',
             'programs'    => $programs,
             'pending'     => $pending,
+            'own_hidden'  => count($allPending) !== count($pending),
             'csrf_token'  => $this->csrfToken(),
             'error'       => $this->takeFlash('flash_error'),
             'success'     => $this->takeFlash('flash_success'),
@@ -466,6 +499,9 @@ class CoordinatorController
 
             if ($programId === null || !$this->coordinates($programId)) {
                 throw new \RuntimeException('That exam is not on a program you coordinate.');
+            }
+            if ((new OwnRecord($this->db))->isStudent($_SESSION['user_id'], (string) $assignments->studentForMeeting($meetingId))) {
+                throw new \RuntimeException(self::OWN_RECORD);
             }
 
             $average = (new \App\Models\Rubric($this->db))->approveAverage($meetingId, $_SESSION['user_id']);
@@ -638,8 +674,29 @@ class CoordinatorController
         if (!$shortlist || !$this->coordinates($shortlist['program_id'])) {
             throw new \RuntimeException('That request is not on a program you coordinate.');
         }
+        if ($shortlist['student_user_id'] === $_SESSION['user_id']) {
+            throw new \RuntimeException(self::OWN_RECORD);
+        }
 
         return $shortlist;
+    }
+
+    /**
+     * Rows about the signed-in coordinator's own studies, left out.
+     * Staff studying for their own degree may be on a program they
+     * coordinate; nobody coordinates their own request, exam or result.
+     *
+     * @param array<int, array<string, mixed>> $rows each with a student_id
+     * @return array<int, array<string, mixed>>
+     */
+    private function withoutOwn(array $rows): array
+    {
+        $own = (new OwnRecord($this->db))->studentIdsFor($_SESSION['user_id']);
+        if ($own === []) {
+            return $rows;
+        }
+
+        return array_values(array_filter($rows, fn (array $row): bool => !in_array($row['student_id'], $own, true)));
     }
 
     private function coordinates(string $programId): bool

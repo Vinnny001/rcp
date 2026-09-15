@@ -19,6 +19,10 @@
   <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
+{% if own_hidden %}
+  {% include 'partials/own_record_notice.twig' %}
+{% endif %}
+
 {% if not programs %}
   <div class="notice">You do not coordinate any program yet.</div>
 {% elseif queue %}

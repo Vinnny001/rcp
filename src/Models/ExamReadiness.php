@@ -240,6 +240,17 @@ class ExamReadiness
             throw new RuntimeException('The panel leader has to be one of the examiners.');
         }
 
+        // Staff studying for their own degree are qualified examiners
+        // too. On their own exam they are the candidate — and since the
+        // panel leader must be an examiner, this covers the leader too.
+        $own = new OwnRecord($this->db);
+        $own->refuse($createdBy, $readiness['student_id'], 'schedule this exam');
+        foreach ($examinerLecturerIds as $lecturerId) {
+            if ($own->userForLecturer($lecturerId) === $own->userForStudent($readiness['student_id'])) {
+                throw new RuntimeException('The student cannot examine their own work — take them off the panel.');
+            }
+        }
+
         $meeting = new Meeting($this->db);
         $meetingId = $meeting->create($readiness['proposal_id'], [
             // Which stage this examines is exam_stage_id's job, not the

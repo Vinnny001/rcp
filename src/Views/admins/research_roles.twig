@@ -46,6 +46,8 @@
             <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Save</button>
             {% if not p.user_id %}
               <span class="meta" style="font-size:.72rem; color: var(--rust);">Unassigned — shortlists for this program have nowhere to go</span>
+            {% elseif p.coordinator_studies_here %}
+              <span class="meta" style="font-size:.72rem; color: var(--rust);">{{ p.coordinator_name }} is also a student on this program and cannot coordinate their own studies — assign someone else</span>
             {% endif %}
           </form>
         </td>

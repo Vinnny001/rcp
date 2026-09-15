@@ -72,14 +72,19 @@ $program = $pdo->query(
 // All three places open, so the outcome is decided by this request alone.
 $pdo->prepare("DELETE FROM supervision_assignments WHERE student_id = ?")->execute([$student['student_id']]);
 
-$coordUser = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id LIMIT 1")->fetchColumn();
+$coordUser = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+                          WHERE u.user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 1")->fetchColumn();
 $rc->assign($program['program_id'], $coordUser, $admin);
 
 $pos = $pdo->query("SELECT position_id FROM department_positions LIMIT 1")->fetchColumn();
-foreach ($pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id LIMIT 3")->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+foreach ($pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+                       WHERE u.user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 3")->fetchAll(PDO::FETCH_COLUMN) as $uid) {
     $dh->assign($program['department_id'], $uid, $pos, $admin);
 }
-$headIds = array_column($dh->activeForDepartment($program['department_id']), 'dept_head_id');
+$headIds = array_column(array_filter(
+    $dh->activeForDepartment($program['department_id']),
+    fn ($head) => $head['user_id'] !== $student['user_id']
+), 'dept_head_id');
 
 // Four internal lecturers; the preferred main is ranked third on purpose.
 $lects = $pdo->query(

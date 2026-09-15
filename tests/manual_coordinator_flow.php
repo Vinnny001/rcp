@@ -57,13 +57,20 @@ $program = $pdo->query("SELECT p.program_id, p.department_id FROM programs p
                         JOIN student_thesis_registrations str ON str.thesis_schedule_id = ts.schedule_id
                         WHERE str.student_id = '{$student['student_id']}' LIMIT 1")->fetch();
 
-$coordUser = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id LIMIT 1")->fetchColumn();
+// None of the staff picked here may be the student: nobody coordinates,
+// or sits in judgement on, their own request.
+$coordUser = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+                          WHERE u.user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 1")->fetchColumn();
 $rc->assign($program['program_id'], $coordUser, $admin);
 
 $pos = $pdo->query("SELECT position_id FROM department_positions LIMIT 1")->fetchColumn();
-$headUsers = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+$headUsers = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+                          WHERE u.user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
 foreach ($headUsers as $uid) { $dh->assign($program['department_id'], $uid, $pos, $admin); }
-$headIds = array_column($dh->activeForDepartment($program['department_id']), 'dept_head_id');
+$headIds = array_column(array_filter(
+    $dh->activeForDepartment($program['department_id']),
+    fn ($head) => $head['user_id'] !== $student['user_id']
+), 'dept_head_id');
 
 // Excludes this student's own lecturer account: staff studying for
 // their own degree hold both records, and a shortlist may not name

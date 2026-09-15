@@ -130,7 +130,7 @@ class StudentProposalController
             'history_files'   => $requests->filesByRequest(array_column($history, 'shortlist_id')),
             'appointed_roles' => $proposal ? $this->appointedRoles($proposal['proposal_id']) : [],
             'history'         => $history,
-            'supervisors'     => ($state['list_editable'] ?? false) ? (new SupervisorProfile($this->db))->browsable() : [],
+            'supervisors'     => ($state['list_editable'] ?? false) ? (new SupervisorProfile($this->db))->browsable($_SESSION['user_id']) : [],
             'picked'          => $picked,
             'picked_main'     => $pickedMain,
             'max_choices'     => SupervisorShortlist::MAX_CHOICES,

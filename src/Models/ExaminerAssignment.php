@@ -50,6 +50,7 @@ class ExaminerAssignment
              LEFT JOIN rubric_panel_leaders pl ON pl.meeting_id = m.meeting_id
              WHERE ma.user_id = :user_id
                AND ma.role_in_meeting = 'examiner'
+               AND st.user_id <> ma.user_id
                AND m.status <> 'cancelled'
              ORDER BY m.scheduled_at DESC"
         );
@@ -82,6 +83,7 @@ class ExaminerAssignment
              WHERE m.meeting_id = :meeting_id
                AND ma.user_id = :user_id
                AND ma.role_in_meeting = 'examiner'
+               AND st.user_id <> ma.user_id
              LIMIT 1"
         );
         $stmt->execute(['meeting_id' => $meetingId, 'user_id' => $userId]);
@@ -107,7 +109,7 @@ class ExaminerAssignment
             "SELECT m.meeting_id, m.scheduled_at,
                     s.name AS stage_name, t.template_id,
                     tp.title AS proposal_title,
-                    st.student_number,
+                    st.student_id, st.student_number,
                     CONCAT(su.first_name, ' ', su.last_name) AS student_name,
                     pl.average_score, pl.confirmed_at,
                     CONCAT(lu.first_name, ' ', lu.last_name) AS leader_name,
@@ -131,6 +133,20 @@ class ExaminerAssignment
         $stmt->execute($programIds);
 
         return $stmt->fetchAll();
+    }
+
+    /** The student a meeting examines, for the own-record check. */
+    public function studentForMeeting(string $meetingId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT tp.student_id FROM meetings m
+             JOIN thesis_proposals tp ON tp.proposal_id = m.proposal_id
+             WHERE m.meeting_id = :id LIMIT 1"
+        );
+        $stmt->execute(['id' => $meetingId]);
+        $studentId = $stmt->fetchColumn();
+
+        return $studentId ? (string) $studentId : null;
     }
 
     /**

@@ -52,12 +52,17 @@ $proposal = $pdo->query("SELECT proposal_id FROM thesis_proposals WHERE student_
 $dept = $pdo->query("SELECT department_id FROM departments LIMIT 1")->fetchColumn();
 $pos  = $pdo->query("SELECT position_id FROM department_positions LIMIT 1")->fetchColumn();
 
-$users = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+// Never the student: they cannot lead, minute or vote on their own request.
+$users = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+                      WHERE u.user_id <> " . $pdo->quote($student['user_id']) . " LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
 [$coordinator, $headA, $headB] = $users;
 foreach ([$headA, $headB] as $uid) {
     $dh->assign($dept, $uid, $pos, $admin);
 }
-$headIds = array_column($dh->activeForDepartment($dept), 'dept_head_id');
+$headIds = array_column(array_filter(
+    $dh->activeForDepartment($dept),
+    fn ($head) => $head['user_id'] !== $student['user_id']
+), 'dept_head_id');
 $lects = $pdo->query("SELECT lecturers.lecturer_id FROM lecturers JOIN internal_lecturers il ON il.lecturer_id = lecturers.lecturer_id 
                       WHERE user_id <> '{$student['user_id']}' LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
 

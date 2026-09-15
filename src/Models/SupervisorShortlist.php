@@ -595,7 +595,7 @@ class SupervisorShortlist
     public function findWithContext(string $shortlistId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT s.*, st.student_number,
+            "SELECT s.*, st.student_number, st.user_id AS student_user_id,
                     CONCAT(u.first_name, ' ', u.last_name) AS student_name,
                     COALESCE(s.proposal_title_snapshot, tp.title) AS proposal_title,
                     COALESCE(s.proposal_synopsis_snapshot, tp.synopsis) AS synopsis,
@@ -678,14 +678,18 @@ class SupervisorShortlist
              LEFT JOIN shortlist_meeting_votes v
                     ON v.meeting_id = i.meeting_id AND v.voter_user_id = dh.user_id
              WHERE i.meeting_id = :id
+               AND dh.user_id <> :student_user_id
              ORDER BY dp.display_order, u.last_name"
         );
-        $stmt->execute(['id' => $meetingId]);
+        $studentUserId = (string) $this->studentUserIdForMeeting($meetingId);
+        $stmt->execute(['id' => $meetingId, 'student_user_id' => $studentUserId]);
         $voters = $stmt->fetchAll();
 
         $headUserIds = array_column($voters, 'voter_user_id');
         foreach ($this->coordinatorsForMeeting($meetingId) as $coordinator) {
-            if (in_array($coordinator['user_id'], $headUserIds, true)) {
+            // The student never has a vote on their own request, even
+            // if they coordinate the program.
+            if (in_array($coordinator['user_id'], $headUserIds, true) || $coordinator['user_id'] === $studentUserId) {
                 continue;
             }
 
@@ -762,6 +766,7 @@ class SupervisorShortlist
              LEFT JOIN shortlist_meeting_votes v
                     ON v.meeting_id = m.meeting_id AND v.dept_head_id = i.dept_head_id
              WHERE dh.user_id = :user_id AND dh.is_active = 1
+               AND st.user_id <> dh.user_id
              ORDER BY m.scheduled_at DESC"
         );
         $stmt->execute(['user_id' => $userId]);
@@ -804,6 +809,26 @@ class SupervisorShortlist
             }
             if ($deptHeadIds === []) {
                 throw new RuntimeException('Invite at least one department head — the request needs votes.');
+            }
+
+            // Staff studying for their own degree may be a head or the
+            // coordinator. On their own request they are the student:
+            // not the one convening, not invited, not leading or minuting.
+            $own = new OwnRecord($this->db);
+            $studentUserId = $own->userForStudent($request['student_id']);
+            $own->refuse($createdBy, $request['student_id'], 'schedule the meeting on this supervisor request');
+            if ($studentUserId !== null && in_array($studentUserId, [$leadUserId, $secretaryUserId], true)) {
+                throw new RuntimeException('The student cannot lead or minute the meeting on their own supervisor request.');
+            }
+            $placeholders = implode(',', array_fill(0, count($deptHeadIds), '?'));
+            $invitingStudent = $this->db->prepare(
+                "SELECT COUNT(*) FROM department_heads WHERE user_id = ? AND dept_head_id IN ($placeholders)"
+            );
+            $invitingStudent->execute(array_merge([$studentUserId], array_values($deptHeadIds)));
+            if ((int) $invitingStudent->fetchColumn() > 0) {
+                throw new RuntimeException(
+                    'The student is one of the heads chosen. They cannot be invited to the meeting on their own supervisor request, or vote on it.'
+                );
             }
 
             $meetingId = $this->uuid();
@@ -960,6 +985,11 @@ class SupervisorShortlist
      */
     public function belongsToMeeting(string $meetingId, string $userId): bool
     {
+        // Whatever else they are, the student is the student here.
+        if ($this->studentUserIdForMeeting($meetingId) === $userId) {
+            return false;
+        }
+
         $stmt = $this->db->prepare(
             "SELECT 1 FROM shortlist_meetings m
              WHERE m.meeting_id = :meeting_id
@@ -1015,6 +1045,21 @@ class SupervisorShortlist
         }
 
         return 'The department did not approve this supervisor request, with ' . $counts . '.';
+    }
+
+    /** The user whose supervisor request this meeting decides. */
+    private function studentUserIdForMeeting(string $meetingId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT st.user_id FROM shortlist_meetings m
+             JOIN supervisor_shortlists s ON s.shortlist_id = m.shortlist_id
+             JOIN students st ON st.student_id = s.student_id
+             WHERE m.meeting_id = :id LIMIT 1"
+        );
+        $stmt->execute(['id' => $meetingId]);
+        $userId = $stmt->fetchColumn();
+
+        return $userId ? (string) $userId : null;
     }
 
     /**
@@ -1151,6 +1196,12 @@ class SupervisorShortlist
         string $vote,
         ?string $comment
     ): void {
+        // Every vote passes through here, so this holds whichever way
+        // someone came to have an invitation or a coordinator role.
+        if ($this->studentUserIdForMeeting($meetingId) === $userId) {
+            throw new RuntimeException('You cannot vote on your own supervisor request.');
+        }
+
         $this->db->prepare(
             "INSERT INTO shortlist_meeting_votes (vote_id, meeting_id, dept_head_id, voter_user_id, voter_role, vote, comment)
              VALUES (UUID(), :meeting_id, :head_id, :user_id, :role, :vote, :comment)

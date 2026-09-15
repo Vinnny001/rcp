@@ -78,7 +78,25 @@ $meeting = $pdo->query(
 $templateId = $meeting['rubric_template_id'];
 $criteria = $rubric->criteriaFor($templateId);
 
-$examiners = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id=u.user_id LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+// Not the candidate, and not anyone studying on the candidate's
+// program: one of these becomes that program's coordinator below, and
+// nobody examines or coordinates their own studies.
+$examiners = $pdo->prepare(
+    "SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
+     WHERE NOT EXISTS (
+         SELECT 1 FROM students st
+         JOIN student_thesis_registrations str ON str.student_id = st.student_id AND str.status = 'active'
+         JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+         JOIN student_thesis_registrations mine ON mine.status = 'active'
+         JOIN thesis_schedules mts ON mts.schedule_id = mine.thesis_schedule_id AND mts.program_id = ts.program_id
+         JOIN thesis_proposals tp ON tp.student_id = mine.student_id AND tp.proposal_id = ?
+         WHERE st.user_id = u.user_id
+     )
+     AND u.user_id NOT IN (SELECT st.user_id FROM thesis_proposals tp JOIN students st ON st.student_id = tp.student_id WHERE tp.proposal_id = ?)
+     LIMIT 3"
+);
+$examiners->execute([$meeting['proposal_id'], $meeting['proposal_id']]);
+$examiners = $examiners->fetchAll(PDO::FETCH_COLUMN);
 [$examA, $examB, $outsider] = $examiners;
 
 $invite = $pdo->prepare(

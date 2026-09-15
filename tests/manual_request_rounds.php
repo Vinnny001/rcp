@@ -120,7 +120,10 @@ $coordinator = $pdo->query(
 $dh = new DepartmentHead($pdo);
 $pos = $pdo->query("SELECT position_id FROM department_positions LIMIT 1")->fetchColumn();
 $dh->assign($student['department_id'], $coordinator, $pos, $admin);
-$headIds = array_column($dh->activeForDepartment($student['department_id']), 'dept_head_id');
+$headIds = array_column(array_filter(
+    $dh->activeForDepartment($student['department_id']),
+    fn ($head) => $head['user_id'] !== $student['user_id']
+), 'dept_head_id');
 
 $proposalRow = fn (): array => $pdo->query(
     "SELECT * FROM thesis_proposals WHERE proposal_id = " . $pdo->quote($student['proposal_id'])

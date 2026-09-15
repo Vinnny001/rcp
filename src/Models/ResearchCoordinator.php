@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use PDO;
+use RuntimeException;
 
 /**
  * The research coordinator of a program: reviews supervisor
@@ -36,7 +37,15 @@ class ResearchCoordinator
         return $this->db->query(
             "SELECT p.program_id, p.name AS program_name, d.name AS department_name,
                     rc.coordinator_id, rc.user_id, rc.assigned_at,
-                    CONCAT(u.first_name, ' ', u.last_name) AS coordinator_name
+                    CONCAT(u.first_name, ' ', u.last_name) AS coordinator_name,
+                    -- Assigning refuses this, but someone can register on
+                    -- a program they already coordinate.
+                    EXISTS (
+                        SELECT 1 FROM students st
+                        JOIN student_thesis_registrations str ON str.student_id = st.student_id AND str.status = 'active'
+                        JOIN thesis_schedules ts ON ts.schedule_id = str.thesis_schedule_id
+                        WHERE st.user_id = rc.user_id AND ts.program_id = p.program_id
+                    ) AS coordinator_studies_here
              FROM programs p
              JOIN departments d ON d.department_id = p.department_id
              LEFT JOIN research_coordinators rc ON rc.program_id = p.program_id
@@ -48,9 +57,18 @@ class ResearchCoordinator
     /**
      * A program has exactly one coordinator, so assigning replaces
      * whoever held it rather than stacking a second row.
+     *
+     * Someone studying on the program cannot coordinate it: every
+     * request and exam of theirs would come to them.
      */
     public function assign(string $programId, string $userId, string $assignedBy): void
     {
+        if ((new OwnRecord($this->db))->studiesOnProgram($userId, $programId)) {
+            throw new RuntimeException(
+                'That person is a student on this program, so they cannot be its research coordinator — they would be coordinating their own studies.'
+            );
+        }
+
         $stmt = $this->db->prepare(
             "INSERT INTO research_coordinators (coordinator_id, program_id, user_id, assigned_by)
              VALUES (UUID(), :program_id, :user_id, :assigned_by)

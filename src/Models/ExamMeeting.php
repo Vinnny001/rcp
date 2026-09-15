@@ -109,6 +109,15 @@ class ExamMeeting
 
     public function setRoles(string $meetingId, ?string $leadUserId, ?string $secretaryUserId): void
     {
+        $meeting = $this->find($meetingId);
+        if (!$meeting) {
+            throw new RuntimeException('That meeting no longer exists.');
+        }
+        $studentUserId = (new OwnRecord($this->db))->userForStudent($meeting['student_id']);
+        if ($studentUserId !== null && in_array($studentUserId, [$leadUserId, $secretaryUserId], true)) {
+            throw new RuntimeException('The student cannot lead or minute their own exam.');
+        }
+
         $this->db->prepare(
             "UPDATE meetings
              SET lead_user_id = COALESCE(:lead, lead_user_id, created_by),
