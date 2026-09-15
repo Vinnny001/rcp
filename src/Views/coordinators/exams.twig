@@ -7,7 +7,7 @@
 <div class="page-head">
   <div>
     <h1>Exams to schedule</h1>
-    <div class="sub">Students who have settled their fees, submitted their documents, and said they are ready.</div>
+    <div class="sub">Students who have booked an exam. Schedule each once their fees and documents are settled.</div>
   </div>
   <div class="ref">EXAM-QUEUE</div>
 </div>
@@ -31,11 +31,18 @@
       <h3>{{ q.student_name }} <span class="meta mono" style="font-size:.72rem;">{{ q.student_number }}</span></h3>
       <div class="meta">{{ q.stage_name }} · {{ q.proposal_title }}</div>
       <div class="meta" style="margin-top:4px;">
-        {{ q.program_name }} · {{ q.exam_type|capitalize }} window {{ q.starts_at|date('d M Y') }}
-        · ready since {{ q.marked_ready_at|date('d M Y') }}
+        {{ q.program_name }} · {{ q.exam_type|capitalize }} exam {{ q.starts_at|date('d M Y') }}{% if q.starts_at|date('Y-m-d') != q.ends_at|date('Y-m-d') %} – {{ q.ends_at|date('d M Y') }}{% endif %}
+        · booked {{ q.marked_ready_at|date('d M Y') }}
       </div>
 
-      {% if not q.rubric_template_id %}
+      {% if q.blockers %}
+        <div class="notice" style="margin-top:14px;">
+          Waiting on the student before the exam can be scheduled:
+          <ul style="margin:6px 0 0 16px; padding:0;">
+            {% for b in q.blockers %}<li>{{ b }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% elseif not q.rubric_template_id %}
         <div class="notice" style="margin-top:14px; border-left-color: var(--rust); background:#f6eae7;">
           The {{ q.stage_name }} stage has no marking scheme, so examiners would have nothing to score against. Set one under Exam Stages first.
         </div>
@@ -97,7 +104,7 @@
   {% endfor %}
 {% else %}
   <div class="notice">
-    Nobody is waiting. Students appear here once their fees are confirmed, their documents are in, and they mark themselves ready.
+    Nobody is waiting. Students appear here as soon as they book one of your exam schedules.
   </div>
 {% endif %}
 

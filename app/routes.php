@@ -87,7 +87,8 @@ return function (App $app) {
 
     // Student exam & graduation route
     $app->get('/student/exam', [StudentExamController::class, 'show']);
-    $app->post('/student/exam/ready', [StudentExamController::class, 'markReady']);
+    $app->post('/student/exam/book', [StudentExamController::class, 'book']);
+    $app->post('/student/exam/cancel-booking', [StudentExamController::class, 'cancelBooking']);
 
 
 // LECTURER ROUTES

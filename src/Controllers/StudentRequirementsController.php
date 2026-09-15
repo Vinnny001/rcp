@@ -105,10 +105,18 @@ class StudentRequirementsController
         $proposalSubmitted = $this->proposalIsSubmitted($student['student_id']);
 
         $requirements = [];
+        // An exam is on offer for the student's stage but they have not
+        // booked a date: its documents wait until they do.
+        $visibility = new StudentExamWindows($this->db);
+        $needsBooking = array_filter(
+            $visibility->visibleWindows($student['student_id']),
+            fn (array $window): bool => $window['exam_stage_id'] !== null
+        ) !== [] && $visibility->bookedWindowId($student['student_id']) === null;
+
         if ($thesisScheduleId) {
-            // Only the documents of exams the student can see: the stage
-            // they are on, within their time on the programme.
-            $visibility = new StudentExamWindows($this->db);
+            // Only the documents of exams the student can see: the date
+            // they booked for the stage they are on, within their time on
+            // the programme.
             $scheduled = array_filter(
                 $documentModel->findScheduledForThesisSchedule($thesisScheduleId),
                 fn (array $item): bool => $visibility->isDocumentSlotVisible(
@@ -155,6 +163,7 @@ class StudentRequirementsController
             'no_thesis_schedule' => !$thesisScheduleId,
             'proposal_submitted' => $proposalSubmitted,
             'requirements'       => $requirements,
+            'needs_booking'      => $needsBooking,
             'csrf_token'         => $this->csrfToken(),
             'error'              => $_SESSION['flash_error'] ?? null,
             'success'            => $_SESSION['flash_success'] ?? null,
@@ -215,8 +224,12 @@ class StudentRequirementsController
             $_SESSION['flash_error'] = 'That document is not scheduled for review under your thesis schedule.';
             return $this->redirect($response, '/student/requirements');
         }
-        if (!(new StudentExamWindows($this->db))->isDocumentSlotVisible($student['student_id'], $examScheduleId, $documentTypeId)) {
-            $_SESSION['flash_error'] = 'That document belongs to an exam that is not open to you.';
+        $visibility = new StudentExamWindows($this->db);
+        if (!$visibility->isDocumentSlotVisible($student['student_id'], $examScheduleId, $documentTypeId)) {
+            $window = $visibility->visibleWindows($student['student_id'])[$examScheduleId] ?? null;
+            $_SESSION['flash_error'] = $window !== null && $window['exam_stage_id'] !== null
+                ? 'Book this exam on the Exam & Graduation page before submitting its documents.'
+                : 'That document belongs to an exam that is not open to you.';
             return $this->redirect($response, '/student/requirements');
         }
 

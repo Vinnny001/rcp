@@ -26,6 +26,7 @@ use App\Models\ExaminerQualification;
 use App\Models\ExamMeeting;
 use App\Models\ExamReadiness;
 use App\Models\ResearchCoordinator;
+use App\Models\StudentJourney;
 use App\Models\SupervisorProfile;
 use App\Models\SupervisorShortlist;
 use DI\ContainerBuilder;
@@ -314,21 +315,15 @@ try {
 
     // =====================================================================
     echo "\n=== Not their own examiner ===\n";
-    $window = $pdo->prepare(
-        "SELECT es.exam_schedule_id FROM exam_schedule es
-         LEFT JOIN exam_stages s ON s.stage_id = es.exam_stage_id
-         WHERE NOT EXISTS (SELECT 1 FROM exam_readiness r WHERE r.student_id = ? AND r.exam_schedule_id = es.exam_schedule_id)
-         ORDER BY s.rubric_template_id IS NULL, es.thesis_schedule_id = ? DESC
-         LIMIT 1"
-    );
-    $window->execute([$student['student_id'], $student['schedule_id']]);
-    $window = $window->fetchColumn();
-    // The queue only offers a panel for a window tied to a stage with a
-    // marking scheme; seed windows often have none.
+    // An exam for the stage they are on, open now, needing no documents
+    // and no fees — so only the own-record rules stand in the way.
+    $currentStage = (new StudentJourney($pdo))->currentExamStage($student['student_id'], $me)['stage_id'] ?? null;
+    $window = $pdo->query("SELECT UUID()")->fetchColumn();
     $pdo->prepare(
-        "UPDATE exam_schedule SET exam_stage_id = (SELECT stage_id FROM exam_stages WHERE rubric_template_id IS NOT NULL LIMIT 1)
-         WHERE exam_schedule_id = ?"
-    )->execute([$window]);
+        "INSERT INTO exam_schedule (exam_schedule_id, thesis_schedule_id, starts_at, ends_at, exam_type, exam_stage_id, exam_schedule_description)
+         VALUES (?, ?, NOW(), NOW() + INTERVAL 30 DAY, 'internal', ?, 'Own record exam')"
+    )->execute([$window, $student['schedule_id'], $currentStage]);
+    $pdo->prepare("UPDATE thesis_schedules SET thesis_registration_rates_id = NULL WHERE schedule_id = ?")->execute([$student['schedule_id']]);
     $readinessId = $pdo->query("SELECT UUID()")->fetchColumn();
     $pdo->prepare("INSERT INTO exam_readiness (readiness_id, student_id, exam_schedule_id) VALUES (?, ?, ?)")
         ->execute([$readinessId, $student['student_id'], $window]);

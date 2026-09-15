@@ -545,6 +545,7 @@ class CoordinatorController
 
         $qualifications = new \App\Models\ExaminerQualification($this->db);
         $own = new OwnRecord($this->db);
+        $bookings = new \App\Models\ExamReadiness($this->db);
         foreach ($queue as &$row) {
             // Only lecturers qualified for this program can be offered —
             // and never the candidate's own lecturer account.
@@ -553,6 +554,12 @@ class CoordinatorController
                 $qualifications->qualifiedForProgram($row['program_id']),
                 fn (array $examiner): bool => $examiner['user_id'] !== $candidate
             ));
+            // A booking is in the queue from the start; the exam can be
+            // scheduled once the student's fees and documents are settled.
+            $booked = $bookings->window($row['student_id'], $row['student_user_id'], $row['exam_schedule_id']);
+            $row['blockers'] = $booked === null
+                ? ['This booking is no longer for the stage the student is on.']
+                : $booked['blockers'];
         }
         unset($row);
 

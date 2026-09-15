@@ -22,107 +22,191 @@
 
 <div class="section-title">Your exams<div class="rule"></div></div>
 
-{% if exam_windows %}
-  <div style="font-size:.82rem; color:var(--slate); margin-bottom:16px;">
-    The exams set for your thesis timeline, and what each one needs from you. When fees and documents are settled,
-    tell your coordinator you are ready and they will schedule the exam.
+{% if not current_stage %}
+  <div class="card" style="margin-bottom:32px;">
+    <h3>No exam to book</h3>
+    <div class="meta">There is no exam stage ahead of you.</div>
+  </div>
+{% else %}
+  <div class="exam-intro">
+    You are on <span class="strong">{{ current_stage.name }}</span>. Book one of the dates your coordinator has opened —
+    you submit its documents once it is booked, and your coordinator schedules your exam when fees and documents are settled.
+    You can switch to another date until then.
   </div>
 
-  <div class="grid cols-2" style="margin-bottom:32px;">
-    {% for w in exam_windows %}
-      <div class="card">
-        <h3>{{ w.stage_name }}</h3>
-
-        <dl class="exam-facts">
-          <dt>Exam</dt>
-          <dd>{{ w.exam_type|capitalize }} examination</dd>
-          <dt>Window</dt>
-          <dd>{{ w.starts_at|date('d M Y') }}{% if w.ends_at %} – {{ w.ends_at|date('d M Y') }}{% endif %}</dd>
-          {% if w.exam_schedule_description %}
-            <dt>About</dt>
-            <dd>{{ w.exam_schedule_description }}</dd>
-          {% endif %}
-          <dt>Date</dt>
-          <dd>
-            {% if w.meeting_id %}
-              {{ w.meeting_at|date('d M Y, g:i A') }}
-              {%- if w.meeting_mode %} · {{ w.meeting_mode|capitalize }}{% endif %}
-              {%- if w.meeting_location %} · {{ w.meeting_location }}{% endif %}
-              {%- if w.meeting_link %} · <a href="{{ w.meeting_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
-            {% else %}
-              <span class="meta">Not scheduled yet — your coordinator sets it once you are ready</span>
-            {% endif %}
-          </dd>
-        </dl>
-
-        <div class="exam-docs-head">Documents required</div>
-        {% if w.documents %}
-          <ul class="exam-docs">
-            {% for d in w.documents %}
-              <li>
-                <div>
-                  <span class="strong">{{ d.doc_type_name }}</span>
-                  <div class="meta">
-                    {% if d.document_submission_starts_at %}{{ d.document_submission_starts_at|date('d M Y') }} – {% endif %}
-                    {{- d.document_submission_deadline ? 'due ' ~ d.document_submission_deadline|date('d M Y, g:i A') : 'no deadline set' }}
-                  </div>
-                </div>
-                {% if d.state == 'submitted' %}
-                  <span class="stamp mini approved">Submitted</span>
-                {% elseif d.state == 'draft' %}
-                  <span class="stamp mini pending">Draft</span>
-                {% elseif d.state == 'resubmit' %}
-                  <span class="stamp mini rejected">Resubmit</span>
-                {% elseif d.state == 'open' %}
-                  <span class="stamp mini pending">Not submitted</span>
-                {% elseif d.state == 'not_open' %}
-                  <span class="meta">Opens {{ d.document_submission_starts_at|date('d M Y') }}</span>
-                {% else %}
-                  <span class="stamp mini rejected">Deadline passed</span>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-          {% if w.documents|filter(d => d.state in ['open', 'draft', 'resubmit'])|length > 0 %}
-            <a class="exam-docs-link" href="/student/requirements">Submit them on the Requirements page</a>
-          {% endif %}
-        {% else %}
-          <div style="font-size:.84rem; margin-top:4px;">No documents are required for this exam.</div>
-        {% endif %}
-
-        <div class="exam-docs-head">Where it stands</div>
-        {% if w.meeting_id %}
-          <span class="stamp mini approved">Exam scheduled</span>
-
-        {% elseif w.marked_ready_at %}
-          <span class="stamp mini pending">Waiting on your coordinator</span>
-          <div class="meta" style="margin-top:6px;">You marked yourself ready on {{ w.marked_ready_at|date('d M Y') }}.</div>
-          <form method="POST" action="/student/exam/ready" style="margin-top:10px;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="exam_schedule_id" value="{{ w.exam_schedule_id }}">
-            <input type="hidden" name="withdraw" value="1">
-            <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">I am not ready after all</button>
-          </form>
-
-        {% elseif w.blockers %}
-          <div class="meta">Outstanding before you can be examined</div>
-          <ul style="font-size:.8rem; margin:6px 0 0 16px; padding:0; color: var(--rust);">
-            {% for b in w.blockers %}<li>{{ b }}</li>{% endfor %}
-          </ul>
-
-        {% else %}
-          <div class="meta">Everything is settled — fees confirmed and documents in.</div>
-          <form method="POST" action="/student/exam/ready" style="margin-top:10px;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="exam_schedule_id" value="{{ w.exam_schedule_id }}">
-            <button type="submit" class="btn brass">I am ready to be examined</button>
-          </form>
-        {% endif %}
+  {% if booked %}
+    <div class="card" style="margin-bottom:24px;">
+      <div class="exam-booked-head">
+        <span class="exam-tag booked">{{ booked.tag }}</span>
+        <h3 style="margin:0;">Your booked exam — {{ booked.stage_name }}</h3>
       </div>
-    {% endfor %}
-  </div>
+
+      <dl class="exam-facts">
+        <dt>Exam</dt>
+        <dd>{{ booked.exam_type|capitalize }} examination</dd>
+        <dt>Window</dt>
+        <dd>{{ booked.starts_at|date('d M Y') }}{% if booked.ends_at %} – {{ booked.ends_at|date('d M Y') }}{% endif %}</dd>
+        {% if booked.exam_schedule_description %}
+          <dt>About</dt>
+          <dd>{{ booked.exam_schedule_description }}</dd>
+        {% endif %}
+        <dt>Date</dt>
+        <dd>
+          {% if booked.meeting_id %}
+            {{ booked.meeting_at|date('d M Y, g:i A') }}
+            {%- if booked.meeting_mode %} · {{ booked.meeting_mode|capitalize }}{% endif %}
+            {%- if booked.meeting_location %} · {{ booked.meeting_location }}{% endif %}
+            {%- if booked.meeting_link %} · <a href="{{ booked.meeting_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+          {% else %}
+            <span class="meta">Not scheduled yet — your coordinator sets it once fees and documents are settled</span>
+          {% endif %}
+        </dd>
+      </dl>
+
+      <div class="exam-docs-head">Documents required</div>
+      {% if booked.documents %}
+        <ul class="exam-docs">
+          {% for d in booked.documents %}
+            <li>
+              <div>
+                <span class="strong">{{ d.doc_type_name }}</span>
+                <div class="meta">
+                  {% if d.document_submission_starts_at %}{{ d.document_submission_starts_at|date('d M Y') }} – {% endif %}
+                  {{- d.document_submission_deadline ? 'due ' ~ d.document_submission_deadline|date('d M Y, g:i A') : 'no deadline set' }}
+                </div>
+              </div>
+              {% if d.state == 'submitted' %}
+                <span class="stamp mini approved">Submitted</span>
+              {% elseif d.state == 'draft' %}
+                <span class="stamp mini pending">Draft</span>
+              {% elseif d.state == 'resubmit' %}
+                <span class="stamp mini rejected">Resubmit</span>
+              {% elseif d.state == 'open' %}
+                <span class="stamp mini pending">Not submitted</span>
+              {% elseif d.state == 'not_open' %}
+                <span class="meta">Opens {{ d.document_submission_starts_at|date('d M Y') }}</span>
+              {% else %}
+                <span class="stamp mini rejected">Deadline passed</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+        {% if booked.documents|filter(d => d.state in ['open', 'draft', 'resubmit'])|length > 0 %}
+          <a class="exam-docs-link" href="/student/requirements">Submit them on the Requirements page</a>
+        {% endif %}
+      {% else %}
+        <div style="font-size:.84rem; margin-top:4px;">No documents are required for this exam.</div>
+      {% endif %}
+
+      <div class="exam-docs-head">Where it stands</div>
+      {% if booked.meeting_id %}
+        <span class="stamp mini approved">Exam scheduled</span>
+      {% elseif booked.blockers %}
+        <div class="meta">Outstanding before your coordinator can schedule your exam</div>
+        <ul style="font-size:.8rem; margin:6px 0 0 16px; padding:0; color: var(--rust);">
+          {% for b in booked.blockers %}<li>{{ b }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <div class="meta">Everything is settled — your coordinator will schedule your exam.</div>
+      {% endif %}
+
+      {% if not booked.meeting_id %}
+        <form method="POST" action="/student/exam/cancel-booking" style="margin-top:14px;"
+              onsubmit="return confirm('Cancel this booking? Documents you submitted for it stay with this date.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="exam_schedule_id" value="{{ booked.exam_schedule_id }}">
+          <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">Cancel booking</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if exam_windows %}
+    <div class="exam-subhead">{{ current_stage.name }} exam calendar</div>
+
+    <div class="exam-calendar">
+      {% for month in calendar %}
+        <div class="cal-month">
+          <div class="cal-label">{{ month.label }}</div>
+          <div class="cal-grid">
+            {% for dow in ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'] %}<div class="cal-dow">{{ dow }}</div>{% endfor %}
+            {% for week in month.weeks %}
+              {% for day in week %}
+                {% if day.day %}
+                  <div class="cal-day{{ day.today ? ' today' }}{{ day.past ? ' past' }}{{ day.windows ? ' has-exam' }}">
+                    <span class="cal-num">{{ day.day }}</span>
+                    {% if day.windows %}
+                      <span class="cal-marks">
+                        {% for w in day.windows %}<span class="cal-mark{{ w.booked ? ' booked' }}" title="{{ w.stage_name }} — {{ w.starts_at|date('d M') }} to {{ w.ends_at|date('d M') }}">{{ w.tag }}</span>{% endfor %}
+                      </span>
+                    {% endif %}
+                  </div>
+                {% else %}
+                  <div class="cal-day blank"></div>
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if exam_windows|filter(w => not w.booked)|length > 0 %}
+    <div class="exam-subhead">{{ booked ? 'Other dates you can switch to' : 'Book a date' }}</div>
+    <div class="exam-options">
+      {% for w in exam_windows|filter(w => not w.booked) %}
+        <div class="exam-option{{ w.booked ? ' is-booked' }}">
+          <span class="exam-tag{{ w.booked ? ' booked' }}">{{ w.tag }}</span>
+          <div class="exam-option-body">
+            <div class="strong">
+              {{ w.starts_at|date('D d M Y') }}{% if w.starts_at|date('Y-m-d') != w.ends_at|date('Y-m-d') %} – {{ w.ends_at|date('D d M Y') }}{% endif %}
+            </div>
+            <div class="meta">{{ w.exam_type|capitalize }} examination{% if w.exam_schedule_description %} · {{ w.exam_schedule_description }}{% endif %}</div>
+            <div class="meta">
+              {% if w.requirements %}
+                Requires
+                {% for r in w.requirements %}{{ r.doc_type_name }}{% if r.document_submission_deadline %} (due {{ r.document_submission_deadline|date('d M') }}){% endif %}{{ not loop.last ? ', ' }}{% endfor %}
+              {% else %}
+                No documents required
+              {% endif %}
+            </div>
+          </div>
+          <div class="exam-option-action">
+            {% if w.booked %}
+              <span class="stamp mini approved">Booked</span>
+            {% elseif booked and booked.meeting_id %}
+              <span class="meta">Your exam is already scheduled</span>
+            {% else %}
+              <form method="POST" action="/student/exam/book"
+                    {% if booked %}onsubmit="return confirm('Switch your booking to this date? Documents you submitted for the other date stay with it.');"{% endif %}>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="exam_schedule_id" value="{{ w.exam_schedule_id }}">
+                <button type="submit" class="btn {{ booked ? 'ghost' : 'brass' }}" style="padding:6px 14px; font-size:.74rem;">
+                  {{ booked ? 'Switch to this date' : 'Book this date' }}
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% else %}
+    <div class="card" style="margin-bottom:32px;">
+      <h3>No {{ current_stage.name }} exams open for booking</h3>
+      <div class="meta">Your coordinator has not opened any dates yet. They appear here as soon as one is.</div>
+    </div>
+  {% endif %}
 
   <style>
+    .exam-intro{ font-size:.82rem; color:var(--slate); margin-bottom:16px; max-width:760px; line-height:1.55; }
+    .exam-subhead{ font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase;
+                   color:var(--slate); margin:6px 0 12px; }
+    .exam-booked-head{ display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+    .exam-tag{ display:inline-flex; align-items:center; justify-content:center; flex:none; width:26px; height:26px;
+               border:1.5px solid var(--brass); border-radius:50%; font-family:'IBM Plex Mono',monospace; font-size:.74rem;
+               font-weight:600; color:var(--brass-deep); background:#fff; }
+    .exam-tag.booked{ background:var(--brass); color:#241a0a; }
     .exam-facts{ display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:10px 0 0; font-size:.84rem; }
     .exam-facts dt{ font-family:'IBM Plex Mono',monospace; font-size:.68rem; letter-spacing:.05em; text-transform:uppercase;
                     color:var(--slate); padding-top:2px; }
@@ -135,14 +219,32 @@
     .exam-docs .meta{ margin-bottom:0; }
     .exam-docs-link{ display:inline-block; margin-top:6px; font-size:.78rem; font-weight:600; color:var(--brass-deep);
                      text-decoration:underline; text-underline-offset:2px; }
+
+    .exam-calendar{ display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; margin-bottom:18px; }
+    .cal-month{ background:#fbf8f1; border:1px solid var(--paper-line); border-radius:var(--radius); padding:12px; }
+    .cal-label{ font-family:'Fraunces',serif; font-weight:600; font-size:.95rem; margin-bottom:8px; }
+    .cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:3px; }
+    .cal-dow{ font-family:'IBM Plex Mono',monospace; font-size:.62rem; color:var(--slate); text-align:center; padding-bottom:2px; }
+    .cal-day{ min-height:38px; border-radius:3px; padding:3px; font-size:.72rem; display:flex; flex-direction:column; gap:2px;
+              background:#fff; border:1px solid transparent; }
+    .cal-day.blank{ background:transparent; }
+    .cal-day.past{ color:#b3ab98; }
+    .cal-day.today{ border-color:var(--ink-text); }
+    .cal-day.has-exam{ background:#f6ecd8; }
+    .cal-num{ font-variant-numeric:tabular-nums; line-height:1; }
+    .cal-marks{ display:flex; flex-wrap:wrap; gap:2px; }
+    .cal-mark{ font-family:'IBM Plex Mono',monospace; font-size:.58rem; font-weight:600; line-height:1; padding:2px 3px;
+               border-radius:2px; border:1px solid var(--brass); color:var(--brass-deep); background:#fff; }
+    .cal-mark.booked{ background:var(--brass); color:#241a0a; }
+
+    .exam-options{ display:flex; flex-direction:column; gap:10px; margin-bottom:32px; }
+    .exam-option{ display:flex; align-items:center; gap:14px; padding:12px 14px; background:#fff; border:1px solid var(--paper-line);
+                  border-radius:var(--radius); flex-wrap:wrap; }
+    .exam-option.is-booked{ border-color:var(--brass); background:#fbf3e4; }
+    .exam-option-body{ flex:1 1 260px; min-width:0; font-size:.86rem; }
+    .exam-option-body .meta{ font-size:.76rem; color:var(--slate); margin-top:2px; }
+    .exam-option-action{ flex:none; }
   </style>
-{% else %}
-  <div class="card" style="margin-bottom:32px;">
-    <h3>No exam set for your thesis timeline yet</h3>
-    <div class="meta">
-      When the graduate school sets an exam for your thesis timeline, its dates and any documents it requires appear here.
-    </div>
-  </div>
 {% endif %}
 
 {% set proposal_approved = proposal and proposal.status == 'approved' %}

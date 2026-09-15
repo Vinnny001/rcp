@@ -8,13 +8,19 @@ use PDO;
 use RuntimeException;
 
 /**
- * A student declaring they are ready to be examined, and the queue a
- * coordinator schedules from.
+ * A student booking the exam they will sit, and the queue a coordinator
+ * schedules from.
  *
- * Readiness is refused rather than merely discouraged when fees are
+ * A coordinator may open several windows for a stage on different dates;
+ * the student books one (an exam_readiness row), and only then submits
+ * its documents. A booking is the student's place in the coordinator's
+ * queue. They may switch to another date, or cancel, until the
+ * coordinator schedules their exam.
+ *
+ * Scheduling is refused rather than merely discouraged while fees are
  * outstanding or required documents are missing: a student who reaches
- * the room without them wastes a panel's afternoon, so the check
- * belongs here rather than in a reminder.
+ * the room without them wastes a panel's afternoon, so the check belongs
+ * here rather than in a reminder.
  */
 class ExamReadiness
 {
@@ -26,8 +32,11 @@ class ExamReadiness
     }
 
     /**
-     * Exam windows open to this student — their program's, tagged with
-     * a stage, with everything blocking each one worked out.
+     * The exam windows for the stage the student is on — see
+     * StudentExamWindows — each marked booked or not and open for booking
+     * or not, with the documents it requires. For the booked window the
+     * documents carry where each stands, and fees and anything else
+     * outstanding are worked out.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -63,17 +72,60 @@ class ExamReadiness
         ));
 
         $fees = new ExamFeeGate($this->db);
+        $now = date('Y-m-d H:i:s');
         foreach ($windows as &$window) {
-            $window['fees'] = $fees->statusFor($studentId, $window['exam_schedule_id']);
-            $window['documents'] = array_values(array_filter(
+            $window['booked'] = $window['readiness_id'] !== null;
+            $window['open_for_booking'] = $window['ends_at'] >= $now;
+            // What it asks for, whether booked or not — so a student can
+            // choose between dates knowing what each needs.
+            $window['requirements'] = array_values(array_filter(
                 $this->documentStatus($userId, $window['exam_schedule_id']),
-                fn (array $doc): bool => $visibility->isDocumentSlotVisible($studentId, $window['exam_schedule_id'], $doc['document_type_id'])
+                fn (array $doc): bool => $visibility->deadlineWithinStudies($studentId, $doc['document_submission_deadline'])
             ));
-            $window['blockers'] = $this->blockersFrom($window);
+
+            if ($window['booked']) {
+                $window['fees'] = $fees->statusFor($studentId, $window['exam_schedule_id']);
+                $window['documents'] = array_values(array_filter(
+                    $window['requirements'],
+                    fn (array $doc): bool => $visibility->isDocumentSlotVisible($studentId, $window['exam_schedule_id'], $doc['document_type_id'])
+                ));
+                $window['blockers'] = $this->blockersFrom($window);
+            } else {
+                $window['fees'] = null;
+                $window['documents'] = [];
+                $window['blockers'] = [];
+            }
         }
         unset($window);
 
         return $windows;
+    }
+
+    /**
+     * What the student's exam page shows: the stage they are on, the
+     * windows worth listing — the one they booked and every date still
+     * open for booking — lettered A, B, C… so the calendar and the list
+     * match, the booked one, and the calendar itself.
+     *
+     * @return array{current_stage: ?array, exam_windows: array<int, array<string, mixed>>, booked: ?array, calendar: array}
+     */
+    public function bookingPage(string $studentId, string $userId, ?\DateTimeImmutable $today = null): array
+    {
+        $listed = array_values(array_filter(
+            $this->windowsFor($studentId, $userId),
+            fn (array $window): bool => $window['booked'] || $window['open_for_booking']
+        ));
+        foreach ($listed as $i => &$window) {
+            $window['tag'] = $i < 26 ? chr(65 + $i) : (string) ($i + 1);
+        }
+        unset($window);
+
+        return [
+            'current_stage' => (new StudentJourney($this->db))->currentExamStage($studentId, $userId),
+            'exam_windows'  => $listed,
+            'booked'        => array_values(array_filter($listed, fn (array $window): bool => $window['booked']))[0] ?? null,
+            'calendar'      => \App\Services\ExamCalendar::months($listed, $today ?? new \DateTimeImmutable()),
+        ];
     }
 
     /**
@@ -165,49 +217,92 @@ class ExamReadiness
     }
 
     /**
-     * Records the declaration, refusing it while anything is still
-     * outstanding.
+     * Books this window for the student, moving them off any other date
+     * they had booked for the same stage. Refused for a window they cannot
+     * see or that has closed, and once their exam for the stage has been
+     * scheduled — after that the coordinator changes it, not the student.
+     * Documents already submitted for another date stay with that date.
      */
-    public function markReady(string $studentId, string $userId, string $examScheduleId): void
+    public function book(string $studentId, string $userId, string $examScheduleId): void
     {
-        $window = null;
-        foreach ($this->windowsFor($studentId, $userId) as $candidate) {
-            if ($candidate['exam_schedule_id'] === $examScheduleId) {
-                $window = $candidate;
-                break;
-            }
+        $window = $this->window($studentId, $userId, $examScheduleId);
+        if ($window === null) {
+            throw new RuntimeException('That exam is not open to you.');
+        }
+        if ($window['booked']) {
+            return;
+        }
+        if (!$window['open_for_booking']) {
+            throw new RuntimeException('That exam has closed.');
         }
 
-        if ($window === null) {
-            throw new RuntimeException('That exam window is not open to you.');
+        $sameStage = $this->db->prepare(
+            "SELECT r.readiness_id, r.meeting_id FROM exam_readiness r
+             JOIN exam_schedule es ON es.exam_schedule_id = r.exam_schedule_id
+             WHERE r.student_id = :student_id AND es.exam_stage_id = :stage_id"
+        );
+        $sameStage->execute(['student_id' => $studentId, 'stage_id' => $window['stage_id']]);
+        $existing = $sameStage->fetchAll();
+
+        if (array_filter($existing, fn (array $row): bool => $row['meeting_id'] !== null)) {
+            throw new RuntimeException('Your exam for this stage is already scheduled. Ask your coordinator if the date has to change.');
         }
-        if ($window['meeting_id'] !== null) {
-            throw new RuntimeException('Your exam for this window has already been scheduled.');
-        }
-        if ($window['blockers'] !== []) {
-            throw new RuntimeException('You still have outstanding items: ' . implode(' ', $window['blockers']));
+
+        $remove = $this->db->prepare("DELETE FROM exam_readiness WHERE readiness_id = :id AND meeting_id IS NULL");
+        foreach ($existing as $row) {
+            $remove->execute(['id' => $row['readiness_id']]);
         }
 
         $this->db->prepare(
             "INSERT INTO exam_readiness (readiness_id, student_id, exam_schedule_id)
-             VALUES (UUID(), :student_id, :exam_schedule_id)
-             ON DUPLICATE KEY UPDATE marked_ready_at = NOW()"
-        )->execute(['student_id' => $studentId, 'exam_schedule_id' => $examScheduleId]);
-    }
-
-    public function withdraw(string $studentId, string $examScheduleId): void
-    {
-        $this->db->prepare(
-            "DELETE FROM exam_readiness
-             WHERE student_id = :student_id AND exam_schedule_id = :exam_schedule_id
-               AND meeting_id IS NULL"
+             VALUES (UUID(), :student_id, :exam_schedule_id)"
         )->execute(['student_id' => $studentId, 'exam_schedule_id' => $examScheduleId]);
     }
 
     /**
-     * Students waiting to be examined, on the programs this
-     * coordinator holds. Anyone whose exam is already scheduled drops
-     * out of the queue.
+     * Cancels a booking, until the coordinator has scheduled the exam.
+     */
+    public function cancelBooking(string $studentId, string $examScheduleId): void
+    {
+        $stmt = $this->db->prepare(
+            "SELECT meeting_id FROM exam_readiness WHERE student_id = :student_id AND exam_schedule_id = :exam_schedule_id"
+        );
+        $stmt->execute(['student_id' => $studentId, 'exam_schedule_id' => $examScheduleId]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            return;
+        }
+        if ($row['meeting_id'] !== null) {
+            throw new RuntimeException('Your exam is already scheduled, so the booking cannot be cancelled. Ask your coordinator.');
+        }
+
+        $this->db->prepare(
+            "DELETE FROM exam_readiness WHERE student_id = :student_id AND exam_schedule_id = :exam_schedule_id AND meeting_id IS NULL"
+        )->execute(['student_id' => $studentId, 'exam_schedule_id' => $examScheduleId]);
+    }
+
+    /**
+     * One window as windowsFor() sees it, or null when it is not one of
+     * the student's.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function window(string $studentId, string $userId, string $examScheduleId): ?array
+    {
+        foreach ($this->windowsFor($studentId, $userId) as $window) {
+            if ($window['exam_schedule_id'] === $examScheduleId) {
+                return $window;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Students who have booked an exam, on the programs this coordinator
+     * holds. Anyone whose exam is already scheduled drops out of the
+     * queue.
      *
      * @param array<int, string> $programIds
      * @return array<int, array<string, mixed>>
@@ -223,7 +318,7 @@ class ExamReadiness
             "SELECT r.readiness_id, r.marked_ready_at,
                     r.exam_schedule_id, es.exam_type, es.starts_at, es.ends_at,
                     s.stage_id, s.name AS stage_name, s.rubric_template_id,
-                    st.student_id, st.student_number,
+                    st.student_id, st.user_id AS student_user_id, st.student_number,
                     CONCAT(su.first_name, ' ', su.last_name) AS student_name,
                     tp.proposal_id, tp.title AS proposal_title,
                     p.program_id, p.name AS program_name
@@ -277,6 +372,7 @@ class ExamReadiness
             throw new RuntimeException('This exam has already been scheduled.');
         }
 
+
         $qualifications = new ExaminerQualification($this->db);
         foreach ($examinerLecturerIds as $lecturerId) {
             if (!$qualifications->isQualified($lecturerId, $programId)) {
@@ -296,6 +392,16 @@ class ExamReadiness
             if ($own->userForLecturer($lecturerId) === $own->userForStudent($readiness['student_id'])) {
                 throw new RuntimeException('The student cannot examine their own work — take them off the panel.');
             }
+        }
+
+        // Last, whether the student is ready to sit it: the booking is for
+        // the stage they are on, and fees and documents are settled.
+        $booked = $this->window($readiness['student_id'], $readiness['student_user_id'], $readiness['exam_schedule_id']);
+        if ($booked === null) {
+            throw new RuntimeException('That booking is no longer for the stage the student is on.');
+        }
+        if ($booked['blockers'] !== []) {
+            throw new RuntimeException('The student still has outstanding items: ' . implode(' ', $booked['blockers']));
         }
 
         $meeting = new Meeting($this->db);
@@ -341,9 +447,11 @@ class ExamReadiness
     {
         $stmt = $this->db->prepare(
             "SELECT r.readiness_id, r.meeting_id, r.exam_schedule_id, r.student_id,
+                    st.user_id AS student_user_id,
                     es.exam_stage_id AS stage_id,
                     tp.proposal_id
              FROM exam_readiness r
+             JOIN students st ON st.student_id = r.student_id
              JOIN exam_schedule es ON es.exam_schedule_id = r.exam_schedule_id
              JOIN thesis_proposals tp ON tp.student_id = r.student_id AND tp.status <> 'rejected'
              WHERE r.readiness_id = :id

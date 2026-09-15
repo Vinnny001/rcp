@@ -22,8 +22,11 @@ use PDO;
  *    student sees neither the stages they have passed nor the ones they
  *    have not reached. StudentJourney decides which stage that is.
  *
- * A required document is visible only through a visible window, and not
- * when its own deadline passed before the student registered.
+ * A student books one of the visible windows for their stage — several
+ * may be open on different dates — and a required document is visible
+ * only through the window they booked, and not when its own deadline
+ * passed before they registered. Until they book, they see the exams on
+ * offer and what each requires, but can submit nothing.
  *
  * A window without a stage examines nothing and has no place in the
  * order, so only the dates apply to it. Such windows never reach the exam
@@ -95,7 +98,46 @@ class StudentExamWindows
     }
 
     /**
-     * The document slots — window and document type — this student can see.
+     * The window the student booked for the stage they are on, if any.
+     */
+    public function bookedWindowId(string $studentId): ?string
+    {
+        $staged = array_keys(array_filter(
+            $this->visibleWindows($studentId),
+            fn (array $window): bool => $window['exam_stage_id'] !== null
+        ));
+        if ($staged === []) {
+            return null;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($staged), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT exam_schedule_id FROM exam_readiness
+             WHERE student_id = ? AND exam_schedule_id IN ($placeholders)
+             ORDER BY marked_ready_at DESC LIMIT 1"
+        );
+        $stmt->execute(array_merge([$studentId], $staged));
+        $windowId = $stmt->fetchColumn();
+
+        return $windowId ? (string) $windowId : null;
+    }
+
+    /**
+     * Whether a document with this deadline is one the student could
+     * ever have been asked for — its deadline did not pass before they
+     * registered.
+     */
+    public function deadlineWithinStudies(string $studentId, ?string $deadline): bool
+    {
+        $context = $this->context($studentId);
+
+        return $context !== null && ($deadline === null || $deadline >= $context['registered_at']);
+    }
+
+    /**
+     * The document slots — window and document type — this student can
+     * see: those of the window they booked for their stage, and of any
+     * visible window without a stage.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -105,7 +147,12 @@ class StudentExamWindows
             return $this->slots[$studentId];
         }
 
-        $windowIds = array_keys($this->visibleWindows($studentId));
+        $booked = $this->bookedWindowId($studentId);
+        $windowIds = array_keys(array_filter(
+            $this->visibleWindows($studentId),
+            fn (array $window, string $id): bool => $window['exam_stage_id'] === null || $id === $booked,
+            ARRAY_FILTER_USE_BOTH
+        ));
         if ($windowIds === []) {
             return $this->slots[$studentId] = [];
         }

@@ -19,6 +19,13 @@
   <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
 {% endif %}
 
+{% if needs_booking %}
+  <div class="notice">
+    An exam is open for booking at your stage. Book a date on the <a href="/student/exam">Exam &amp; Graduation</a> page —
+    its documents appear here once you have.
+  </div>
+{% endif %}
+
 {% if no_thesis_schedule %}
   <div class="notice">No thesis schedule found for your registration.</div>
 {% elseif not proposal_submitted %}

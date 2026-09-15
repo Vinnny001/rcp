@@ -206,6 +206,15 @@ try {
     check('a window with no stage is kept to its dates, and stays off the exam page',
         $seen()->isWindowVisible($sid, $plain) && !in_array($plain, $examPage(), true));
 
+    echo "\n=== A date is booked before anything is submitted ===\n";
+    check('before booking, the current exam\'s document is not open to them', !$slotVisible($current, $docCurrent));
+    $page = (string) send($pdo, 'GET', '/student/requirements', $student)->getBody();
+    check('and the Requirements page tells them to book first', str_contains($page, 'Book a date on the'));
+    send($pdo, 'POST', '/student/requirements/upload', $student, ['exam_schedule_id' => $current, 'document_type_id' => $docCurrent['doc_type_id']]);
+    $message = ($_SESSION['flash_error'] ?? '') . ($_SESSION['flash_success'] ?? '');
+    check('uploading to it is refused until they do', str_contains($message, 'Book this exam'), $message);
+    (new ExamReadiness($pdo))->book($sid, $student['user_id'], $current);
+
     echo "\n=== The documents follow their exam ===\n";
     check('the current exam\'s document is shown', $slotVisible($current, $docCurrent));
     check('the next stage\'s document is not', !$slotVisible($next, $docNext));
@@ -263,7 +272,9 @@ try {
             . " AND stage_id = " . $pdo->quote($first['stage_id']) . " AND status = 'complete'")->fetchColumn());
     check('the next exam is now shown', in_array($next, $examPage(), true));
     check('and the one they passed is not', !in_array($current, $examPage(), true));
-    check('its document goes with it', !$slotVisible($current, $docCurrent) && $slotVisible($next, $docNext));
+    check('its document goes with it', !$slotVisible($current, $docCurrent));
+    (new ExamReadiness($pdo))->book($sid, $student['user_id'], $next);
+    check('and once they book the next exam, its document is the one open to them', $slotVisible($next, $docNext));
 
     // =====================================================================
     echo "\n=== Nothing after graduation ===\n";

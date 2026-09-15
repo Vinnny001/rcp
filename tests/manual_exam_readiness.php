@@ -123,6 +123,13 @@ $upload = function (string $docTypeId, string $status) use ($pdo, $student, $win
     )->execute([$documentId, $proposalId, $window, $docTypeId, 60 + ++$uploadSeconds]);
 };
 
+
+// Real students book too; the queue checks look only at this student's rows.
+$mine = fn (string $programId) => array_values(array_filter(
+    $readiness->queueForPrograms([$programId]),
+    fn ($row) => $row['student_id'] === $student['student_id']
+));
+
 echo "\n=== An untagged window is not examinable ===\n";
 $untagged = $pdo->query(
     "SELECT exam_schedule_id FROM exam_schedule
@@ -137,16 +144,31 @@ if ($untagged) {
     check('windows without one are not', true, 'no untagged window for this program');
 }
 
-echo "\n=== The gate ===\n";
+echo "\n=== Booking, and the gate ===\n";
 $w = array_values(array_filter($windows, fn($x) => $x['exam_schedule_id'] === $window))[0];
+check('before booking, nothing is worked out as outstanding', $w['booked'] === false && $w['blockers'] === []);
+check('but what the exam requires is shown', $w['requirements'] !== []);
+
+$readiness->book($student['student_id'], $student['user_id'], $window);
+check('the student books the exam, whatever is still outstanding',
+    $readiness->window($student['student_id'], $student['user_id'], $window)['booked'] === true);
+check('which puts them in their coordinator\'s queue', count($mine($student['program_id'])) === 1);
+$w = $readiness->window($student['student_id'], $student['user_id'], $window);
 check('everything outstanding is listed as a blocker', $w['blockers'] !== [], count($w['blockers']) . ' blocker(s)');
 check('fees appear among them',
     count(array_filter($w['blockers'], fn($b) => str_contains($b, 'fee') || str_contains($b, 'registration'))) > 0);
 check('documents appear among them',
     count(array_filter($w['blockers'], fn($b) => str_contains($b, 'not been submitted'))) > 0);
 
-$err = throws(fn() => $readiness->markReady($student['student_id'], $student['user_id'], $window));
-check('marking ready is refused while blocked', $err !== null, substr((string) $err, 0, 60) . '…');
+$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers WHERE user_id <> '{$student['user_id']}' LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
+[$qualifiedA, $qualifiedB, $unqualified] = $lecturers;
+$quals->add($qualifiedA, $student['program_id'], $admin);
+$quals->add($qualifiedB, $student['program_id'], $admin);
+$err = throws(fn() => $readiness->scheduleExam(
+    $mine($student['program_id'])[0]['readiness_id'], $student['program_id'], [$qualifiedA], null,
+    '2026-11-01 10:00:00', 'physical', 'Boardroom', null, $admin
+));
+check('the coordinator cannot schedule the exam while anything is outstanding', str_contains((string) $err, 'outstanding'), substr((string) $err, 0, 70) . '…');
 
 echo "\n=== Clearing the blockers ===\n";
 $pdo->prepare("INSERT INTO thesis_payments (thesis_payment_id, thesis_registration_id, exam_schedule_id, fee_type, amount, payment_method, status)
@@ -168,23 +190,13 @@ $w = array_values(array_filter($readiness->windowsFor($student['student_id'], $s
     fn($x) => $x['exam_schedule_id'] === $window))[0];
 check('nothing is blocking any more', $w['blockers'] === [], implode(' ', $w['blockers']));
 
-$readiness->markReady($student['student_id'], $student['user_id'], $window);
-check('the student can now declare readiness',
-    $readiness->windowsFor($student['student_id'], $student['user_id'])[0]['marked_ready_at'] !== null
-    || true);
-check('and appears in their coordinator\'s queue',
-    count($readiness->queueForPrograms([$student['program_id']])) === 1);
+check('and they are still in their coordinator\'s queue',
+    count($mine($student['program_id'])) === 1);
 $other = $pdo->query("SELECT program_id FROM programs WHERE program_id <> '{$student['program_id']}' LIMIT 1")->fetchColumn();
-check('but not another program\'s', count($readiness->queueForPrograms([$other])) === 0);
+check('but not another program\'s', count($mine($other)) === 0);
 
 echo "\n=== Scheduling, with the qualification check ===\n";
-$queue = $readiness->queueForPrograms([$student['program_id']]);
-$readinessId = $queue[0]['readiness_id'];
-
-$lecturers = $pdo->query("SELECT lecturer_id FROM lecturers LIMIT 3")->fetchAll(PDO::FETCH_COLUMN);
-[$qualifiedA, $qualifiedB, $unqualified] = $lecturers;
-$quals->add($qualifiedA, $student['program_id'], $admin);
-$quals->add($qualifiedB, $student['program_id'], $admin);
+$readinessId = $mine($student['program_id'])[0]['readiness_id'];
 
 $err = throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA, $unqualified], null,
@@ -192,7 +204,7 @@ $err = throws(fn() => $readiness->scheduleExam(
 ));
 check('an unqualified examiner is refused even when posted directly', $err !== null, $err ?? '');
 check('and nothing was scheduled from the refused attempt',
-    count($readiness->queueForPrograms([$student['program_id']])) === 1);
+    count($mine($student['program_id'])) === 1);
 
 $err = throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA], $qualifiedB,
@@ -219,7 +231,7 @@ check('both examiners were invited',
     (int) $pdo->query("SELECT COUNT(*) FROM meeting_attendees WHERE meeting_id = '$meetingId' AND role_in_meeting = 'examiner'")->fetchColumn() === 2);
 check('the panel leader was designated', $rubric->panelLeader($meetingId) !== null);
 check('the student leaves the ready queue',
-    count($readiness->queueForPrograms([$student['program_id']])) === 0);
+    count($mine($student['program_id'])) === 0);
 check('scheduling twice is refused', throws(fn() => $readiness->scheduleExam(
     $readinessId, $student['program_id'], [$qualifiedA], null,
     '2026-11-02 10:00:00', 'physical', 'Boardroom', null, $admin

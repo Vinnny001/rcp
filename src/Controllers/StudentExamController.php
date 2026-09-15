@@ -83,7 +83,11 @@ class StudentExamController
             ? $examModel->findStudentSafeByProposalId($proposal['proposal_id'])
             : [];
 
-        return $this->twig->render($response, 'students/exam.twig', [
+        $booking = $student
+            ? (new \App\Models\ExamReadiness($this->db))->bookingPage($student['student_id'], $_SESSION['user_id'])
+            : ['current_stage' => null, 'exam_windows' => [], 'booked' => null, 'calendar' => []];
+
+        return $this->twig->render($response, 'students/exam.twig', $booking + [
             'active_page'    => 'exam',
             'first_name'     => $_SESSION['first_name'] ?? '',
             'student_number' => $student['student_number'] ?? null,
@@ -91,9 +95,6 @@ class StudentExamController
             'internal_exam'  => $this->findByType($examinations, 'internal'),
             'external_exam'  => $this->findByType($examinations, 'external'),
             'graduation'     => $student ? $gradModel->findByStudentId($student['student_id']) : null,
-            'exam_windows'   => $student
-                ? (new \App\Models\ExamReadiness($this->db))->windowsFor($student['student_id'], $_SESSION['user_id'])
-                : [],
             'csrf_token'     => $this->csrfToken(),
             'error'          => $this->takeFlash('flash_error'),
             'success'        => $this->takeFlash('flash_success'),
@@ -101,11 +102,29 @@ class StudentExamController
     }
 
     /**
-     * The student declaring they are ready to be examined. The model
-     * re-checks the fees and documents rather than trusting that the
-     * button was only rendered when it should have been.
+     * The student booking one of the dates open for their stage — or
+     * switching to it from another. The model re-checks that the date is
+     * theirs to book rather than trusting the button.
      */
-    public function markReady(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    public function book(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->bookingAction($request, $response, function (\App\Models\ExamReadiness $readiness, string $studentId, string $scheduleId): string {
+            $readiness->book($studentId, $_SESSION['user_id'], $scheduleId);
+
+            return 'Booked. Submit its documents on the Requirements page — your coordinator schedules your exam once fees and documents are settled.';
+        });
+    }
+
+    public function cancelBooking(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        return $this->bookingAction($request, $response, function (\App\Models\ExamReadiness $readiness, string $studentId, string $scheduleId): string {
+            $readiness->cancelBooking($studentId, $scheduleId);
+
+            return 'Booking cancelled. You can book another date at any time.';
+        });
+    }
+
+    private function bookingAction(ServerRequestInterface $request, ResponseInterface $response, callable $action): ResponseInterface
     {
         if ($redirect = $this->requireStudent()) {
             return $response->withHeader('Location', $redirect)->withStatus(302);
@@ -118,17 +137,17 @@ class StudentExamController
         }
 
         $student = $this->getStudentRecord($_SESSION['user_id']);
-        $readiness = new \App\Models\ExamReadiness($this->db);
-        $scheduleId = (string) ($data['exam_schedule_id'] ?? '');
+        if (!$student) {
+            $_SESSION['flash_error'] = 'Could not find your student record.';
+            return $response->withHeader('Location', '/student/exam')->withStatus(302);
+        }
 
         try {
-            if (($data['withdraw'] ?? '') === '1') {
-                $readiness->withdraw($student['student_id'], $scheduleId);
-                $_SESSION['flash_success'] = 'Withdrawn. You can mark yourself ready again at any time.';
-            } else {
-                $readiness->markReady($student['student_id'], $_SESSION['user_id'], $scheduleId);
-                $_SESSION['flash_success'] = 'Marked as ready. Your research coordinator will schedule the exam.';
-            }
+            $_SESSION['flash_success'] = $action(
+                new \App\Models\ExamReadiness($this->db),
+                $student['student_id'],
+                (string) ($data['exam_schedule_id'] ?? '')
+            );
         } catch (\Throwable $e) {
             $_SESSION['flash_error'] = $e->getMessage();
         }
