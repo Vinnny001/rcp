@@ -171,7 +171,7 @@
     <tbody>
       {% for v in voters %}
         <tr>
-          <td class="strong">{{ v.head_name }}</td>
+          <td class="strong">{{ v.voter_user_id == session_user_id ? 'You' : v.head_name }}</td>
           <td class="meta">{{ v.position_name }}</td>
           <td>
             {% if v.vote == 'approve' %}<span class="stamp mini approved">Approve</span>

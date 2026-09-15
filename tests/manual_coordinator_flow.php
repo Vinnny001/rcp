@@ -180,6 +180,13 @@ $h = $render('coordinators/shortlist.twig', $asPlain);
 check('the coordinator page offers them their vote', str_contains($h, 'action="/coordinator/shortlists/vote"'));
 check('and says in what capacity', str_contains($h, 'as research coordinator'));
 
+$plainName = $pdo->query("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE user_id = " . $pdo->quote($plainCoordinator))->fetchColumn();
+preg_match('/<tbody>.*?<\/tbody>/s', substr($h, strpos($h, '>Votes<')), $votesTable);
+$votesTable = $votesTable[0] ?? '';
+check('their own row in the votes table says You', (bool) preg_match('/<td class="strong">You<\/td>\s*<td class="meta">Research coordinator<\/td>/', $votesTable));
+check('rather than their name', !str_contains($votesTable, '<td class="strong">' . $plainName . '</td>'));
+check('while everyone else still shows by name', substr_count($votesTable, '<td class="strong">You</td>') === 1);
+
 echo "\n=== Department head view ===\n";
 $headUserId = $pdo->query("SELECT user_id FROM department_heads WHERE dept_head_id = '{$headIds[0]}'")->fetchColumn();
 $meetings = $m->meetingsForHead($headUserId);
