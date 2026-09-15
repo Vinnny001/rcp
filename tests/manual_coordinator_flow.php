@@ -187,6 +187,24 @@ check('their own row in the votes table says You', (bool) preg_match('/<td class
 check('rather than their name', !str_contains($votesTable, '<td class="strong">' . $plainName . '</td>'));
 check('while everyone else still shows by name', substr_count($votesTable, '<td class="strong">You</td>') === 1);
 
+echo "\n=== Your own name reads as You ===\n";
+$coordName = $pdo->query("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE user_id = " . $pdo->quote($coordUser))->fetchColumn();
+$h = $render('coordinators/shortlist.twig', $coordVars($m->findWithContext($sid)));
+check('the coordinator who leads the meeting reads "Led by you"', str_contains($h, 'Led by you.'));
+check('and not their own name', !str_contains($h, 'Led by ' . $coordName));
+$h = $render('coordinators/shortlist.twig', $asPlain);
+check('another coordinator still sees who leads it', str_contains($h, 'Led by ' . $coordName . '.'));
+
+// Someone on the student's list, looking at the request.
+$listedUser = $pdo->query("SELECT user_id FROM lecturers WHERE lecturer_id = " . $pdo->quote($lects[1]))->fetchColumn();
+$listedName = $pdo->query("SELECT CONCAT(first_name, ' ', last_name) FROM users WHERE user_id = " . $pdo->quote($listedUser))->fetchColumn();
+$asListed = $coordVars($m->findWithContext($sid));
+$asListed['session_user_id'] = $listedUser;
+$h = $render('coordinators/shortlist.twig', $asListed);
+preg_match('/<tbody>.*?<\/tbody>/s', substr($h, strpos($h, "in the student's order")), $listTable);
+check('a coordinator on the supervisor list sees themselves as You',
+    str_contains($listTable[0] ?? '', 'You') && !str_contains($listTable[0] ?? '', $listedName));
+
 echo "\n=== Department head view ===\n";
 $headUserId = $pdo->query("SELECT user_id FROM department_heads WHERE dept_head_id = '{$headIds[0]}'")->fetchColumn();
 $meetings = $m->meetingsForHead($headUserId);
@@ -201,6 +219,15 @@ $h = $render('lecturers/shortlist_meetings.twig', [
 ]);
 check('their existing vote is shown back to them', str_contains($h, 'You voted'));
 check('and they can still change it', str_contains($h, 'value="approve"'));
+check('and are told they can', str_contains($h, 'You can change your vote'));
+
+$h = $render('lecturers/shortlist_meetings.twig', [
+    'active_page' => 'l-panel', 'first_name' => 'H', 'last_name' => 'Ead',
+    'meetings' => $meetings, 'session_user_id' => $listedUser, 'csrf_token' => 't', 'error' => null, 'success' => null,
+]);
+check('a head on the proposed list sees themselves as You, preferred main',
+    (bool) preg_match('/<li>You <span class="meta">— preferred main<\/span><\/li>/', $h));
+check('rather than their own name', !str_contains($h, '<li>' . $listedName));
 
 $stranger = $pdo->query("SELECT u.user_id FROM users u JOIN lecturers l ON l.user_id = u.user_id
                          WHERE u.user_id NOT IN (SELECT user_id FROM department_heads) LIMIT 1")->fetchColumn();
@@ -237,6 +264,17 @@ check('voting closes once the decision is applied — for the coordinator',
     str_contains((string) throws(fn () => $m->castVoteAs($meeting, $plainCoordinator, 'reject')), 'closed'));
 check('and for the heads', str_contains((string) throws(fn () => $m->castVote($meeting, $headIds[0], 'reject')), 'closed'));
 check('so the vote form is gone', !str_contains($h, 'action="/coordinator/shortlists/vote"'));
+
+$meetings = $m->meetingsForHead($headUserId);
+foreach ($meetings as &$mm) { $mm['choices'] = $m->choicesFor($mm['shortlist_id']); }
+unset($mm);
+$h = $render('lecturers/shortlist_meetings.twig', [
+    'active_page' => 'l-panel', 'first_name' => 'H', 'last_name' => 'Ead',
+    'meetings' => array_values(array_filter($meetings, fn ($mm) => $mm['meeting_id'] === $meeting)),
+    'session_user_id' => $headUserId, 'csrf_token' => 't', 'error' => null, 'success' => null,
+]);
+check('a head is no longer told they can change their vote', !str_contains($h, 'You can change your vote'));
+check('and reads the decision in words', str_contains($h, 'Decided — the department approved this request.'));
 
 echo "\n=== Sending ===\n";
 $sent = $m->sendRequests($sid, $coordUser);

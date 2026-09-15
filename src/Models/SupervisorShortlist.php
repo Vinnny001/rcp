@@ -526,7 +526,7 @@ class SupervisorShortlist
     public function choicesFor(string $shortlistId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT c.*, CONCAT(u.first_name, ' ', u.last_name) AS lecturer_name
+            "SELECT c.*, CONCAT(u.first_name, ' ', u.last_name) AS lecturer_name, u.user_id AS lecturer_user_id
              FROM supervisor_shortlist_choices c
              JOIN lecturers l ON l.lecturer_id = c.lecturer_id
              JOIN users u ON u.user_id = l.user_id

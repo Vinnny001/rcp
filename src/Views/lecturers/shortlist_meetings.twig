@@ -38,7 +38,7 @@
       <div class="meta" style="margin-top:14px;">Proposed supervisors</div>
       <ol style="font-size:.85rem; margin:6px 0 0 18px; padding:0;">
         {% for c in m.choices %}
-          <li>{{ c.lecturer_name }}{% if c.is_preferred_main %} <span class="meta">— preferred main</span>{% endif %}</li>
+          <li>{{ c.lecturer_user_id == session_user_id ? 'You' : c.lecturer_name }}{% if c.is_preferred_main %} <span class="meta">— preferred main</span>{% endif %}</li>
         {% endfor %}
       </ol>
 
@@ -65,7 +65,9 @@
             <span class="stamp mini {{ m.vote == 'approve' ? 'approved' : 'rejected' }}">{{ m.vote|capitalize }}</span>
             {%- if m.comment %} — {{ m.comment }}{% endif %}
           </div>
-          <div class="meta" style="font-size:.72rem; margin-top:4px;">You can change your vote until the coordinator applies the decision.</div>
+          {% if m.status == 'meeting_scheduled' %}
+            <div class="meta" style="font-size:.72rem; margin-top:4px;">You can change your vote until the coordinator applies the decision.</div>
+          {% endif %}
         {% endif %}
 
         {% if m.status in ['pending_coordinator','meeting_scheduled'] %}
@@ -82,7 +84,7 @@
             </div>
           </form>
         {% else %}
-          <div class="meta">Decided — recorded as {{ m.status }}.</div>
+          <div class="meta" style="margin-top:6px;">Decided — the department {{ m.status == 'rejected' ? 'did not approve' : 'approved' }} this request.</div>
         {% endif %}
       </div>
     </div>

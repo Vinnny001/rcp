@@ -47,7 +47,7 @@
       <tr>
         <td class="mono">{{ c.rank_position }}</td>
         <td class="strong">
-          {{ c.lecturer_name }}
+          {{ c.lecturer_user_id == session_user_id ? 'You' : c.lecturer_name }}
           {% if c.is_preferred_main %}<div class="meta" style="font-size:.7rem;">preferred main</div>{% endif %}
         </td>
         <td>
@@ -119,14 +119,15 @@
               <label>Meeting lead</label>
               <select name="lead_user_id">
                 <option value="">You</option>
-                {% for h in heads %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
+                {# You are already the first option; naming yourself again would list you twice. #}
+                {% for h in heads|filter(h => h.user_id != session_user_id) %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
               </select>
             </div>
             <div class="field">
               <label>Secretary <span class="meta">— writes the minutes</span></label>
               <select name="secretary_user_id">
                 <option value="">None — the lead writes them</option>
-                {% for h in heads %}<option value="{{ h.user_id }}">{{ h.head_name }}</option>{% endfor %}
+                {% for h in heads %}<option value="{{ h.user_id }}">{{ h.user_id == session_user_id ? 'You' : h.head_name }}</option>{% endfor %}
               </select>
             </div>
           </div>
@@ -139,7 +140,7 @@
             {% for h in heads %}
               <label style="font-size:.82rem; display:flex; gap:8px; align-items:center;">
                 <input type="checkbox" name="dept_head_ids[]" value="{{ h.dept_head_id }}" checked>
-                {{ h.head_name }} <span class="meta">({{ h.position_name }})</span>
+                {{ h.user_id == session_user_id ? 'You' : h.head_name }} <span class="meta">({{ h.position_name }})</span>
               </label>
             {% endfor %}
           </div>
@@ -224,7 +225,8 @@
 
   <div class="section-title">Minutes<div class="rule"></div></div>
   <div class="meta" style="margin-bottom:12px;">
-    Led by {{ shortlist.lead_name }}{% if shortlist.secretary_name %}, minuted by {{ shortlist.secretary_name }}{% endif %}.
+    Led by {{ shortlist.lead_user_id == session_user_id ? 'you' : shortlist.lead_name }}
+    {%- if shortlist.secretary_name %}, minuted by {{ shortlist.secretary_user_id == session_user_id ? 'you' : shortlist.secretary_name }}{% endif %}.
     {% if not shortlist.minutes_finalized_at %}
       Heads can read the draft as soon as it is saved. Finalising is what unlocks the decision — and cannot be undone.
     {% endif %}
