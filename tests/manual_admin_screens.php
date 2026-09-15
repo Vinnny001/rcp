@@ -64,12 +64,6 @@ $pdo->beginTransaction();
 echo "\n=== Tagging an exam window with a stage ===\n";
 $examModel = new ExamSchedule($pdo);
 $stages = (new ExamStage($pdo))->allActive();
-$draftStage = null;
-foreach ($stages as $s) {
-    if ($s['code'] === 'thesis_draft') {
-        $draftStage = $s;
-    }
-}
 
 $student = $pdo->query(
     "SELECT st.student_id, st.user_id, ts.schedule_id
@@ -82,6 +76,12 @@ $student = $pdo->query(
 $window = $pdo->query(
     "SELECT * FROM exam_schedule WHERE thesis_schedule_id = '{$student['schedule_id']}' LIMIT 1"
 )->fetch();
+
+// A student is shown only the exam for the stage they are on, while the
+// window is open to them — so tag it with that stage, and keep it open.
+$draftStage = (new \App\Models\StudentJourney($pdo))->currentExamStage($student['student_id'], $student['user_id']);
+$window['ends_at'] = date('Y-m-d H:i:s', strtotime('+30 days'));
+$pdo->prepare("UPDATE exam_schedule SET ends_at = ? WHERE exam_schedule_id = ?")->execute([$window['ends_at'], $window['exam_schedule_id']]);
 
 $pdo->prepare("UPDATE exam_schedule SET exam_stage_id = NULL WHERE exam_schedule_id = ?")
     ->execute([$window['exam_schedule_id']]);

@@ -232,8 +232,15 @@ class ThesisRegistration
 
         $now = new \DateTimeImmutable();
         $docPaymentModel = new DocumentPayment($this->db);
+        $visibility = new StudentExamWindows($this->db);
 
         foreach ($examSchedules->fetchAll() as $es) {
+            // A document the student cannot see — another stage's, or
+            // outside their time on the programme — is not charged.
+            if (!$visibility->isDocumentSlotVisible($registration['student_id'], $es['exam_schedule_id'], $es['document_type_id'])) {
+                continue;
+            }
+
             $startsAt = new \DateTimeImmutable($es['document_submission_starts_at']);
             $dueAt = $startsAt->modify('+' . (int) $es['due_after_weeks'] . ' weeks');
 
@@ -476,8 +483,13 @@ class ThesisRegistration
         $now = new \DateTimeImmutable();
         $upcoming = [];
         $docPaymentModel = new DocumentPayment($this->db);
+        $visibility = new StudentExamWindows($this->db);
 
         foreach ($examSchedules->fetchAll() as $es) {
+            if (!$visibility->isDocumentSlotVisible($registration['student_id'], $es['exam_schedule_id'], $es['document_type_id'])) {
+                continue;
+            }
+
             $startsAt = new \DateTimeImmutable($es['document_submission_starts_at']);
             $dueAt = $startsAt->modify('+' . (int) $es['due_after_weeks'] . ' weeks');
 

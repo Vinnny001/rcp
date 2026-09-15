@@ -130,40 +130,16 @@ class StudentJourney
         ?array $proposal,
         ExaminationScore $examScores
     ): array {
-        $completedStageIds = $this->completedStageIds($studentId);
-        $passedDocTypes    = $this->passedDocTypes($userId, $examScores);
-        $proposalApproved  = $proposal !== null && ($proposal['status'] ?? null) === 'approved';
-
         $rail = [
             ['key' => 'registration', 'label' => 'Registration',            'done' => $registrationDone, 'fixed' => true],
             ['key' => 'requirements', 'label' => 'Requirements Validation', 'done' => $proposal !== null, 'fixed' => true],
         ];
 
-        foreach ((new ExamStage($this->db))->allActive() as $stage) {
-            $done = isset($completedStageIds[$stage['stage_id']]);
-
-            if (!$done && $stage['evidence_doc_type_name'] !== null) {
-                $done = isset($passedDocTypes[$stage['evidence_doc_type_name']]);
-            }
-
-            // An approved proposal also clears whichever stage the
-            // Proposal document evidences — proposals approved before
-            // exam scoring existed have no score row to match on.
-            if (!$done && $proposalApproved && $stage['evidence_doc_type_name'] === 'Proposal') {
-                $done = true;
-            }
-
-            if ($done && !isset($completedStageIds[$stage['stage_id']])) {
-                // Materialise the snapshot the moment we first observe
-                // the stage as complete, so the record exists to freeze
-                // later even though nothing wrote it at the time.
-                $this->recordStageComplete($studentId, $stage['stage_id']);
-            }
-
+        foreach ($this->examStages($studentId, $userId, $proposal, $examScores) as $stage) {
             $rail[] = [
                 'key'   => 'stage-' . $stage['stage_id'],
                 'label' => $stage['name'],
-                'done'  => $done,
+                'done'  => $stage['done'],
                 'fixed' => false,
             ];
         }
@@ -176,6 +152,90 @@ class StudentJourney
         ];
 
         return $this->applyStatuses($rail);
+    }
+
+    /**
+     * The active exam stages in the order they are taken, each marked
+     * done or not. A stage is done when it was recorded complete, when
+     * the student passed it — a released rubric result for the stage, or
+     * a passing score on the document that evidences it — or, for the
+     * stage the Proposal evidences, when the proposal was approved
+     * (proposals approved before exam scoring existed have nothing else
+     * to match on).
+     *
+     * @return array<int, array<string, mixed>> exam_stages rows, each with 'done'
+     */
+    public function examStages(string $studentId, string $userId, ?array $proposal, ExaminationScore $examScores): array
+    {
+        $completedStageIds = $this->completedStageIds($studentId);
+        $passedStageIds    = $this->passedStageIds($userId);
+        $passedDocTypes    = $this->passedDocTypes($userId, $examScores);
+        $proposalApproved  = $proposal !== null && ($proposal['status'] ?? null) === 'approved';
+
+        $stages = [];
+        foreach ((new ExamStage($this->db))->allActive() as $stage) {
+            $done = isset($completedStageIds[$stage['stage_id']]) || isset($passedStageIds[$stage['stage_id']]);
+
+            if (!$done && $stage['evidence_doc_type_name'] !== null) {
+                $done = isset($passedDocTypes[$stage['evidence_doc_type_name']]);
+            }
+            if (!$done && $proposalApproved && $stage['evidence_doc_type_name'] === 'Proposal') {
+                $done = true;
+            }
+
+            if ($done && !isset($completedStageIds[$stage['stage_id']])) {
+                // Materialise the snapshot the moment we first observe
+                // the stage as complete, so the record exists to freeze
+                // later even though nothing wrote it at the time.
+                $this->recordStageComplete($studentId, $stage['stage_id']);
+            }
+
+            $stages[] = $stage + ['done' => $done];
+        }
+
+        return $stages;
+    }
+
+    /**
+     * The exam stage the student is on: the first, in order, they have
+     * not completed. Null once every stage is done or they have
+     * graduated — there is no exam left for them to take.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function currentExamStage(string $studentId, string $userId): ?array
+    {
+        if ($this->isFinished($studentId)) {
+            return null;
+        }
+
+        $proposal = (new Proposal($this->db))->findActiveByStudentId($studentId);
+        foreach ($this->examStages($studentId, $userId, $proposal, new ExaminationScore($this->db)) as $stage) {
+            if (!$stage['done']) {
+                return $stage;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Stages this student passed on a rubric-marked exam whose result
+     * the coordinator has released.
+     *
+     * @return array<string, true>
+     */
+    private function passedStageIds(string $userId): array
+    {
+        $passed = [];
+
+        foreach ((new Rubric($this->db))->releasedOutcomesForStudent($userId) as $outcome) {
+            if (GradingPolicy::isPass($outcome['outcome'])) {
+                $passed[$outcome['stage_id']] = true;
+            }
+        }
+
+        return $passed;
     }
 
     /**

@@ -53,12 +53,22 @@ class ExamReadiness
              ORDER BY es.starts_at"
         );
         $stmt->execute(['student_id' => $studentId]);
-        $windows = $stmt->fetchAll();
+
+        // Only the exam for the stage the student is on, within their
+        // time on the programme — see StudentExamWindows.
+        $visibility = new StudentExamWindows($this->db);
+        $windows = array_values(array_filter(
+            $stmt->fetchAll(),
+            fn (array $window): bool => $visibility->isWindowVisible($studentId, $window['exam_schedule_id'])
+        ));
 
         $fees = new ExamFeeGate($this->db);
         foreach ($windows as &$window) {
             $window['fees'] = $fees->statusFor($studentId, $window['exam_schedule_id']);
-            $window['documents'] = $this->documentStatus($userId, $window['exam_schedule_id']);
+            $window['documents'] = array_values(array_filter(
+                $this->documentStatus($userId, $window['exam_schedule_id']),
+                fn (array $doc): bool => $visibility->isDocumentSlotVisible($studentId, $window['exam_schedule_id'], $doc['document_type_id'])
+            ));
             $window['blockers'] = $this->blockersFrom($window);
         }
         unset($window);
@@ -87,7 +97,7 @@ class ExamReadiness
                      AND d.user_id = %s
                    ORDER BY ed.submitted_at DESC LIMIT 1";
         $stmt = $this->db->prepare(
-            "SELECT dt.doc_type_name,
+            "SELECT dt.doc_type_name, esd.document_type_id,
                     esd.document_submission_starts_at,
                     esd.document_submission_deadline,
                     (SELECT d.document_status " . sprintf($latest, ':user_id') . ") AS latest_status,

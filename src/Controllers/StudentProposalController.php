@@ -10,6 +10,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use App\Models\Proposal;
 use App\Models\Document;
 use App\Models\SupervisorProfile;
+use App\Models\StudentExamWindows;
 use App\Models\SupervisorShortlist;
 use PDO;
 
@@ -480,19 +481,19 @@ class StudentProposalController
 
         $file->moveTo($destination);
 
+        // File it under the exam that asks for this document and that
+        // the student can see — never a stage they have not reached, or
+        // a window that closed before they registered.
         $examScheduleId = null;
-        $stmt = $this->db->prepare(
-            "SELECT esd.exam_schedule_id
-             FROM exam_schedule es
-             JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
-             JOIN student_thesis_registrations str ON str.thesis_schedule_id = es.thesis_schedule_id
-             WHERE str.student_id = (SELECT student_id FROM thesis_proposals WHERE proposal_id = :proposal_id)
-               AND str.status = 'active'
-               AND esd.document_type_id = :document_type_id
-             LIMIT 1"
-        );
-        $stmt->execute(['proposal_id' => $proposalId, 'document_type_id' => $documentTypeId]);
-        $examScheduleId = $stmt->fetchColumn() ?: null;
+        $studentStmt = $this->db->prepare("SELECT student_id FROM thesis_proposals WHERE proposal_id = :proposal_id");
+        $studentStmt->execute(['proposal_id' => $proposalId]);
+        $studentId = (string) $studentStmt->fetchColumn();
+        foreach ((new StudentExamWindows($this->db))->visibleDocumentSlots($studentId) as $slot) {
+            if ($slot['document_type_id'] === $documentTypeId) {
+                $examScheduleId = $slot['exam_schedule_id'];
+                break;
+            }
+        }
 
         $newDocumentId = $documentModel->create([
         'user_id'          => $_SESSION['user_id'],

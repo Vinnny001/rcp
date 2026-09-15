@@ -439,7 +439,7 @@ class Rubric
     {
         $stmt = $this->db->prepare(
             "SELECT m.meeting_id, m.scheduled_at, m.proposal_id,
-                    s.name AS stage_name,
+                    s.stage_id, s.name AS stage_name,
                     es.exam_type,
                     pl.average_score, pl.approved_at,
                     tp.title AS proposal_title,
@@ -464,6 +464,7 @@ class Rubric
             $outcomes[] = [
                 'proposal_id'    => $row['proposal_id'],
                 'proposal_title' => $row['proposal_title'],
+                'stage_id'       => $row['stage_id'],
                 'doc_type_name'  => $row['stage_name'],
                 'exam_type'      => $row['exam_type'],
                 'exam_date'      => $row['scheduled_at'],

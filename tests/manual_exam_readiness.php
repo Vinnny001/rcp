@@ -76,9 +76,11 @@ $window = $pdo->query(
      WHERE es.thesis_schedule_id = '{$student['schedule_id']}' LIMIT 1"
 )->fetchColumn();
 
-// Tag the window with a stage so it becomes examinable.
-$stage = $pdo->query("SELECT stage_id FROM exam_stages WHERE code = 'thesis_draft'")->fetchColumn();
-$pdo->prepare("UPDATE exam_schedule SET exam_stage_id = ? WHERE exam_schedule_id = ?")->execute([$stage, $window]);
+// Tag the window with the stage the student is on and keep it open: a
+// student is only shown the exam for their current stage, within their
+// time on the programme (StudentExamWindows).
+$stage = (new \App\Models\StudentJourney($pdo))->currentExamStage($student['student_id'], $student['user_id'])['stage_id'] ?? null;
+$pdo->prepare("UPDATE exam_schedule SET exam_stage_id = ?, ends_at = NOW() + INTERVAL 30 DAY WHERE exam_schedule_id = ?")->execute([$stage, $window]);
 
 // The seed data may already have this window's documents submitted,
 // which would leave the document half of the gate untested. Requiring

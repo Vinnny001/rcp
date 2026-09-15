@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\Document;
+use App\Models\StudentExamWindows;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Views\Twig;
@@ -105,7 +106,15 @@ class StudentRequirementsController
 
         $requirements = [];
         if ($thesisScheduleId) {
-            $scheduled = $documentModel->findScheduledForThesisSchedule($thesisScheduleId);
+            // Only the documents of exams the student can see: the stage
+            // they are on, within their time on the programme.
+            $visibility = new StudentExamWindows($this->db);
+            $scheduled = array_filter(
+                $documentModel->findScheduledForThesisSchedule($thesisScheduleId),
+                fn (array $item): bool => $visibility->isDocumentSlotVisible(
+                    $student['student_id'], $item['exam_schedule_id'], $item['document_type_id']
+                )
+            );
             $now = new \DateTimeImmutable();
 
             foreach ($scheduled as $item) {
@@ -204,6 +213,10 @@ class StudentRequirementsController
 
         if (!$examSchedule) {
             $_SESSION['flash_error'] = 'That document is not scheduled for review under your thesis schedule.';
+            return $this->redirect($response, '/student/requirements');
+        }
+        if (!(new StudentExamWindows($this->db))->isDocumentSlotVisible($student['student_id'], $examScheduleId, $documentTypeId)) {
+            $_SESSION['flash_error'] = 'That document belongs to an exam that is not open to you.';
             return $this->redirect($response, '/student/requirements');
         }
 

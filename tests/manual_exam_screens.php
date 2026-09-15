@@ -61,8 +61,11 @@ $window = $pdo->query(
      JOIN exam_schedule_documents esd ON esd.exam_schedule_id = es.exam_schedule_id
      WHERE es.thesis_schedule_id = '{$student['schedule_id']}' LIMIT 1"
 )->fetchColumn();
-$stage = $pdo->query("SELECT stage_id FROM exam_stages WHERE code = 'thesis_draft'")->fetchColumn();
-$pdo->prepare("UPDATE exam_schedule SET exam_stage_id = ? WHERE exam_schedule_id = ?")->execute([$stage, $window]);
+// Tag the window with the stage the student is on and keep it open: a
+// student is only shown the exam for their current stage, within their
+// time on the programme (StudentExamWindows).
+$stage = (new \App\Models\StudentJourney($pdo))->currentExamStage($student['student_id'], $student['user_id'])['stage_id'] ?? null;
+$pdo->prepare("UPDATE exam_schedule SET exam_stage_id = ?, ends_at = NOW() + INTERVAL 30 DAY WHERE exam_schedule_id = ?")->execute([$stage, $window]);
 
 // Require a document the student has not submitted, so the blocked state is real.
 $spare = $pdo->query("SELECT doc_type_id FROM document_types WHERE doc_type_id NOT IN

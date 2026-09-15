@@ -75,7 +75,13 @@ class ExamFeeGate
             ),
         ];
 
+        $visibility = new StudentExamWindows($this->db);
         foreach ($this->requiredDocuments($examScheduleId) as $doc) {
+            // A document the student cannot see is not theirs to pay for.
+            if (!$visibility->isDocumentSlotVisible($studentId, $examScheduleId, $doc['document_type_id'])) {
+                continue;
+            }
+
             $owedDocument = array_values(array_filter(
                 $owed,
                 fn (array $o): bool => $o['fee_type'] === 'document_review_fee'
