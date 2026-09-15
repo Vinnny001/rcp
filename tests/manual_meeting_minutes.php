@@ -403,6 +403,16 @@ try {
     check('a plain rejection too',
         SupervisorShortlist::decisionSummary('rejected', 0, 2) === 'The department did not approve this supervisor request, with 0 for and 2 against.');
 
+    echo "\n=== Long text on the student page is cut short ===\n";
+    $page = (string) send($pdo, 'GET', '/student/proposal', $student, 'student')->getBody();
+    check('an earlier request\'s outcome is held to one line, with View more',
+        (bool) preg_match('~class="view-more view-more-inline"[^>]*>\s*<div class="view-more-text" style="-webkit-line-clamp:1;[^"]*">'
+            . preg_quote($tied, '~') . '</div>\s*<button type="button" class="view-more-open" hidden>View more</button>~', $page));
+    $synopsis = $pdo->query("SELECT synopsis FROM thesis_proposals WHERE proposal_id = " . $pdo->quote($student['proposal_id']))->fetchColumn();
+    check('the proposal synopsis to five lines',
+        !$synopsis || str_contains($page, '-webkit-line-clamp:5;'));
+    check('with one dialog for the page to open them in', substr_count($page, 'id="viewMoreDialog"') === 1);
+
     echo "\n=== The record on file ===\n";
     check('every applied decision has a summary',
         (int) $pdo->query(

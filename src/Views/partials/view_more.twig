@@ -1,0 +1,18 @@
+{#
+  Text cut to a few lines, with "View more" opening all of it in a
+  dialog. The link only appears when the text really was cut — decided
+  in the browser, since how much fits depends on the width. Include
+  partials/view_more_assets.twig once on the page.
+
+  Vars:
+    text     the full text
+    lines    how many lines to show (default 1; one line keeps the link beside it)
+    heading  the dialog's title
+    ref      optional small reference shown above the title
+#}
+{% set lines = lines|default(1) %}
+<div class="view-more{{ lines == 1 ? ' view-more-inline' : '' }}" data-view-more
+     data-heading="{{ heading }}" data-ref="{{ ref|default('') }}">
+  <div class="view-more-text" style="-webkit-line-clamp:{{ lines }}; line-clamp:{{ lines }};">{{ text }}</div>
+  <button type="button" class="view-more-open" hidden>View more</button>
+</div>

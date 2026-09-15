@@ -167,7 +167,11 @@
     {% elseif proposal %}
       <div class="card" style="margin-bottom:26px;">
         <h3>{{ proposal.title }}</h3>
-        <p style="font-size:.88rem; line-height:1.6; color:#39332a;">{{ proposal.synopsis }}</p>
+        {% if proposal.synopsis %}
+          <div style="font-size:.88rem; line-height:1.6; color:#39332a; margin:10px 0 12px;">
+            {% include 'partials/view_more.twig' with {text: proposal.synopsis, lines: 5, heading: proposal.title, ref: 'Synopsis'} only %}
+          </div>
+        {% endif %}
         <div class="meta">
           {% if latest %}Locked — your coordinator handed back only the supervisor list.{% else %}Submitted {{ proposal.submission_date ? proposal.submission_date|date('d M Y') : '' }}. It is sent again with your supervisor list, unchanged.{% endif %}
         </div>
@@ -234,7 +238,11 @@
   <div class="card" style="margin-bottom:26px;">
     <h3>{{ proposal.title }}</h3>
     <div class="meta">Submitted {{ proposal.submission_date ? proposal.submission_date|date('d M Y') : '—' }}</div>
-    <p style="font-size:.88rem; line-height:1.6; color:#39332a;">{{ proposal.synopsis }}</p>
+    {% if proposal.synopsis %}
+      <div style="font-size:.88rem; line-height:1.6; color:#39332a; margin:10px 0 12px;">
+        {% include 'partials/view_more.twig' with {text: proposal.synopsis, lines: 5, heading: proposal.title, ref: 'Synopsis'} only %}
+      </div>
+    {% endif %}
 
     {% if synopsis_doc or proposal_doc %}
       <div class="meta" style="margin-bottom:10px;">
@@ -264,7 +272,9 @@
 {# ==================================================================== #}
 {% if history %}
   <div class="section-title">Earlier requests<div class="rule"></div></div>
-  <table style="margin-bottom:30px;">
+  {# On a phone the table scrolls sideways rather than squeezing the outcome to a letter. #}
+  <div style="overflow-x:auto; margin-bottom:30px;">
+  <table>
     <thead><tr><th>Request</th><th>Sent</th><th>Proposal as sent</th><th>Outcome</th></tr></thead>
     <tbody>
       {% for h in history %}
@@ -278,10 +288,18 @@
               <div class="meta" style="font-size:.72rem;">Sent with {% include 'partials/request_files.twig' with {files: history_files[h.shortlist_id]} only %}</div>
             {% endif %}
           </td>
-          <td>
+          <td style="min-width:14rem;">
             {% if h.status == 'rejected' %}
               <span class="stamp mini rejected">Not approved</span>
-              {% if h.meeting_summary ?: h.rejection_reason %}<div class="meta" style="font-size:.72rem;">{{ h.meeting_summary ?: h.rejection_reason }}</div>{% endif %}
+              {% if h.meeting_summary ?: h.rejection_reason %}
+                <div class="meta" style="font-size:.72rem; margin-top:4px;">
+                  {% include 'partials/view_more.twig' with {
+                    text: h.meeting_summary ?: h.rejection_reason,
+                    heading: 'What the department meeting decided',
+                    ref: 'REQ-' ~ h.shortlist_id|slice(0, 8)|upper
+                  } only %}
+                </div>
+              {% endif %}
             {% elseif h.status == 'exhausted' %}
               <span class="stamp mini rejected">Nobody appointed</span>
             {% elseif h.status == 'successful' %}
@@ -290,13 +308,22 @@
               <span class="meta">{{ h.status|replace({'_': ' '})|capitalize }}</span>
             {% endif %}
             {% if h.status != 'rejected' and h.meeting_summary %}
-              <div class="meta" style="font-size:.72rem;">Department meeting: {{ h.meeting_summary }}</div>
+              <div class="meta" style="font-size:.72rem; margin-top:4px;">
+                {% include 'partials/view_more.twig' with {
+                  text: h.meeting_summary,
+                  heading: 'What the department meeting decided',
+                  ref: 'REQ-' ~ h.shortlist_id|slice(0, 8)|upper
+                } only %}
+              </div>
             {% endif %}
           </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% endif %}
+
+{% include 'partials/view_more_assets.twig' %}
 
 {% endblock %}

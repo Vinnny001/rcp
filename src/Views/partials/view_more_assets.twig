@@ -1,0 +1,77 @@
+{#
+  The dialog, styling and behaviour behind partials/view_more.twig.
+  Include once per page, after the last use.
+
+  The dialog is filled from the clamped element's own text (textContent),
+  so nothing is rendered twice and nothing is interpreted as HTML.
+#}
+<div class="modal-overlay" id="viewMoreDialog" role="dialog" aria-modal="true" aria-labelledby="viewMoreHeading">
+  <div class="modal">
+    <button type="button" class="modal-close" data-view-more-close>✕ Close</button>
+    <div class="ref" id="viewMoreRef"></div>
+    <h2 id="viewMoreHeading"></h2>
+    <div id="viewMoreBody" style="white-space:pre-wrap; overflow-wrap:anywhere; font-size:.9rem; line-height:1.65; margin-top:14px;"></div>
+  </div>
+</div>
+
+<style>
+  .view-more-text{ display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden;
+                   white-space:pre-wrap; overflow-wrap:anywhere; }
+  /* One line: the text runs to an ellipsis with the link beside it. */
+  .view-more-inline{ display:flex; align-items:baseline; gap:8px; }
+  .view-more-inline .view-more-text{ flex:0 1 auto; min-width:0; white-space:normal; }
+  .view-more-open{ border:none; background:none; padding:0; margin:0; cursor:pointer; font:inherit;
+                   font-weight:600; color:var(--brass-deep); white-space:nowrap;
+                   text-decoration:underline; text-underline-offset:2px; }
+  .view-more-open:focus-visible{ outline:2px solid var(--brass); outline-offset:2px; }
+  .view-more:not(.view-more-inline) .view-more-open{ margin-top:4px; }
+</style>
+
+<script>
+  (function () {
+    var dialog = document.getElementById('viewMoreDialog');
+    var closeButton = dialog.querySelector('[data-view-more-close]');
+    var returnTo = null;
+
+    // Show the link only where the text did not fit.
+    function refresh() {
+      document.querySelectorAll('[data-view-more]').forEach(function (box) {
+        var text = box.querySelector('.view-more-text');
+        box.querySelector('.view-more-open').hidden = text.scrollHeight <= text.clientHeight + 1;
+      });
+    }
+
+    function open(box, trigger) {
+      document.getElementById('viewMoreHeading').textContent = box.dataset.heading || '';
+      document.getElementById('viewMoreRef').textContent = box.dataset.ref || '';
+      document.getElementById('viewMoreBody').textContent = box.querySelector('.view-more-text').textContent;
+      returnTo = trigger;
+      dialog.classList.add('open');
+      closeButton.focus();
+    }
+
+    function close() {
+      dialog.classList.remove('open');
+      if (returnTo) { returnTo.focus(); }
+    }
+
+    document.querySelectorAll('[data-view-more]').forEach(function (box) {
+      var trigger = box.querySelector('.view-more-open');
+      trigger.addEventListener('click', function () { open(box, trigger); });
+    });
+
+    closeButton.addEventListener('click', close);
+    dialog.addEventListener('click', function (e) { if (e.target === dialog) { close(); } });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && dialog.classList.contains('open')) { close(); }
+    });
+
+    var timer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(timer);
+      timer = setTimeout(refresh, 100);
+    });
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(refresh); }
+    refresh();
+  })();
+</script>
