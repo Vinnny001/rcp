@@ -300,6 +300,93 @@ class ExamReadiness
     }
 
     /**
+     * A supervisor's students and their exam at the stage each is on: the
+     * date they booked and whether it is scheduled or what is holding it
+     * up, or how many dates are open if they have not booked — with a
+     * reminder worded for where they stand. Students with no exam open at
+     * their stage are left out.
+     *
+     * The supervisor only sees and reminds; the coordinator schedules.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function forSupervisor(string $lecturerId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT st.student_id, st.user_id AS student_user_id, st.student_number,
+                    u.first_name, CONCAT(u.first_name, ' ', u.last_name) AS student_name
+             FROM supervision_assignments sa
+             JOIN students st ON st.student_id = sa.student_id
+             JOIN users u ON u.user_id = st.user_id
+             WHERE sa.supervisor_id = :lecturer_id AND sa.is_active = 1
+             ORDER BY student_name"
+        );
+        $stmt->execute(['lecturer_id' => $lecturerId]);
+
+        $exams = [];
+        foreach ($stmt->fetchAll() as $student) {
+            $windows = $this->windowsFor($student['student_id'], $student['student_user_id']);
+            $booked = array_values(array_filter($windows, fn (array $w): bool => $w['booked']))[0] ?? null;
+            $open = count(array_filter($windows, fn (array $w): bool => !$w['booked'] && $w['open_for_booking']));
+
+            if ($booked === null && $open === 0) {
+                continue;
+            }
+
+            $stage = $booked['stage_name'] ?? ($windows[0]['stage_name'] ?? 'exam');
+            $exams[] = $student + [
+                'stage_name' => $stage,
+                'booked'     => $booked,
+                'open_dates' => $open,
+                'reminder'   => $this->reminderFor($student['first_name'], $stage, $booked, $open),
+            ];
+        }
+
+        return $exams;
+    }
+
+    /**
+     * @param array<string, mixed>|null $booked
+     * @return array{subject: string, message: string}
+     */
+    private function reminderFor(string $firstName, string $stage, ?array $booked, int $openDates): array
+    {
+        if ($booked === null) {
+            return [
+                'subject' => 'Book your ' . $stage . ' exam',
+                'message' => 'Hello ' . $firstName . ', please book a date for your ' . $stage . ' exam on the Exam & Graduation page. '
+                    . $openDates . ' date' . ($openDates === 1 ? ' is' : 's are') . ' open.',
+            ];
+        }
+
+        $dates = date('d M Y', strtotime($booked['starts_at']))
+            . (substr($booked['starts_at'], 0, 10) !== substr($booked['ends_at'], 0, 10) ? ' – ' . date('d M Y', strtotime($booked['ends_at'])) : '');
+
+        if ($booked['meeting_id'] !== null) {
+            return [
+                'subject' => 'Your ' . $stage . ' exam',
+                'message' => 'Hello ' . $firstName . ', a reminder that your ' . $stage . ' exam is on '
+                    . date('d M Y, g:i A', strtotime($booked['meeting_at']))
+                    . ($booked['meeting_location'] ? ' at ' . $booked['meeting_location'] : '') . '.',
+            ];
+        }
+
+        if ($booked['blockers'] !== []) {
+            return [
+                'subject' => 'Your ' . $stage . ' exam is waiting on you',
+                'message' => 'Hello ' . $firstName . ', your ' . $stage . ' exam booked for ' . $dates
+                    . ' cannot be scheduled until these are settled: ' . implode(' ', $booked['blockers']),
+            ];
+        }
+
+        return [
+            'subject' => 'Your ' . $stage . ' exam',
+            'message' => 'Hello ' . $firstName . ', your ' . $stage . ' exam booked for ' . $dates
+                . ' is ready to be scheduled. Your research coordinator will confirm the date.',
+        ];
+    }
+
+    /**
      * Students who have booked an exam, on the programs this coordinator
      * holds. Anyone whose exam is already scheduled drops out of the
      * queue.

@@ -223,6 +223,9 @@ class CoordinatorController
                 ? $rubric->panelResults($meeting['meeting_id'], (string) ($rubric->templateForStage($meeting['exam_stage_id'])['template_id'] ?? ''))
                 : [],
             'attendees'    => $this->examinersFor($meeting['meeting_id']),
+            // Examiners enter it to submit a review; on an exam meeting
+            // only the coordinator holds it, to read out in the room.
+            'secure_code'  => (new \App\Models\Meeting($this->db))->ensureSecureCode($meeting['meeting_id']),
             'session_user_id' => $_SESSION['user_id'],
             'csrf_token'   => $this->csrfToken(),
             'error'        => $this->takeFlash('flash_error'),

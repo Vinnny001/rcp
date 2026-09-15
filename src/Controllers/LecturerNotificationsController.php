@@ -90,6 +90,9 @@ class LecturerNotificationsController
             return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
         }
 
+        // A reminder sent from the meetings page goes back there.
+        $back = ($data['return_to'] ?? '') === '/lecturer/meetings' ? '/lecturer/meetings' : '/lecturer/notifications';
+
         $userId = $_SESSION['user_id'];
         $mode = (string) ($data['mode'] ?? '');
         $subject = trim((string) ($data['subject'] ?? ''));
@@ -97,7 +100,7 @@ class LecturerNotificationsController
 
         if (!in_array($mode, ['meeting', 'student'], true) || $subject === '' || $message === '') {
             $_SESSION['flash_error'] = 'Please choose recipients and provide both a subject and a message.';
-            return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
+            return $response->withHeader('Location', $back)->withStatus(302);
         }
 
         $meetingModel = new Meeting($this->db);
@@ -146,7 +149,7 @@ class LecturerNotificationsController
 
             if (!$recipientIds) {
                 $_SESSION['flash_error'] = 'Please choose at least one of your own supervisees.';
-                return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
+                return $response->withHeader('Location', $back)->withStatus(302);
             }
 
             $sent = $notificationModel->createForUsers($recipientIds, 'student', $subject, $message, 'supervision_reminder', null);
@@ -154,7 +157,7 @@ class LecturerNotificationsController
 
         $_SESSION['flash_success'] = 'Notification sent to ' . $sent . ' recipient' . ($sent === 1 ? '' : 's') . '.';
 
-        return $response->withHeader('Location', '/lecturer/notifications')->withStatus(302);
+        return $response->withHeader('Location', $back)->withStatus(302);
     }
 
     public function markRead(ServerRequestInterface $request, ResponseInterface $response, array $args): ResponseInterface

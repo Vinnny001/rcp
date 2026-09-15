@@ -8,7 +8,7 @@
 <div class="page-head">
   <div>
     <h1>Meetings &amp; grading</h1>
-    <div class="sub">Scheduled sessions, exam windows, and outstanding examination scores.</div>
+    <div class="sub">Your meetings, your students' exams, and outstanding examination scores.</div>
   </div>
   <div class="ref">CAL-{{ staff_number }}</div>
 </div>
@@ -16,28 +16,60 @@
 {% if success %}<div class="notice" style="border-left-color: var(--forest); background:#eef3ee; color: var(--forest);">{{ success }}</div>{% endif %}
 {% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
 
-<div class="section-title">Upcoming exam windows<div class="rule"></div></div>
+<div class="section-title">Your students' exams<div class="rule"></div></div>
+<div style="font-size:.82rem; color:var(--slate); margin-bottom:12px;">
+  Students book their exam date and the research coordinator schedules the exam. You can see where each stands and remind your student.
+</div>
 
-{% if upcoming_exam_windows %}
+{% if supervisee_exams %}
   <div class="grid cols-2" style="margin-bottom:32px;">
-    {% for ew in upcoming_exam_windows %}
+    {% for e in supervisee_exams %}
       <div class="card">
-        <h3>{{ ew.student_name }} — {{ ew.exam_type|capitalize }}</h3>
-        <div class="meta">
-          {{ ew.student_number }}
-          {% if ew.starts_at %} · Opens {{ ew.starts_at|date('d M Y') }}{% endif %}
-          {% if ew.ends_at %} · Ends {{ ew.ends_at|date('d M Y') }}{% else %} · No deadline set{% endif %}
-        </div>
-        {% if ew.exam_schedule_description %}<div class="meta">{{ ew.exam_schedule_description }}</div>{% endif %}
-        <button type="button" class="btn brass" style="padding:6px 14px; font-size:.74rem; margin-top:10px;"
-          onclick="openExamMeetingModal('{{ ew.exam_schedule_id }}', '{{ ew.proposal_id }}', '{{ ew.student_name|escape('js') }}', '{{ ew.ends_at }}', '{{ ew.exam_type }}', '{{ ew.student_user_id }}')">
-          Schedule meeting
-        </button>
+        <h3>{{ e.student_name }} — {{ e.stage_name }}</h3>
+        <div class="meta mono" style="font-size:.72rem;">{{ e.student_number }}</div>
+
+        {% if e.booked %}
+          <div class="meta">
+            Booked for {{ e.booked.starts_at|date('d M Y') }}{% if e.booked.starts_at|date('Y-m-d') != e.booked.ends_at|date('Y-m-d') %} – {{ e.booked.ends_at|date('d M Y') }}{% endif %}
+            · {{ e.booked.exam_type|capitalize }} examination{% if e.booked.exam_schedule_description %} · {{ e.booked.exam_schedule_description }}{% endif %}
+          </div>
+          {% if e.booked.meeting_id %}
+            <span class="stamp mini approved">Exam scheduled</span>
+            <div class="meta" style="margin-top:6px;">
+              {{ e.booked.meeting_at|date('D, j M Y · g:i A') }}{% if e.booked.meeting_mode %} · {{ e.booked.meeting_mode|capitalize }}{% endif %}
+              {%- if e.booked.meeting_location %} · {{ e.booked.meeting_location }}{% endif %}
+              {%- if e.booked.meeting_link %} · <a href="{{ e.booked.meeting_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+            </div>
+          {% elseif e.booked.blockers %}
+            <span class="stamp mini pending">Waiting on the student</span>
+            <ul style="font-size:.8rem; margin:6px 0 0 16px; padding:0; color: var(--rust);">
+              {% for b in e.booked.blockers %}<li>{{ b }}</li>{% endfor %}
+            </ul>
+          {% else %}
+            <span class="stamp mini pending">Waiting for the coordinator to schedule it</span>
+          {% endif %}
+        {% else %}
+          <span class="stamp mini pending">Not booked</span>
+          <div class="meta" style="margin-top:6px;">{{ e.open_dates }} date{{ e.open_dates != 1 ? 's' }} open for booking.</div>
+        {% endif %}
+
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer; font-size:.8rem; font-weight:600;">Remind {{ e.first_name }}</summary>
+          <form method="POST" action="/lecturer/notifications/send" style="margin-top:10px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="mode" value="student">
+            <input type="hidden" name="student_user_id[]" value="{{ e.student_user_id }}">
+            <input type="hidden" name="return_to" value="/lecturer/meetings">
+            <div class="field"><label>Subject</label><input type="text" name="subject" value="{{ e.reminder.subject }}" required></div>
+            <div class="field"><label>Message</label><textarea name="message" rows="3" required>{{ e.reminder.message }}</textarea></div>
+            <button type="submit" class="btn brass" style="padding:6px 14px; font-size:.74rem;">Send reminder</button>
+          </form>
+        </details>
       </div>
     {% endfor %}
   </div>
 {% else %}
-  <div class="notice" style="margin-bottom:32px;">No upcoming exam windows for your supervisees without a meeting already scheduled.</div>
+  <div class="notice" style="margin-bottom:32px;">None of your students has an exam open at the stage they are on.</div>
 {% endif %}
 
 <div class="section-title">
@@ -80,7 +112,7 @@
           {% if m.status != 'cancelled' and m.my_role in ['examiner', 'chairperson', 'supervisor'] and (m.exam_schedule_id or m.document_count > 0) %}
             <a href="/lecturer/meetings/{{ m.meeting_id }}/review" class="btn brass" style="padding:6px 12px; font-size:.72rem;">Give review</a>
           {% endif %}
-          {% if m.my_role == 'supervisor' and m.status != 'cancelled' %}
+          {% if m.my_role == 'supervisor' and m.status != 'cancelled' and m.meeting_type == 'supervisory' %}
             <a href="/lecturer/meetings/{{ m.meeting_id }}/edit" class="btn ghost" style="padding:6px 12px; font-size:.72rem;">Edit</a>
             <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem; color:var(--rust); border-color:var(--rust);"
               onclick="openStatusModal('{{ m.meeting_id }}', '{{ m.meeting_type|replace({'_': ' '})|capitalize|escape('js') }}', '{{ m.scheduled_at|date('j M Y, g:i A')|escape('js') }}')">
@@ -117,7 +149,7 @@
         {% if m.status_description %}
           <p style="font-size:.85rem; line-height:1.6; color:#39332a; margin-top:8px;">{{ m.status_description }}</p>
         {% endif %}
-      {% elseif m.my_role == 'supervisor' %}
+      {% elseif m.my_role == 'supervisor' and m.meeting_type == 'supervisory' %}
         <div style="margin-top:10px;">
           <button type="button" class="btn ghost" style="padding:6px 12px; font-size:.72rem;"
             onclick="openStatusModal('{{ m.meeting_id }}', '{{ m.meeting_type|replace({'_': ' '})|capitalize|escape('js') }}', '{{ m.scheduled_at|date('j M Y, g:i A')|escape('js') }}')">
@@ -175,14 +207,9 @@
         <input type="checkbox" name="include_student" checked style="width:auto;" id="includeStudent">
         <label for="includeStudent" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">Invite this student</label>
       </div>
-      <div class="field">
-        <label>Meeting type</label>
-        <select name="meeting_type" required>
-          <option value="approval_board">Approval board</option>
-          <option value="supervisory">Supervisory check-in</option>
-          <option value="concept_presentation">Concept presentation</option>
-          <option value="viva">Viva</option>
-        </select>
+      <input type="hidden" name="meeting_type" value="supervisory">
+      <div class="meta" style="margin:-4px 0 14px;">
+        A supervisory meeting. Exam meetings are scheduled by the research coordinator once your student books a date.
       </div>
       <div class="field-row">
         <div class="field"><label>Date</label><input type="date" name="date" required></div>
@@ -255,105 +282,6 @@
 
       <div class="modal-actions">
         <button type="button" class="btn ghost" onclick="hideModal('scheduleModal')">Cancel</button>
-        <button type="submit" class="btn brass">Schedule meeting</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- MODAL: EXAM WINDOW MEETING -->
-<div class="modal-overlay" id="examMeetingModal" onclick="closeModal(event,'examMeetingModal')">
-  <div class="modal" onclick="event.stopPropagation()">
-    <button type="button" class="modal-close" onclick="hideModal('examMeetingModal')">✕ Close</button>
-    <div class="ref">EXAM WINDOW MEETING</div>
-    <h2 id="examMeetingModalTitle">Schedule meeting</h2>
-    <div class="sub" id="examMeetingModalDeadline"></div>
-
-    <form method="POST" action="/lecturer/meetings/schedule-for-exam">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="exam_schedule_id" id="examMeetingScheduleId">
-      <input type="hidden" name="proposal_id" id="examMeetingProposalId">
-
-      <div class="field" style="display:flex; align-items:center; gap:8px;">
-        <input type="checkbox" name="include_student" checked style="width:auto;" id="examIncludeStudent">
-        <label for="examIncludeStudent" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">Invite the student</label>
-      </div>
-
-      <div class="field">
-        <label>Meeting type</label>
-        <select name="meeting_type" required>
-          <option value="viva">Viva</option>
-          <option value="approval_board">Approval board</option>
-          <option value="concept_presentation">Concept presentation</option>
-          <option value="supervisory">Supervisory check-in</option>
-        </select>
-      </div>
-
-      <div class="field-row">
-        <div class="field"><label>Date</label><input type="date" name="date" id="examMeetingDate" required></div>
-        <div class="field"><label>Time</label><input type="time" name="time" required></div>
-      </div>
-
-      <label>Mode</label>
-      <div class="mode-pick">
-        <button type="button" class="active" data-mode="physical" onclick="pickExamMeetingMode(this)">Physical</button>
-        <button type="button" data-mode="virtual" onclick="pickExamMeetingMode(this)">Virtual</button>
-        <button type="button" data-mode="hybrid" onclick="pickExamMeetingMode(this)">Hybrid</button>
-      </div>
-      <input type="hidden" name="mode" id="examMeetingModeInput" value="physical">
-
-      <div class="field" id="examLocationField"><label>Location</label><input type="text" name="location"></div>
-      <div class="field" id="examVirtualLinkField"><label>Virtual link</label><input type="text" name="virtual_link"></div>
-
-      <div class="field">
-        <label>Invite examiners <span id="examTypeHint" class="meta" style="margin:0;"></span></label>
-        <select id="examInviteSelect">
-          <option value="">Select a lecturer</option>
-        </select>
-        <select id="examInviteRole" style="margin-top:8px;">
-          <option value="examiner">Examiner</option>
-          <option value="chairperson">Chairperson</option>
-          <option value="observer">Observer</option>
-        </select>
-        <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addInvite('exam')">Invite</button>
-        <div id="examInviteList" style="margin-top:10px;"></div>
-      </div>
-
-      <div class="field" style="display:flex; align-items:center; gap:8px;">
-        <input type="checkbox" name="ai_notes_enabled" checked style="width:auto;" id="examMeetingAiNotes">
-        <label for="examMeetingAiNotes" style="margin:0; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif; font-size:.82rem;">Enable AI meeting notes</label>
-      </div>
-
-      <details class="field" style="border:1px solid var(--paper-line); border-radius:var(--radius); padding:14px; background:#fbf8f1; margin-top:8px;">
-        <summary style="cursor:pointer; font-size:.86rem; font-weight:600; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif;">
-          Resources (optional) — documents or links every attendee can view, not scored
-        </summary>
-        <div style="margin-top:14px;">
-          <div class="meta" style="margin:0 0 6px;">This student's documents</div>
-          <div id="examResourceStudentDocs" style="margin-bottom:14px;"><div class="meta">—</div></div>
-
-          {% if my_documents %}
-            <div class="meta" style="margin:0 0 6px;">My uploaded documents</div>
-            <div style="margin-bottom:14px;">
-              {% for doc in my_documents %}
-                <label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:.82rem; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans',sans-serif;">
-                  <input type="checkbox" name="resource_documents[]" value="{{ doc.document_id }}" style="width:auto;">
-                  <span>{{ doc.doc_type_name }} — {{ doc.file_name }}</span>
-                </label>
-              {% endfor %}
-            </div>
-          {% endif %}
-
-          <div class="meta" style="margin:0 0 6px;">Add a link</div>
-          <input type="text" id="examResourceLinkUrl" placeholder="https://...">
-          <input type="text" id="examResourceLinkLabel" placeholder="Label (e.g. Grading sheet)" style="margin-top:8px;">
-          <button type="button" class="btn ghost" style="margin-top:8px; padding:6px 14px; font-size:.72rem;" onclick="addResourceLink('exam')">Add link</button>
-          <div id="examResourceLinkList" style="margin-top:10px;"></div>
-        </div>
-      </details>
-
-      <div class="modal-actions">
-        <button type="button" class="btn ghost" onclick="hideModal('examMeetingModal')">Cancel</button>
         <button type="submit" class="btn brass">Schedule meeting</button>
       </div>
     </form>
@@ -625,54 +553,6 @@
     document.getElementById('statusReasonHint').textContent = cancelling
       ? 'Required. The student sees this on their meetings page.'
       : 'Optional. Recorded against the meeting.';
-  }
-
-  function openExamMeetingModal(examScheduleId, proposalId, studentName, endsAt, examType, studentUserId){
-    document.getElementById('examMeetingScheduleId').value = examScheduleId;
-    document.getElementById('examMeetingProposalId').value = proposalId;
-    document.getElementById('examMeetingModalTitle').textContent = 'Schedule meeting — ' + studentName;
-
-    const dateInput = document.getElementById('examMeetingDate');
-    if (endsAt) {
-      const maxDate = endsAt.split(' ')[0];
-      dateInput.max = maxDate;
-      document.getElementById('examMeetingModalDeadline').textContent = 'Must be scheduled on or before ' + maxDate + '.';
-    } else {
-      dateInput.removeAttribute('max');
-      document.getElementById('examMeetingModalDeadline').textContent = '';
-    }
-
-    // Rebuild the invite select based on exam_type — internal exams
-    // only offer internal lecturers, external only external, hybrid both.
-    invites.exam = [];
-    document.getElementById('examInviteList').innerHTML = '';
-    const select = document.getElementById('examInviteSelect');
-    select.innerHTML = '<option value="">Select a lecturer</option>';
-    let pool = [];
-    if (examType === 'internal') pool = internalLecturers;
-    else if (examType === 'external') pool = externalLecturers;
-    else pool = internalLecturers.concat(externalLecturers);
-
-    // Same rule as the general scheduler: the student under examination
-    // never appears as an invitable lecturer, even where they hold a
-    // lecturer account and would otherwise be in the pool.
-    pool.filter(l => l.id !== studentUserId).forEach(l => {
-      const opt = document.createElement('option');
-      opt.value = l.id;
-      opt.dataset.name = l.name;
-      opt.textContent = l.name + (l.affiliation ? ' — ' + l.affiliation : '');
-      select.appendChild(opt);
-    });
-
-    document.getElementById('examTypeHint').textContent = '(' + examType + ' exam — only ' + (examType === 'hybrid' ? 'any' : examType) + ' lecturers shown)';
-
-    resourceLinks.exam = [];
-    document.getElementById('examResourceLinkList').innerHTML = '';
-    document.getElementById('examResourceLinkUrl').value = '';
-    document.getElementById('examResourceLinkLabel').value = '';
-    renderDocumentChecklist('examResourceStudentDocs', 'resource_documents[]', studentUserId, 'No student on record for this window.');
-
-    document.getElementById('examMeetingModal').classList.add('open');
   }
 </script>
 {% endblock %}

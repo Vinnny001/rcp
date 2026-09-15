@@ -20,7 +20,13 @@ class LecturerMeetingsController
     private PDO $db;
     private Twig $twig;
 
-    private const VALID_MEETING_TYPES = ['approval_board', 'supervisory', 'concept_presentation', 'viva'];
+    /**
+     * What a supervisor may schedule. Exam meetings — approval board,
+     * concept presentation, viva, exam — are the research coordinator's.
+     */
+    private const VALID_MEETING_TYPES = ['supervisory'];
+
+    private const EXAM_MEETINGS_BY_COORDINATOR = 'Exam meetings are scheduled and managed by the research coordinator. You can see their details and remind your student.';
     private const VALID_MODES = ['physical', 'virtual', 'hybrid'];
     private const VALID_ATTENDEE_ROLES = ['chairperson', 'examiner', 'supervisor', 'observer'];
 
@@ -109,64 +115,6 @@ class LecturerMeetingsController
     }
 
     /**
-     * Document types required under this exam window that the student
-     * hasn't actually submitted yet — due_after_weeks on
-     * document_review_rates only computes when the fee for a document
-     * becomes owed, it says nothing about whether the document itself
-     * was ever submitted, so this is a separate check.
-     *
-     * @return array<int, string> doc_type_names still missing
-     */
-    private function missingRequiredDocuments(string $proposalId, string $examScheduleId): array
-    {
-        $stmt = $this->db->prepare(
-            "SELECT dt.doc_type_name
-             FROM exam_schedule_documents esd
-             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
-             LEFT JOIN exam_documents ed
-                    ON ed.exam_schedule_id = esd.exam_schedule_id
-                   AND ed.document_type_id = esd.document_type_id
-                   AND ed.proposal_id = :proposal_id
-             LEFT JOIN documents d
-                    ON d.document_id = ed.document_id
-                   AND d.document_status = 'submitted'
-             WHERE esd.exam_schedule_id = :exam_schedule_id
-               AND d.document_id IS NULL"
-        );
-        $stmt->execute(['proposal_id' => $proposalId, 'exam_schedule_id' => $examScheduleId]);
-        return $stmt->fetchAll(PDO::FETCH_COLUMN);
-    }
-
-    /**
-     * Document types required under this exam window that HAVE been
-     * submitted but not yet validated by the supervisor — a supervisor
-     * must mark a document valid before scheduling any meeting linked
-     * to it, exam window or general, so this is checked separately from
-     * (and in addition to) missingRequiredDocuments() above.
-     *
-     * @return array<int, string> doc_type_names still unvalidated
-     */
-    private function notYetValidatedDocuments(string $proposalId, string $examScheduleId): array
-    {
-        $stmt = $this->db->prepare(
-            "SELECT dt.doc_type_name
-             FROM exam_schedule_documents esd
-             JOIN document_types dt ON dt.doc_type_id = esd.document_type_id
-             JOIN exam_documents ed
-                    ON ed.exam_schedule_id = esd.exam_schedule_id
-                   AND ed.document_type_id = esd.document_type_id
-                   AND ed.proposal_id = :proposal_id
-             JOIN documents d
-                    ON d.document_id = ed.document_id
-                   AND d.document_status = 'submitted'
-             WHERE esd.exam_schedule_id = :exam_schedule_id
-               AND d.validation_status <> 'valid'"
-        );
-        $stmt->execute(['proposal_id' => $proposalId, 'exam_schedule_id' => $examScheduleId]);
-        return $stmt->fetchAll(PDO::FETCH_COLUMN);
-    }
-
-    /**
      * Document ids a supervisor may share as a meeting resource: either
      * the meeting's own student's documents, or the supervisor's own
      * uploads from their My Documents library. Anything else — a
@@ -247,11 +195,12 @@ class LecturerMeetingsController
     }
 
     /**
-     * The secure code is the supervisor's to read out — it proves the
-     * people scoring were actually in the room. Any meeting this user
-     * isn't the supervisor of gets the code stripped before it reaches
-     * a template; the ones they do supervise get a code minted if the
-     * meeting predates the feature.
+     * The secure code proves the people scoring were actually in the
+     * room. On a supervisory meeting it is the supervisor's to read out;
+     * on an exam meeting only the research coordinator holds it, so it
+     * is stripped here. Any meeting this user doesn't supervise loses it
+     * too; the supervisory ones they do get a code minted if the meeting
+     * predates the feature.
      *
      * @param array<int, array<string, mixed>> $meetings
      * @return array<int, array<string, mixed>>
@@ -259,7 +208,7 @@ class LecturerMeetingsController
     private function applySecureCodeVisibility(array $meetings, Meeting $meetingModel): array
     {
         return array_map(function (array $meeting) use ($meetingModel) {
-            if (($meeting['my_role'] ?? null) === 'supervisor') {
+            if (($meeting['my_role'] ?? null) === 'supervisor' && ($meeting['meeting_type'] ?? null) === 'supervisory') {
                 $meeting['secure_code'] = $meetingModel->ensureSecureCode($meeting['meeting_id']);
             } else {
                 unset($meeting['secure_code']);
@@ -311,7 +260,7 @@ class LecturerMeetingsController
             'other_lecturers'       => $lecturerModel->listAllExcept($userId, $superviseeLecturers),
             'internal_lecturers'    => $lecturerModel->listInternalLecturersExcept($userId, $superviseeLecturers),
             'external_lecturers'    => $lecturerModel->listExternalLecturersExcept($userId, $superviseeLecturers),
-            'upcoming_exam_windows' => $lecturerModel->findUpcomingExamSchedulesForSupervisees($lecturer['lecturer_id']),
+            'supervisee_exams'      => (new \App\Models\ExamReadiness($this->db))->forSupervisor($lecturer['lecturer_id']),
             'pending_grading'       => $examModel->findPendingGradingForLecturer($userId),
             'csrf_token'            => $this->csrfToken(),
             'error'                 => $error,
@@ -381,7 +330,7 @@ class LecturerMeetingsController
             $errors[] = 'Please select one of your supervised students.';
         }
         if (!in_array($meetingType, self::VALID_MEETING_TYPES, true)) {
-            $errors[] = 'Please select a valid meeting type.';
+            $errors[] = self::EXAM_MEETINGS_BY_COORDINATOR;
         }
         if (!in_array($mode, self::VALID_MODES, true)) {
             $errors[] = 'Please select a valid mode.';
@@ -423,9 +372,7 @@ class LecturerMeetingsController
         }
 
         // A supervisor must have marked a document valid before scheduling
-        // any meeting linked to it — general meetings included, not just
-        // formal exam windows (see notYetValidatedDocuments() for the
-        // exam-window equivalent).
+        // a meeting to review it.
         if ($documentIds) {
             $placeholders = implode(',', array_fill(0, count($documentIds), '?'));
             $stmt = $this->db->prepare(
@@ -497,10 +444,9 @@ class LecturerMeetingsController
     }
 
     /**
-     * Schedules a meeting constrained to a specific exam_schedule window
-     * — must occur before that exam_schedule's ends_at. Used for viva /
-     * document-review meetings tied to a formal exam period, distinct
-     * from schedule() above which is unconstrained.
+     * Supervisors no longer schedule meetings in an exam window: the
+     * student books a date and the research coordinator schedules the
+     * exam and its panel. Kept so an old form posts to a clear refusal.
      */
     public function scheduleForExam(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
@@ -508,146 +454,7 @@ class LecturerMeetingsController
             return $this->redirect($response, $redirect);
         }
 
-        $data = $request->getParsedBody();
-        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
-            $_SESSION['flash_error'] = 'Your session expired — please try again.';
-            return $this->redirect($response, '/lecturer/meetings');
-        }
-
-        $lecturerModel = new Lecturer($this->db);
-        $lecturer = $lecturerModel->findByUserId($_SESSION['user_id']);
-        if (!$lecturer) {
-            $_SESSION['flash_error'] = 'Your lecturer profile could not be found.';
-            return $this->redirect($response, '/lecturer/meetings');
-        }
-
-        $examScheduleId = trim((string) ($data['exam_schedule_id'] ?? ''));
-        $proposalId = trim((string) ($data['proposal_id'] ?? ''));
-
-        $valid = $lecturerModel->findUpcomingExamSchedulesForSupervisees($lecturer['lecturer_id']);
-        $match = null;
-        foreach ($valid as $v) {
-            if ($v['exam_schedule_id'] === $examScheduleId && $v['proposal_id'] === $proposalId) {
-                $match = $v;
-                break;
-            }
-        }
-
-        if (!$match) {
-            $_SESSION['flash_error'] = 'That exam schedule is not associated with one of your supervisees.';
-            return $this->redirect($response, '/lecturer/meetings');
-        }
-
-        $meetingType = $data['meeting_type'] ?? 'viva';
-        $date = trim((string) ($data['date'] ?? ''));
-        $time = trim((string) ($data['time'] ?? ''));
-        $mode = $data['mode'] ?? 'physical';
-        $location = trim((string) ($data['location'] ?? ''));
-        $virtualLink = trim((string) ($data['virtual_link'] ?? ''));
-        $includeStudent = !empty($data['include_student']);
-
-        $attendeeUserIds = array_values(array_filter((array) ($data['attendee_lecturers'] ?? [])));
-        $attendeeRoles = array_values((array) ($data['attendee_roles'] ?? []));
-
-        $errors = [];
-        if (!in_array($meetingType, self::VALID_MEETING_TYPES, true)) {
-            $errors[] = 'Please select a valid meeting type.';
-        }
-        if (!in_array($mode, self::VALID_MODES, true)) {
-            $errors[] = 'Please select a valid mode.';
-        }
-        if ($date === '' || $time === '') {
-            $errors[] = 'Please provide a date and time.';
-        }
-        if (in_array($mode, ['physical', 'hybrid'], true) && $location === '') {
-            $errors[] = 'Please provide a location for a physical or hybrid meeting.';
-        }
-        if (in_array($mode, ['virtual', 'hybrid'], true) && $virtualLink === '') {
-            $errors[] = 'Please provide a virtual link for a virtual or hybrid meeting.';
-        }
-
-        // Server-side exam_type enforcement — never trust the client-side
-        // filtered list alone. internal exam -> internal examiners only,
-        // external -> external only, hybrid -> either.
-        foreach ($attendeeUserIds as $i => $uid) {
-            $role = $attendeeRoles[$i] ?? '';
-            if (!in_array($role, self::VALID_ATTENDEE_ROLES, true)) {
-                $errors[] = 'Please select a valid role for every invited attendee.';
-                break;
-            }
-            if (!empty($match['student_user_id']) && $uid === $match['student_user_id']) {
-                $errors[] = 'The student this meeting is about cannot be invited as a lecturer attendee.';
-                break;
-            }
-            if ($match['exam_type'] !== 'hybrid') {
-                $type = $lecturerModel->getTypeByUserId($uid);
-                if ($type !== $match['exam_type']) {
-                    $errors[] = 'Only ' . $match['exam_type'] . ' lecturers can be invited to this ' . $match['exam_type'] . ' exam.';
-                    break;
-                }
-            }
-        }
-
-        $errors = array_merge($errors, $this->feeBlockersForScheduling($match['student_id'], $examScheduleId));
-
-        $missingDocs = $this->missingRequiredDocuments($proposalId, $examScheduleId);
-        if ($missingDocs) {
-            $errors[] = 'The student has not yet submitted: ' . implode(', ', $missingDocs) . '.';
-        }
-
-        $unvalidatedDocs = $this->notYetValidatedDocuments($proposalId, $examScheduleId);
-        if ($unvalidatedDocs) {
-            $errors[] = 'The following documents have not been validated as valid yet: ' . implode(', ', $unvalidatedDocs) . '.';
-        }
-
-        if ($errors) {
-            $_SESSION['flash_error'] = implode(' ', $errors);
-            return $this->redirect($response, '/lecturer/meetings');
-        }
-
-        $meetingModel = new Meeting($this->db);
-        $meetingId = $meetingModel->createForExamSchedule($proposalId, $examScheduleId, [
-            'meeting_type'     => $meetingType,
-            'scheduled_at'     => $date . ' ' . $time . ':00',
-            'mode'             => $mode,
-            'location'         => $location,
-            'virtual_link'     => $virtualLink,
-            'ai_notes_enabled' => !empty($data['ai_notes_enabled']),
-        ], $_SESSION['user_id']);
-
-        if (!$meetingId) {
-            $_SESSION['flash_error'] = 'That time is after the exam schedule\'s deadline. Please choose an earlier time.';
-            return $this->redirect($response, '/lecturer/meetings');
-        }
-
-        $meetingModel->addAttendee($meetingId, $_SESSION['user_id'], 'supervisor');
-
-        $alreadyAdded = [$_SESSION['user_id']];
-
-        if ($includeStudent && !empty($match['student_user_id'])) {
-            $meetingModel->addAttendee($meetingId, $match['student_user_id'], 'student');
-            $alreadyAdded[] = $match['student_user_id'];
-        }
-
-        foreach ($attendeeUserIds as $i => $uid) {
-            if (!in_array($uid, $alreadyAdded, true)) {
-                $meetingModel->addAttendee($meetingId, $uid, $attendeeRoles[$i]);
-                $alreadyAdded[] = $uid;
-            }
-        }
-
-        $resourceDocumentIds = $this->validResourceDocumentIds(
-            array_values(array_filter((array) ($data['resource_documents'] ?? []))),
-            $match['student_user_id'] ?? null
-        );
-        foreach ($resourceDocumentIds as $documentId) {
-            $meetingModel->attachResourceDocument($meetingId, $documentId, $_SESSION['user_id']);
-        }
-        foreach ($this->parseResourceLinks($data) as $link) {
-            $meetingModel->attachResourceLink($meetingId, $link['url'], $link['label'], $_SESSION['user_id']);
-        }
-
-        $_SESSION['flash_success'] = 'Meeting scheduled within the exam window. Your attendance code is shown on the meeting card.';
+        $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
         return $this->redirect($response, '/lecturer/meetings');
     }
 
@@ -674,6 +481,10 @@ class LecturerMeetingsController
 
         if (!$meeting || $meeting['created_by'] !== $_SESSION['user_id']) {
             $_SESSION['flash_error'] = 'You are not authorized to change this meeting.';
+            return $this->redirect($response, '/lecturer/meetings');
+        }
+        if ($meeting['meeting_type'] !== 'supervisory') {
+            $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
             return $this->redirect($response, '/lecturer/meetings');
         }
 
@@ -790,7 +601,8 @@ class LecturerMeetingsController
         // form whose code check can never pass. Minting is separate
         // from showing — only the supervisor is handed the value.
         $code = $meetingModel->ensureSecureCode($meetingId);
-        $secureCode = $myRole === 'supervisor' ? $code : null;
+        // On an exam meeting the coordinator reads it out, never a supervisor.
+        $secureCode = $myRole === 'supervisor' && $meeting['meeting_type'] === 'supervisory' ? $code : null;
         unset($meeting['secure_code']);
 
         $error = $_SESSION['flash_error'] ?? null;
@@ -1140,6 +952,10 @@ class LecturerMeetingsController
             $_SESSION['flash_error'] = 'You are not authorized to edit this meeting.';
             return $this->redirect($response, '/lecturer/meetings');
         }
+        if ($meeting['meeting_type'] !== 'supervisory') {
+            $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
+            return $this->redirect($response, '/lecturer/meetings');
+        }
 
         $lecturerModel = new Lecturer($this->db);
         $attendees = $meetingModel->findAttendees($meetingId);
@@ -1216,6 +1032,10 @@ class LecturerMeetingsController
             $_SESSION['flash_error'] = 'You are not authorized to edit this meeting.';
             return $this->redirect($response, '/lecturer/meetings');
         }
+        if ($meeting['meeting_type'] !== 'supervisory') {
+            $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
+            return $this->redirect($response, '/lecturer/meetings');
+        }
 
         if ($meeting['status'] !== 'scheduled') {
             $_SESSION['flash_error'] = 'This meeting has already started or completed and can no longer be edited.';
@@ -1226,7 +1046,8 @@ class LecturerMeetingsController
         $studentUserId = $student['user_id'] ?? null;
 
         $meetingModel->update($meetingId, [
-            'meeting_type' => $data['meeting_type'] ?? $meeting['meeting_type'],
+            // A supervisory meeting stays one: it cannot be turned into an exam.
+            'meeting_type' => 'supervisory',
             'scheduled_at' => trim((string) ($data['date'] ?? '')) . ' ' . trim((string) ($data['time'] ?? '')) . ':00',
             'mode'         => $data['mode'] ?? $meeting['mode'],
             'location'     => $data['location'] ?? '',

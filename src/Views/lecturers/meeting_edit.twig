@@ -28,12 +28,8 @@
 
     <div class="field">
       <label>Meeting type</label>
-      <select name="meeting_type" required>
-        <option value="approval_board" {{ meeting.meeting_type == 'approval_board' ? 'selected' : '' }}>Approval board</option>
-        <option value="supervisory" {{ meeting.meeting_type == 'supervisory' ? 'selected' : '' }}>Supervisory check-in</option>
-        <option value="concept_presentation" {{ meeting.meeting_type == 'concept_presentation' ? 'selected' : '' }}>Concept presentation</option>
-        <option value="viva" {{ meeting.meeting_type == 'viva' ? 'selected' : '' }}>Viva</option>
-      </select>
+      <input type="hidden" name="meeting_type" value="supervisory">
+      <div style="font-size:.86rem;">Supervisory check-in</div>
     </div>
 
     <div class="field-row">

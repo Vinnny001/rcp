@@ -288,13 +288,26 @@ echo "\n--- content assertions ---\n";
 $allCodes = array_filter($pdo->query("SELECT secure_code FROM meetings")->fetchAll(PDO::FETCH_COLUMN));
 
 if ($lecturerMeetings) {
-    assertThat(
-        'supervisor sees an attendance code on their meetings page',
-        str_contains($lecturerMeetings, 'Attendance code')
-    );
+    // An exam meeting's code is the research coordinator's alone; a
+    // supervisor holds only the codes of their own supervisory meetings.
+    $examCodes = array_filter($pdo->query("SELECT secure_code FROM meetings WHERE meeting_type <> 'supervisory'")->fetchAll(PDO::FETCH_COLUMN));
+    $shownExamCodes = array_filter($examCodes, fn($c) => str_contains($lecturerMeetings, $c));
+    assertThat('no exam meeting\'s attendance code reaches a supervisor', count($shownExamCodes) === 0,
+        count($examCodes) . ' exam code(s) checked');
 
-    $shown = array_filter($allCodes, fn($c) => str_contains($lecturerMeetings, $c));
-    assertThat('at least one real code is rendered for the supervisor', count($shown) > 0, count($shown) . ' code(s)');
+    $ownSupervisory = $pdo->prepare(
+        "SELECT COUNT(*) FROM meetings m JOIN meeting_attendees ma ON ma.meeting_id = m.meeting_id
+         WHERE ma.user_id = ? AND ma.role_in_meeting = 'supervisor' AND m.meeting_type = 'supervisory'
+           AND m.status <> 'cancelled' AND m.scheduled_at >= NOW()"
+    );
+    $ownSupervisory->execute([$lecturer['user_id']]);
+    if ((int) $ownSupervisory->fetchColumn() > 0) {
+        assertThat('a supervisor still sees the code of their own supervisory meeting', str_contains($lecturerMeetings, 'Attendance code'));
+    }
+
+    assertThat('a supervisor is no longer offered to schedule exam meetings', !str_contains($lecturerMeetings, 'schedule-for-exam')
+        && !str_contains($lecturerMeetings, 'value="approval_board"') && !str_contains($lecturerMeetings, 'value="viva"'));
+    assertThat('they see their students\' exams instead', str_contains($lecturerMeetings, 'Your students&#039; exams') || str_contains($lecturerMeetings, "Your students' exams"));
 
     // A student this lecturer supervises, who also holds a lecturer
     // account, must not be offered as a colleague to invite — they

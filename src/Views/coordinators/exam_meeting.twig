@@ -30,6 +30,13 @@
       Panel: {% for a in attendees %}{{ a.name }}{% if not loop.last %}, {% endif %}{% endfor %}
     </div>
   {% endif %}
+  {% if secure_code and meeting.status != 'cancelled' %}
+    <div class="notice" style="margin-top:12px; border-left-color: var(--brass-deep); background:#faf6ec;">
+      <div style="font-size:.68rem; text-transform:uppercase; letter-spacing:.09em; color:var(--slate);">Attendance code — yours only</div>
+      <div class="mono" style="font-size:1.3rem; letter-spacing:.22em; font-weight:600;">{{ secure_code }}</div>
+      <div class="meta" style="margin:4px 0 0;">Read this out during the exam. Examiners enter it to submit their review; no one else is shown it.</div>
+    </div>
+  {% endif %}
 </div>
 
 <div class="section-title">Who runs it<div class="rule"></div></div>
