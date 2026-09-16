@@ -34,6 +34,12 @@
     You can switch to another date until then.
   </div>
 
+  {% if topic_blocker %}
+    <div class="notice" style="margin-bottom:24px;">
+      {{ topic_blocker }} <a href="/student/proposal">Your topic</a>
+    </div>
+  {% endif %}
+
   {% if booked %}
     <div class="card" style="margin-bottom:24px;">
       <div class="exam-booked-head">
@@ -176,6 +182,8 @@
               <span class="stamp mini approved">Booked</span>
             {% elseif booked and booked.meeting_id %}
               <span class="meta">Your exam is already scheduled</span>
+            {% elseif topic_blocker %}
+              <span class="meta">Waiting on your topic</span>
             {% else %}
               <form method="POST" action="/student/exam/book"
                     {% if booked %}onsubmit="return confirm('Switch your booking to this date? Documents you submitted for the other date stay with it.');"{% endif %}>

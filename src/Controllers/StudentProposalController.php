@@ -10,6 +10,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use App\Models\Proposal;
 use App\Models\Document;
 use App\Models\SupervisorProfile;
+use App\Models\ProposalTopic;
 use App\Models\StudentExamWindows;
 use App\Models\SupervisorShortlist;
 use PDO;
@@ -130,6 +131,7 @@ class StudentProposalController
             'latest_files'    => $latest ? $requests->filesFor($latest['shortlist_id']) : [],
             'history_files'   => $requests->filesByRequest(array_column($history, 'shortlist_id')),
             'appointed_roles' => $proposal ? $this->appointedRoles($proposal['proposal_id']) : [],
+            'topic'           => (new ProposalTopic($this->db))->studentState($student['student_id'] ?? '', $proposal),
             'history'         => $history,
             'supervisors'     => ($state['list_editable'] ?? false) ? (new SupervisorProfile($this->db))->browsable($_SESSION['user_id']) : [],
             'picked'          => $picked,
@@ -334,6 +336,53 @@ class StudentProposalController
             ? 'Your proposal and supervisor request were sent. Your research coordinator takes them to the department, and neither can be changed from here.'
             : 'Draft saved. Nothing is sent until you choose Send.';
 
+        return $this->redirect($response, '/student/proposal');
+    }
+
+    /**
+     * A topic put forward for the supervisors to approve. As many as the
+     * student likes until one is approved — the model decides whether
+     * this is their moment, not the form.
+     */
+    public function storeTopic(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        if ($redirect = $this->requireStudent()) {
+            return $response->withHeader('Location', $redirect)->withStatus(302);
+        }
+
+        $data = (array) $request->getParsedBody();
+
+        if (!$this->verifyCsrf($data['csrf_token'] ?? '')) {
+            $_SESSION['flash_error'] = 'Your session expired — please try again.';
+            return $this->redirect($response, '/student/proposal');
+        }
+
+        $student = $this->getStudentRecord($_SESSION['user_id']);
+        $proposal = $student ? (new Proposal($this->db))->findActiveByStudentId($student['student_id']) : null;
+
+        if (!$student || !$proposal) {
+            $_SESSION['flash_error'] = 'Write your proposal before putting a topic forward.';
+            return $this->redirect($response, '/student/proposal');
+        }
+
+        try {
+            (new ProposalTopic($this->db))->submit(
+                $student['student_id'],
+                $proposal['proposal_id'],
+                (string) ($data['title'] ?? ''),
+                (string) ($data['synopsis'] ?? ''),
+                $_SESSION['user_id']
+            );
+        } catch (\Throwable $e) {
+            $_SESSION['flash_error'] = $e->getMessage();
+            $_SESSION['old_input'] = [
+                'topic_title'    => trim((string) ($data['title'] ?? '')),
+                'topic_synopsis' => trim((string) ($data['synopsis'] ?? '')),
+            ];
+            return $this->redirect($response, '/student/proposal');
+        }
+
+        $_SESSION['flash_success'] = 'Topic put forward. Your supervisors decide it at the meeting your main supervisor calls.';
         return $this->redirect($response, '/student/proposal');
     }
 

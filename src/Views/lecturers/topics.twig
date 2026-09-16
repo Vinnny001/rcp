@@ -1,0 +1,90 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Topic Approval{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Topics to approve</h1>
+  <div class="ref">TOPIC-APPROVAL</div>
+</div>
+<p class="page-sub">
+  The topic and its synopsis are settled by you and your co-supervisors before the Proposal Approval exam.
+  The main supervisor calls the meeting; every supervisor records a decision, and one topic is approved.
+</p>
+
+{% if success %}<div class="notice">{{ success }}</div>{% endif %}
+{% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
+
+{% if students %}
+  {% for s in students %}
+    <div class="card" style="margin-bottom:20px;">
+      <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;">
+        <h3 style="margin:0; flex:1 1 300px;">
+          {{ s.student_name }} <span class="meta mono" style="font-size:.7rem;">{{ s.student_number }}</span>
+        </h3>
+        <span class="meta">{{ s.is_main ? 'You are the main supervisor' : 'You are a co-supervisor' }}</span>
+      </div>
+
+      {% if s.approved %}
+        <div style="margin-top:12px;">
+          <span class="stamp mini approved">Topic approved</span>
+          <div class="strong" style="margin-top:8px;">{{ s.approved.title }}</div>
+          <div class="meta">Approved {{ s.approved.decided_at|date('d M Y') }}</div>
+        </div>
+      {% elseif s.meeting %}
+        <div class="meta" style="margin:10px 0 12px;">
+          Meeting on {{ s.meeting.scheduled_at|date('d M Y, g:i A') }} · {{ s.meeting.mode|capitalize }}
+          {%- if s.meeting.location %} · {{ s.meeting.location }}{% endif %}
+          · {{ s.topics|filter(t => t.meeting_id == s.meeting.meeting_id)|length }} topic(s) on the table
+          · you have decided {{ s.your_decision|length }} of them
+        </div>
+        <a class="btn brass" style="padding:6px 14px; font-size:.74rem;" href="/lecturer/topics/{{ s.meeting.meeting_id }}">
+          {{ s.is_main ? 'Open the meeting' : 'Record your decisions' }}
+        </a>
+      {% elseif s.open_topics %}
+        <div class="meta" style="margin:10px 0 6px;">
+          {{ s.open_topics|length }} topic(s) waiting for a meeting:
+        </div>
+        <ul style="margin:0 0 14px 18px; font-size:.85rem;">
+          {% for t in s.open_topics %}<li>{{ t.title }}</li>{% endfor %}
+        </ul>
+
+        {% if s.is_main %}
+          <form method="POST" action="/lecturer/topics/schedule">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="student_id" value="{{ s.student_id }}">
+            <div class="field-row">
+              <div class="field"><label>Date</label><input type="date" name="date" required></div>
+              <div class="field"><label>Time</label><input type="time" name="time" required></div>
+              <div class="field">
+                <label>Mode</label>
+                <select name="mode">
+                  <option value="physical">Physical</option>
+                  <option value="virtual">Virtual</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Location</label><input type="text" name="location" placeholder="Boardroom"></div>
+              <div class="field"><label>Meeting link</label><input type="url" name="virtual_link" placeholder="https://…"></div>
+            </div>
+            <button type="submit" class="btn brass">Call the topic approval meeting</button>
+          </form>
+        {% else %}
+          <div class="meta">{{ s.student_name }}'s main supervisor calls the meeting.</div>
+        {% endif %}
+      {% else %}
+        <div class="meta" style="margin-top:10px;">
+          Nothing to approve yet — {{ s.student_name }} has not put a topic forward.
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="notice">
+    You supervise nobody whose topic is still to be settled. Students appear here once their proposal is sent
+    and you are appointed to supervise them.
+  </div>
+{% endif %}
+{% endblock %}

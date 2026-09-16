@@ -213,6 +213,16 @@ try {
     send($pdo, 'POST', '/student/requirements/upload', $student, ['exam_schedule_id' => $current, 'document_type_id' => $docCurrent['doc_type_id']]);
     $message = ($_SESSION['flash_error'] ?? '') . ($_SESSION['flash_success'] ?? '');
     check('uploading to it is refused until they do', str_contains($message, 'Book this exam'), $message);
+    // The Proposal Approval exam now waits for the supervisors to approve the
+    // topic, so put an approved topic on record before booking.
+    $pdo->prepare(
+        "INSERT INTO proposal_topics (topic_id, student_id, proposal_id, title, synopsis, origin, status, decided_at, submitted_by)
+         SELECT UUID(), tp.student_id, tp.proposal_id, tp.title, tp.synopsis, 'proposal', 'approved', NOW(), s.user_id
+         FROM thesis_proposals tp JOIN students s ON s.student_id = tp.student_id
+         WHERE tp.student_id = ? AND tp.status <> 'rejected'
+         ORDER BY tp.created_at DESC LIMIT 1"
+    )->execute([$sid]);
+
     (new ExamReadiness($pdo))->book($sid, $student['user_id'], $current);
 
     echo "\n=== The documents follow their exam ===\n";

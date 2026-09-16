@@ -149,6 +149,16 @@ $w = array_values(array_filter($windows, fn($x) => $x['exam_schedule_id'] === $w
 check('before booking, nothing is worked out as outstanding', $w['booked'] === false && $w['blockers'] === []);
 check('but what the exam requires is shown', $w['requirements'] !== []);
 
+// The Proposal Approval exam now waits for the supervisors to approve the
+// topic, so put an approved topic on record before booking.
+$pdo->prepare(
+    "INSERT INTO proposal_topics (topic_id, student_id, proposal_id, title, synopsis, origin, status, decided_at, submitted_by)
+     SELECT UUID(), tp.student_id, tp.proposal_id, tp.title, tp.synopsis, 'proposal', 'approved', NOW(), s.user_id
+     FROM thesis_proposals tp JOIN students s ON s.student_id = tp.student_id
+     WHERE tp.student_id = ? AND tp.status <> 'rejected'
+     ORDER BY tp.created_at DESC LIMIT 1"
+)->execute([$student['student_id']]);
+
 $readiness->book($student['student_id'], $student['user_id'], $window);
 check('the student books the exam, whatever is still outstanding',
     $readiness->window($student['student_id'], $student['user_id'], $window)['booked'] === true);

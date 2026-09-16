@@ -28,6 +28,8 @@ class LecturerMeetingsController
     private const VALID_MEETING_TYPES = ['supervisory'];
 
     private const EXAM_MEETINGS_BY_COORDINATOR = 'Exam meetings are scheduled and managed by the research coordinator. You can see their details and remind your student.';
+
+    private const TOPIC_MEETINGS_ELSEWHERE = 'Topic approval meetings are managed on the Topic Approval page.';
     private const VALID_MODES = ['physical', 'virtual', 'hybrid'];
     private const VALID_ATTENDEE_ROLES = ['chairperson', 'examiner', 'supervisor', 'observer'];
 
@@ -250,6 +252,17 @@ class LecturerMeetingsController
         }, $meetings);
     }
 
+    /**
+     * Where a meeting that is not supervisory is actually managed: an
+     * exam by the research coordinator, a topic by its supervisors.
+     */
+    private function elsewhereMessage(string $meetingType): string
+    {
+        return $meetingType === 'topic_approval'
+            ? self::TOPIC_MEETINGS_ELSEWHERE
+            : self::EXAM_MEETINGS_BY_COORDINATOR;
+    }
+
     public function schedule(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         if ($redirect = $this->requireLecturer()) {
@@ -454,7 +467,7 @@ class LecturerMeetingsController
             return $this->redirect($response, '/lecturer/meetings');
         }
         if ($meeting['meeting_type'] !== 'supervisory') {
-            $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
+            $_SESSION['flash_error'] = $this->elsewhereMessage($meeting['meeting_type']);
             return $this->redirect($response, '/lecturer/meetings');
         }
 
@@ -923,7 +936,7 @@ class LecturerMeetingsController
             return $this->redirect($response, '/lecturer/meetings');
         }
         if ($meeting['meeting_type'] !== 'supervisory') {
-            $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
+            $_SESSION['flash_error'] = $this->elsewhereMessage($meeting['meeting_type']);
             return $this->redirect($response, '/lecturer/meetings');
         }
 
@@ -1003,7 +1016,7 @@ class LecturerMeetingsController
             return $this->redirect($response, '/lecturer/meetings');
         }
         if ($meeting['meeting_type'] !== 'supervisory') {
-            $_SESSION['flash_error'] = self::EXAM_MEETINGS_BY_COORDINATOR;
+            $_SESSION['flash_error'] = $this->elsewhereMessage($meeting['meeting_type']);
             return $this->redirect($response, '/lecturer/meetings');
         }
 

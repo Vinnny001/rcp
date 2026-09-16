@@ -25,6 +25,7 @@ use App\Controllers\StudentThesisController;
 
 use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
+use App\Controllers\SupervisorTopicController;
 use App\Controllers\LecturerMeetingsController;
 use App\Controllers\LecturerDocumentsController;
 
@@ -72,6 +73,7 @@ return function (App $app) {
     // Student proposal routes
     $app->get('/student/proposal', [StudentProposalController::class, 'show']);
     $app->post('/student/proposal', [StudentProposalController::class, 'store']);
+    $app->post('/student/proposal/topic', [StudentProposalController::class, 'storeTopic']);
 
     // Supervisors are now chosen and sent with the proposal; these only
     // send old links to /student/proposal.
@@ -100,6 +102,13 @@ return function (App $app) {
     $app->post('/lecturer/supervision/decline', [LecturerSupervisionController::class, 'decline']);
     $app->post('/lecturer/supervision/shortlist-response', [LecturerSupervisionController::class, 'respondToShortlist']);
     $app->post('/lecturer/supervision/documents/validate', [LecturerSupervisionController::class, 'validateDocument']);
+
+    // Supervisors approving the topic their student writes under
+    $app->get('/lecturer/topics', [SupervisorTopicController::class, 'show']);
+    $app->post('/lecturer/topics/schedule', [SupervisorTopicController::class, 'schedule']);
+    $app->get('/lecturer/topics/{id}', [SupervisorTopicController::class, 'meeting']);
+    $app->post('/lecturer/topics/{id}/decision', [SupervisorTopicController::class, 'decide']);
+    $app->post('/lecturer/topics/{id}/close', [SupervisorTopicController::class, 'close']);
 
 
     $app->get('/lecturer/meetings', [LecturerMeetingsController::class, 'show']);

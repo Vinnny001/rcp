@@ -268,6 +268,84 @@
 {% endif %}
 
 {# ==================================================================== #}
+{#  Topic approval — once the supervisors are in place                   #}
+{# ==================================================================== #}
+{% if topic.applies %}
+  <div class="section-title">Your topic<div class="rule"></div></div>
+
+  {% if topic.approved %}
+    <div class="card" style="margin-bottom:26px;">
+      <span class="stamp approved">Topic approved</span>
+      <h3 style="margin:10px 0 4px;">{{ topic.approved.title }}</h3>
+      <div class="meta">Approved by your supervisors on {{ topic.approved.decided_at|date('d M Y') }}. This is the topic your thesis is written under.</div>
+    </div>
+  {% else %}
+    <div class="card" style="margin-bottom:20px;">
+      {% if topic.meeting %}
+        <h3 style="margin-top:0;">Your supervisors meet on {{ topic.meeting.scheduled_at|date('d M Y, g:i A') }}</h3>
+        <div class="meta">
+          {{ topic.meeting.mode|capitalize }}{% if topic.meeting.location %} · {{ topic.meeting.location }}{% endif %}
+          {%- if topic.meeting.virtual_link %} · <a href="{{ topic.meeting.virtual_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+        </div>
+        <div class="meta" style="margin-top:10px;">
+          They approve one of the topics below. You can put another one forward if none is approved.
+        </div>
+      {% else %}
+        <h3 style="margin-top:0;">Waiting on your supervisors</h3>
+        <div class="meta">
+          Your supervisors approve the topic and its synopsis before the Proposal Approval exam, at a meeting your main
+          supervisor calls. Put forward as many topics as you like until then — they approve one.
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% for t in topic.topics %}
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;">
+        <h3 style="margin:0; flex:1 1 320px;">{{ t.title }}</h3>
+        {% if t.status == 'approved' %}
+          <span class="stamp mini approved">Approved</span>
+        {% elseif t.status == 'not_approved' %}
+          <span class="stamp mini rejected">Not approved</span>
+        {% elseif t.meeting_id %}
+          <span class="stamp mini pending">At the meeting</span>
+        {% else %}
+          <span class="stamp mini pending">Put forward</span>
+        {% endif %}
+      </div>
+      <div class="meta" style="margin:6px 0 10px;">
+        {{ t.origin == 'proposal' ? 'The topic you were given supervisors for' : 'You put this forward' }}
+        · {{ t.created_at|date('d M Y') }}
+      </div>
+      <div style="font-size:.88rem; line-height:1.6; color:#39332a;">
+        {% include 'partials/view_more.twig' with {text: t.synopsis, lines: 5, heading: t.title, ref: 'Synopsis'} only %}
+      </div>
+      {% if t.status == 'not_approved' and t.decision_reason %}
+        <div class="meta" style="margin-top:10px;"><span class="strong">Why:</span> {{ t.decision_reason }}</div>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  {% if topic.can_submit %}
+    <form method="POST" action="/student/proposal/topic" class="card" style="margin-bottom:30px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3 style="margin-top:0;">Put a topic forward</h3>
+      <div class="field">
+        <label for="topic_title">Title</label>
+        <input type="text" id="topic_title" name="title" maxlength="255" required value="{{ old.topic_title|default('') }}">
+      </div>
+      <div class="field">
+        <label for="topic_synopsis">Synopsis</label>
+        <textarea id="topic_synopsis" name="synopsis" rows="6" required>{{ old.topic_synopsis|default('') }}</textarea>
+        <div class="meta">At least 50 characters — enough for your supervisors to judge the topic.</div>
+      </div>
+      <button type="submit" class="btn brass">Put this topic forward</button>
+    </form>
+  {% endif %}
+{% endif %}
+
+{# ==================================================================== #}
 {#  Earlier requests                                                     #}
 {# ==================================================================== #}
 {% if history %}

@@ -65,6 +65,16 @@ $window = $pdo->query(
 // student is only shown the exam for their current stage, within their
 // time on the programme (StudentExamWindows).
 $stage = (new \App\Models\StudentJourney($pdo))->currentExamStage($student['student_id'], $student['user_id'])['stage_id'] ?? null;
+
+// The Proposal Approval exam now waits for the supervisors to approve the
+// topic, so put an approved topic on record before booking.
+$pdo->prepare(
+    "INSERT INTO proposal_topics (topic_id, student_id, proposal_id, title, synopsis, origin, status, decided_at, submitted_by)
+     SELECT UUID(), tp.student_id, tp.proposal_id, tp.title, tp.synopsis, 'proposal', 'approved', NOW(), s.user_id
+     FROM thesis_proposals tp JOIN students s ON s.student_id = tp.student_id
+     WHERE tp.student_id = ? AND tp.status <> 'rejected'
+     ORDER BY tp.created_at DESC LIMIT 1"
+)->execute([$student['student_id']]);
 $pdo->prepare("UPDATE exam_schedule SET exam_stage_id = ?, ends_at = NOW() + INTERVAL 30 DAY WHERE exam_schedule_id = ?")->execute([$stage, $window]);
 
 // Require a document the student has not submitted, so the blocked state is real.
@@ -133,6 +143,7 @@ check('with no dates open, the page says so rather than showing nothing',
     str_contains(render($twig, 'students/exam.twig', $empty), 'exams open for booking'));
 
 echo "\n=== Student page: booked ===\n";
+
 $readiness->book($student['student_id'], $student['user_id'], $window);
 $h = render($twig, 'students/exam.twig', $studentVars());
 check('the booked exam leads the page', str_contains($h, 'Your booked exam'));

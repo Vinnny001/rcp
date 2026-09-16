@@ -120,8 +120,13 @@ class ExamReadiness
         }
         unset($window);
 
+        $stage = (new StudentJourney($this->db))->currentExamStage($studentId, $userId);
+
         return [
-            'current_stage' => (new StudentJourney($this->db))->currentExamStage($studentId, $userId),
+            'current_stage' => $stage,
+            // The Proposal Approval exam examines a topic the supervisors
+            // have agreed to, so it cannot be booked before they have.
+            'topic_blocker' => (new ProposalTopic($this->db))->examBlocker($studentId, $stage['stage_id'] ?? null),
             'exam_windows'  => $listed,
             'booked'        => array_values(array_filter($listed, fn (array $window): bool => $window['booked']))[0] ?? null,
             'calendar'      => \App\Services\ExamCalendar::months($listed, $today ?? new \DateTimeImmutable()),
@@ -234,6 +239,9 @@ class ExamReadiness
         }
         if (!$window['open_for_booking']) {
             throw new RuntimeException('That exam has closed.');
+        }
+        if ($blocker = (new ProposalTopic($this->db))->examBlocker($studentId, $window['stage_id'])) {
+            throw new RuntimeException($blocker);
         }
 
         $sameStage = $this->db->prepare(

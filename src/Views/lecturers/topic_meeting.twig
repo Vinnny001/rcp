@@ -1,0 +1,122 @@
+{% extends 'layouts/lecturer.twig' %}
+
+{% block title %}Topic Approval Meeting{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ meeting.student_name }}'s topic</h1>
+  <div class="ref">TOPIC-{{ meeting.meeting_id|slice(0, 8)|upper }}</div>
+</div>
+<p class="page-sub">
+  {{ meeting.scheduled_at|date('d M Y, g:i A') }} · {{ meeting.mode|capitalize }}
+  {%- if meeting.location %} · {{ meeting.location }}{% endif %}
+  {%- if meeting.virtual_link %} · <a href="{{ meeting.virtual_link }}" target="_blank" rel="noopener noreferrer">join link</a>{% endif %}
+</p>
+
+{% if success %}<div class="notice">{{ success }}</div>{% endif %}
+{% if error %}<div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>{% endif %}
+
+{% if not open %}
+  <div class="card" style="margin-bottom:22px;">
+    <span class="stamp {{ meeting.status == 'cancelled' ? 'rejected' : 'approved' }}">{{ meeting.status|capitalize }}</span>
+    {% if meeting.status_description %}
+      <div class="meta" style="margin-top:8px;">{{ meeting.status_description }}</div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="meta" style="margin-bottom:16px;">
+  Deciding: {% for s in supervisors %}{{ s.lecturer_user_id == you ? 'You (' ~ s.lecturer_name ~ ')' : s.lecturer_name }} — {{ s.role == 'main' ? 'main supervisor' : 'co-supervisor' }}{{ not loop.last ? ' · ' }}{% endfor %}
+</div>
+
+{% for t in topics %}
+  <div class="card" style="margin-bottom:18px;">
+    <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;">
+      <h3 style="margin:0; flex:1 1 320px;">{{ t.title }}</h3>
+      {% if t.status == 'approved' %}
+        <span class="stamp mini approved">Approved</span>
+      {% elseif t.status == 'not_approved' %}
+        <span class="stamp mini rejected">Not approved</span>
+      {% elseif t.approvable %}
+        <span class="stamp mini approved">Every supervisor approves</span>
+      {% elseif t.undecided %}
+        <span class="stamp mini pending">{{ t.undecided|length }} still to decide</span>
+      {% else %}
+        <span class="stamp mini rejected">Not carried</span>
+      {% endif %}
+    </div>
+    <div class="meta" style="margin:6px 0 10px;">
+      {{ t.origin == 'proposal' ? 'The topic the student was given supervisors for' : 'Put forward by the student' }}
+      · {{ t.created_at|date('d M Y') }}
+    </div>
+    <div style="font-size:.88rem; line-height:1.6; color:#39332a; margin-bottom:12px;">
+      {% include 'partials/view_more.twig' with {text: t.synopsis, lines: 5, heading: t.title, ref: 'Synopsis'} only %}
+    </div>
+
+    {% if t.decisions %}
+      <div class="meta" style="margin-bottom:8px;">Decisions so far</div>
+      <ul style="margin:0 0 12px 18px; font-size:.84rem;">
+        {% for d in t.decisions %}
+          <li>
+            {{ d.voter_user_id == you ? 'You (' ~ d.voter_name ~ ')' : d.voter_name }} —
+            <span class="strong">{{ d.decision == 'approve' ? 'approved' : 'rejected' }}</span>
+            {%- if d.comment %} · {{ d.comment }}{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if open %}
+      <form method="POST" action="/lecturer/topics/{{ meeting.meeting_id }}/decision">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="topic_id" value="{{ t.topic_id }}">
+        <div class="field-row">
+          <div class="field">
+            <label>Your decision</label>
+            <select name="decision">
+              <option value="approve"{{ t.decisions[you] is defined and t.decisions[you].decision == 'approve' ? ' selected' : '' }}>Approve this topic</option>
+              <option value="reject"{{ t.decisions[you] is defined and t.decisions[you].decision == 'reject' ? ' selected' : '' }}>Reject it</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Comment <span class="meta">— optional</span></label>
+            <input type="text" name="comment" value="{{ t.decisions[you] is defined ? t.decisions[you].comment : '' }}" placeholder="What the student should know">
+          </div>
+        </div>
+        <button type="submit" class="btn ghost" style="padding:6px 14px; font-size:.72rem;">
+          {{ t.decisions[you] is defined ? 'Change your decision' : 'Record your decision' }}
+        </button>
+      </form>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="notice">No topic is on this meeting's list.</div>
+{% endfor %}
+
+{% if open and you_are_main %}
+  <div class="section-title" style="margin-top:30px;">Close the meeting<div class="rule"></div></div>
+  <form method="POST" action="/lecturer/topics/{{ meeting.meeting_id }}/close" class="card"
+        onsubmit="return confirm('Close the meeting? The decision stands, and the student is told.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field" style="max-width:520px;">
+      <label>The approved topic</label>
+      <select name="approved_topic_id">
+        <option value="">No topic approved</option>
+        {% for t in topics|filter(t => t.approvable) %}
+          <option value="{{ t.topic_id }}">{{ t.title }}</option>
+        {% endfor %}
+      </select>
+      <div class="meta">Only a topic every supervisor approved can be chosen, and only one.</div>
+    </div>
+    <div class="field">
+      <label>Reason <span class="meta">— required if no topic is approved</span></label>
+      <textarea name="reason" rows="3" placeholder="What the student should change before putting new topics forward"></textarea>
+    </div>
+    <button type="submit" class="btn brass">Close the meeting</button>
+  </form>
+{% endif %}
+
+<div style="margin-top:22px;">
+  <a class="btn ghost" style="padding:6px 14px; font-size:.72rem;" href="/lecturer/topics">Back to topics</a>
+</div>
+{% endblock %}
