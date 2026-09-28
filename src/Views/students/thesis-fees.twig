@@ -28,6 +28,11 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="btn brass">Register for thesis</button>
     </form>
+    <div class="meta" style="margin-top:14px;">
+      Already passed some of this elsewhere?
+      <a href="/student/thesis/continue">Continue from where you left off</a> — register, then show the graduate
+      school the minutes and transcript for the last stage you passed, and carry on from there.
+    </div>
   </div>
   
 
@@ -45,6 +50,12 @@
     <div class="card">
       <h3>Registration status</h3>
       <div class="meta">Registered {{ registration.registered_at|date('d M Y') }}</div>
+      {% if prior_progress_open %}
+        <div class="meta" style="margin-top:8px;">
+          Passed some stages already?
+          <a href="/student/thesis/continue">Continue from where you left off</a>.
+        </div>
+      {% endif %}
       {% if registration.status == 'active' %}
         <span class="stamp mini approved">Active</span>
       {% elseif registration.status == 'completed' %}

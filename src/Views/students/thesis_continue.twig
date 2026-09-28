@@ -1,0 +1,146 @@
+{% extends 'layouts/student.twig' %}
+
+{% block title %}Continue Where You Left Off{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Continue where you left off</h1>
+    <div class="sub">Already passed some of this? Show the graduate school, and carry on from there.</div>
+  </div>
+  <div class="ref mono">{{ student_number }}</div>
+</div>
+
+{% if success %}<div class="notice">{{ success }}</div>{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+{% if not registered %}
+  <div class="card">
+    <h3 style="margin-top:0;">Register first</h3>
+    <div class="meta" style="margin-bottom:14px;">
+      Registration is what puts you on a thesis timeline — it does not assume you are starting at the beginning.
+      Register, then come back here, name the last stage you passed and attach your evidence.
+    </div>
+    <a class="btn brass" href="/student/thesis/register">Register for thesis</a>
+    <a class="btn ghost" style="margin-left:8px;" href="/student/thesis">Back to thesis</a>
+  </div>
+
+{% else %}
+
+  {% if already_done %}
+    <div class="notice" style="margin-bottom:22px;">
+      Already recorded as passed: <span class="strong">{{ already_done|join(', ') }}</span>.
+    </div>
+  {% endif %}
+
+  {% if claim %}
+    <div class="card" style="margin-bottom:22px;">
+      <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;">
+        <h3 style="margin:0; flex:1 1 300px;">Your claim — {{ claim.stage_name }}</h3>
+        {% if claim.status == 'approved' %}
+          <span class="stamp mini approved">Approved</span>
+        {% elseif claim.status == 'rejected' %}
+          <span class="stamp mini rejected">Not accepted</span>
+        {% else %}
+          <span class="stamp mini pending">With the graduate school</span>
+        {% endif %}
+      </div>
+      <div class="meta" style="margin:6px 0 10px;">Sent {{ claim.created_at|date('d M Y') }}</div>
+
+      {% if claim.files %}
+        <div class="meta">You attached</div>
+        <ul style="margin:4px 0 10px 18px; font-size:.84rem;">
+          {% for f in claim.files %}
+            <li>{{ f.label }} — <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer" class="mono">{{ f.file_name }}</a></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% if claim.status == 'approved' %}
+        <div class="meta">
+          Recorded by {{ claim.decided_by_name }} on {{ claim.decided_at|date('d M Y') }}.
+          Your <a href="/student/exam">exam page</a> now shows the stage you carry on from.
+        </div>
+      {% elseif claim.status == 'rejected' %}
+        <div class="meta"><span class="strong">Why:</span> {{ claim.decision_reason }}</div>
+      {% else %}
+        <div class="meta">Nothing to do — you will hear when it is decided.</div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if can_claim %}
+    <form method="POST" action="/student/thesis/continue" enctype="multipart/form-data" class="card" id="claimForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3 style="margin-top:0;">{{ claim ? 'Send fresh evidence' : 'Tell us where you got to' }}</h3>
+      <div class="meta" style="margin-bottom:16px;">
+        Name the last stage you passed. Approving it records that stage and everything before it, and you carry on
+        from the next one.
+      </div>
+
+      <div class="field" style="max-width:420px;">
+        <label for="stage_id">The last stage you passed</label>
+        <select id="stage_id" name="stage_id" required data-stage-picker>
+          <option value="">Choose a stage</option>
+          {% for s in stages %}
+            <option value="{{ s.stage_id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      {% for stage_id, items in requirements %}
+        <div data-evidence-for="{{ stage_id }}" hidden>
+          <div class="meta" style="margin:16px 0 8px;">What to attach</div>
+          {% for r in items %}
+            <div class="field">
+              <label>{{ r.label }}{% if not r.is_required %} <span class="meta">— optional</span>{% endif %}</label>
+              <input type="file" name="evidence[{{ r.requirement_id }}]" accept="application/pdf" data-required="{{ r.is_required ? '1' : '' }}">
+              {% if r.note %}<div class="meta" style="margin-top:4px;">{{ r.note }}</div>{% endif %}
+            </div>
+          {% else %}
+            <div class="meta">Nothing is asked for yet — contact the graduate school.</div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+
+      <div class="field">
+        <label for="note">Anything they should know <span class="meta">— optional</span></label>
+        <textarea id="note" name="note" rows="3" placeholder="Where and when you passed it, for example"></textarea>
+      </div>
+
+      <button type="submit" class="btn brass">Send to the graduate school</button>
+      <a class="btn ghost" style="margin-left:8px;" href="/student/thesis">Back to thesis</a>
+    </form>
+  {% elseif not claim %}
+    <div class="notice">There is no earlier stage left for you to claim — you are already at the start of your journey here.</div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    // Each stage asks for its own evidence, so only the chosen stage's
+    // upload boxes are shown — and only those are required.
+    var picker = document.querySelector('[data-stage-picker]');
+    if (!picker) { return; }
+
+    function show() {
+      document.querySelectorAll('[data-evidence-for]').forEach(function (box) {
+        var mine = box.getAttribute('data-evidence-for') === picker.value;
+        box.hidden = !mine;
+        box.querySelectorAll('input[type="file"]').forEach(function (input) {
+          input.required = mine && input.getAttribute('data-required') === '1';
+          input.disabled = !mine;
+        });
+      });
+    }
+
+    picker.addEventListener('change', show);
+    show();
+  })();
+</script>
+{% endblock %}

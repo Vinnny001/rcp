@@ -22,6 +22,7 @@ use App\Controllers\StudentMeetingsController;
 use App\Controllers\StudentExamController;
 use App\Controllers\StudentEnrollmentController;
 use App\Controllers\StudentThesisController;
+use App\Controllers\StudentPriorProgressController;
 
 use App\Controllers\LecturerOverviewController;
 use App\Controllers\LecturerSupervisionController;
@@ -32,6 +33,7 @@ use App\Controllers\LecturerDocumentsController;
 
 
 use App\Controllers\AdminController;
+use App\Controllers\AdminPriorProgressController;
 use App\Controllers\StudentProfileController;
 
 use App\Controllers\StudentDocumentsController;
@@ -179,6 +181,9 @@ return function (App $app) {
 
     $app->post('/student/proposal/document/remove', [StudentProposalController::class, 'removeDocument']);
    
+    // Continuing from where a student left off
+    $app->get('/student/thesis/continue', [StudentPriorProgressController::class, 'show']);
+    $app->post('/student/thesis/continue', [StudentPriorProgressController::class, 'store']);
     $app->get('/student/thesis/register', [StudentThesisController::class, 'showRegisterPicker']);
     $app->post('/student/thesis/register', [StudentThesisController::class, 'register']);
 
@@ -269,6 +274,12 @@ $app->post('/admin/grading-bands/update', [AdminController::class, 'updateGradin
 $app->post('/admin/grading-bands/delete', [AdminController::class, 'deleteGradingBand']);
 
 // Admin: exam stages (the configurable middle of the student journey rail)
+// Admin: students continuing from where they left off
+$app->get('/admin/prior-progress', [AdminPriorProgressController::class, 'show']);
+$app->post('/admin/prior-progress/decision', [AdminPriorProgressController::class, 'decide']);
+$app->post('/admin/prior-progress/evidence', [AdminPriorProgressController::class, 'saveRequirement']);
+$app->post('/admin/prior-progress/evidence/remove', [AdminPriorProgressController::class, 'removeRequirement']);
+
 $app->get('/admin/exam-stages', [AdminController::class, 'examStages']);
 $app->post('/admin/exam-stages/create', [AdminController::class, 'createExamStage']);
 $app->post('/admin/exam-stages/update', [AdminController::class, 'updateExamStage']);

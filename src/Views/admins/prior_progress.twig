@@ -1,0 +1,181 @@
+{% extends 'layouts/admin.twig' %}
+
+{% block title %}Prior Progress{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Prior progress</h1>
+    <div class="sub">Students continuing from where they left off, and the evidence each stage asks for.</div>
+  </div>
+  <div class="ref">PRIOR-PROGRESS</div>
+</div>
+
+{% if success %}<div class="notice">{{ success }}</div>{% endif %}
+{% if error %}
+  <div class="notice" style="border-left-color: var(--rust); background:#f6eae7; color: var(--rust);">{{ error }}</div>
+{% endif %}
+
+<div class="section-title">Claims<div class="rule"></div></div>
+
+{% set waiting = claims|filter(c => c.status == 'submitted') %}
+{% if waiting|length == 0 %}
+  <div class="notice">No claim is waiting. Students appear here when they send evidence of a stage they already passed.</div>
+{% endif %}
+
+{% for c in waiting %}
+  <div class="card" style="margin-bottom:18px;">
+    <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;">
+      <h3 style="margin:0; flex:1 1 320px;">
+        {{ c.student_name }} <span class="meta mono" style="font-size:.7rem;">{{ c.student_number }}</span>
+      </h3>
+      <span class="meta">{{ c.program_name ?: 'No active registration' }} · sent {{ c.created_at|date('d M Y') }}</span>
+    </div>
+    <div class="meta" style="margin:8px 0;">
+      Claims to have passed <span class="strong">{{ c.stage_name }}</span> — approving records that stage and every
+      earlier one.
+    </div>
+
+    {% if c.student_note %}
+      <div class="meta" style="margin-bottom:8px;"><span class="strong">They say:</span> {{ c.student_note }}</div>
+    {% endif %}
+
+    <div class="meta">Evidence</div>
+    <ul style="margin:4px 0 14px 18px; font-size:.84rem;">
+      {% for f in c.files %}
+        <li>{{ f.label }} — <a href="/{{ f.file_path }}" target="_blank" rel="noopener noreferrer" class="mono">{{ f.file_name }}</a></li>
+      {% else %}
+        <li class="meta">Nothing attached.</li>
+      {% endfor %}
+    </ul>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;">
+      <form method="POST" action="/admin/prior-progress/decision"
+            onsubmit="return confirm('Record {{ c.student_name|escape('js') }} as having passed {{ c.stage_name|escape('js') }} and everything before it?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="claim_id" value="{{ c.claim_id }}">
+        <input type="hidden" name="decision" value="approve">
+        <button type="submit" class="btn brass">Approve</button>
+      </form>
+
+      <form method="POST" action="/admin/prior-progress/decision" style="flex:1 1 320px; display:flex; gap:8px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="claim_id" value="{{ c.claim_id }}">
+        <input type="hidden" name="decision" value="reject">
+        <input type="text" name="reason" placeholder="Why — the student sees this" required style="flex:1;">
+        <button type="submit" class="btn ghost" style="white-space:nowrap;">Reject</button>
+      </form>
+    </div>
+  </div>
+{% endfor %}
+
+{% set decided = claims|filter(c => c.status != 'submitted') %}
+{% if decided|length > 0 %}
+  <div class="section-title" style="margin-top:30px;">Decided<div class="rule"></div></div>
+  <div style="overflow-x:auto;">
+    <table>
+      <thead><tr><th>Student</th><th>Claimed</th><th>Outcome</th><th>By</th><th>When</th></tr></thead>
+      <tbody>
+        {% for c in decided %}
+          <tr>
+            <td class="strong">{{ c.student_name }}<div class="meta mono" style="font-size:.7rem;">{{ c.student_number }}</div></td>
+            <td>{{ c.stage_name }}</td>
+            <td>
+              {% if c.status == 'approved' %}
+                <span class="stamp mini approved">Approved</span>
+              {% else %}
+                <span class="stamp mini rejected">Rejected</span>
+                {% if c.decision_reason %}<div class="meta">{{ c.decision_reason }}</div>{% endif %}
+              {% endif %}
+            </td>
+            <td class="meta">{{ c.decided_by_name|default('—') }}</td>
+            <td class="meta mono">{{ c.decided_at ? c.decided_at|date('d M Y') : '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+<div class="section-title" style="margin-top:34px;">What a claim has to carry<div class="rule"></div></div>
+<p class="page-sub">
+  Each stage can ask for its own evidence. A stage with no list of its own uses the default, so setting the default
+  alone is enough — add a list to a stage only where it should differ. Add, rename or retire stages themselves on
+  <a href="/admin/exam-stages">Exam Stages</a>.
+</p>
+
+{% set lists = [{'id': '', 'name': 'Default — used by any stage with no list of its own'}] %}
+{% for s in stages %}
+  {% set lists = lists|merge([{'id': s.stage_id, 'name': s.name}]) %}
+{% endfor %}
+
+{% for list in lists %}
+  <div class="card" style="margin-bottom:16px;">
+    <h3 style="margin-top:0;">{{ list.name }}</h3>
+
+    {% set items = requirements[list.id]|default([]) %}
+    {% if items %}
+      <div style="overflow-x:auto;">
+        <table style="margin-bottom:12px;">
+          <thead><tr><th>Evidence</th><th style="width:20%;">Filed as</th><th style="width:12%;">Required</th><th style="width:10%;"></th></tr></thead>
+          <tbody>
+            {% for r in items %}
+              <tr>
+                <td>
+                  <span class="strong">{{ r.label }}</span>
+                  {% if r.note %}<div class="meta">{{ r.note }}</div>{% endif %}
+                </td>
+                <td class="meta">{{ r.doc_type_name }}</td>
+                <td>{{ r.is_required ? 'Required' : 'Optional' }}</td>
+                <td style="text-align:right;">
+                  <form method="POST" action="/admin/prior-progress/evidence/remove"
+                        onsubmit="return confirm('Stop asking for {{ r.label|escape('js') }}?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="requirement_id" value="{{ r.requirement_id }}">
+                    <button type="submit" class="btn ghost" style="padding:4px 10px; font-size:.7rem;">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% elseif list.id %}
+      <div class="meta" style="margin-bottom:12px;">No list of its own — the default above is what this stage asks for.</div>
+    {% else %}
+      <div class="meta" style="margin-bottom:12px;">Nothing is asked for yet, so no claim can be made.</div>
+    {% endif %}
+
+    <details>
+      <summary style="cursor:pointer; font-size:.84rem; font-weight:600;">Ask for something else</summary>
+      <form method="POST" action="/admin/prior-progress/evidence" style="margin-top:12px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="stage_id" value="{{ list.id }}">
+        <div class="field-row">
+          <div class="field">
+            <label>Name it</label>
+            <input type="text" name="label" maxlength="150" required placeholder="e.g. Meeting minutes">
+          </div>
+          <div class="field">
+            <label>Filed as</label>
+            <select name="document_type_id" required>
+              {% for t in document_types %}
+                <option value="{{ t.doc_type_id }}">{{ t.doc_type_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>What the student should send <span class="meta">— optional</span></label>
+          <input type="text" name="note" placeholder="e.g. The minutes of the meeting at which you passed this stage.">
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; font-size:.82rem; text-transform:none; letter-spacing:0; margin:6px 0 12px;">
+          <input type="checkbox" name="is_required" value="1" checked style="width:auto;"> Required
+        </label>
+        <button type="submit" class="btn brass">Add</button>
+      </form>
+    </details>
+  </div>
+{% endfor %}
+
+{% endblock %}

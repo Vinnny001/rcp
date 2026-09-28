@@ -127,6 +127,9 @@ class StudentThesisController
         'upcoming'       => $upcoming,
         'history'        => $history,
         'has_proposal'   => (bool) $proposal,
+        // Only worth offering while there is an earlier stage left to claim.
+        'prior_progress_open' => (new \App\Models\PriorProgress($this->db))
+            ->studentState($student['student_id'], $_SESSION['user_id'])['can_claim'],
         'csrf_token'     => $this->csrfToken(),
         'error'          => $_SESSION['flash_error'] ?? null,
         'success'        => $_SESSION['flash_success'] ?? null,
