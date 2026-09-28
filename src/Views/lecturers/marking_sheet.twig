@@ -28,28 +28,25 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
 
-  <table style="margin-bottom:18px;">
+  {# Wide on a phone: the sheet scrolls rather than squeezing the criteria. #}
+  <div style="overflow-x:auto; margin-bottom:18px;">
+  <table class="mark-sheet">
     <thead>
       <tr>
-        <th style="width:26%;">Area</th>
+        {% if show_area %}<th style="width:22%;">Area</th>{% endif %}
         <th>Criterion</th>
         <th style="width:8%;">Max</th>
         <th style="width:10%;">Score</th>
-        <th style="width:26%;">Remarks</th>
+        <th style="width:24%;">Remarks</th>
       </tr>
     </thead>
     <tbody>
-      {% set current_section = '' %}
       {% for c in criteria %}
-        <tr>
-          <td class="strong" style="font-size:.82rem;">
-            {# Only name the section when it changes, so grouped schemes
-               read as sections and flat ones as plain rows. #}
-            {% if c.section_name != current_section %}
-              {{ c.section_name }}
-              {% set current_section = c.section_name %}
-            {% endif %}
-          </td>
+        {# A row that opens an area carries the cell the whole area shares. #}
+        <tr{{ c.area_span ? ' class="area-start"' : '' }}>
+          {% if show_area and c.area_span %}
+            <td class="mark-area" rowspan="{{ c.area_span }}">{{ c.section_name }}</td>
+          {% endif %}
           <td style="font-size:.82rem;">{{ c.criterion_text }}</td>
           <td class="mono">{{ c.max_score|number_format(0) }}</td>
           <td>
@@ -67,6 +64,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   {% if my_result %}
     <div class="meta" style="margin-bottom:14px;">
@@ -81,8 +79,19 @@
     </div>
   {% endif %}
 
+  {% include 'partials/attendance_code.twig' with {label: 'Attendance code'} only %}
+
   <button type="submit" class="btn brass">{{ my_result ? 'Update my marks' : 'Submit my marks' }}</button>
 </form>
+
+<style>
+  .mark-sheet td.mark-area{ vertical-align:top; font-weight:600; font-size:.82rem;
+                            background:rgba(0,0,0,.02); border-right:1px solid var(--paper-line); }
+  /* The line between areas, not between every criterion, is what the
+     printed sheet draws — so the merged cell reads as one block. */
+  .mark-sheet tbody tr td{ border-top:none; }
+  .mark-sheet tbody tr.area-start td{ border-top:1px solid var(--paper-line); }
+</style>
 
 {% if bands %}
   <div class="section-title" style="margin-top:32px;">Interpretation<div class="rule"></div></div>
@@ -144,6 +153,7 @@
     <form method="POST" action="/lecturer/examining/confirm-average">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="meeting_id" value="{{ meeting.meeting_id }}">
+      {% include 'partials/attendance_code.twig' with {label: 'Attendance code'} only %}
       <button type="submit" class="btn brass"
               onclick="return confirm('Confirm {{ calculated_average }}% as the panel average?');">
         Confirm {{ calculated_average }}%

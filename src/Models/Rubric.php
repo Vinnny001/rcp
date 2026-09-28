@@ -157,6 +157,42 @@ class Rubric
         return $stmt->fetchAll();
     }
 
+    /**
+     * The criteria laid out as the printed sheet has them: consecutive
+     * rows sharing an area are one merged cell, so each row carries the
+     * number of rows its area spans and every other row carries 0.
+     *
+     * Some schemes name each area after the criterion itself (the thesis
+     * scheme does), where an Area column would only repeat the row next
+     * to it — `show_area` says whether it is worth drawing at all.
+     *
+     * @param array<int, array<string, mixed>> $criteria
+     * @return array{rows: array<int, array<string, mixed>>, show_area: bool}
+     */
+    public static function sheetLayout(array $criteria): array
+    {
+        $rows = [];
+        $showArea = false;
+        $openedAt = null;
+
+        foreach ($criteria as $criterion) {
+            $criterion['area_span'] = 0;
+            $showArea = $showArea || trim((string) $criterion['section_name']) !== trim((string) $criterion['criterion_text']);
+
+            if ($openedAt === null || $criterion['section_name'] !== $rows[$openedAt]['section_name']) {
+                $criterion['area_span'] = 1;
+                $rows[] = $criterion;
+                $openedAt = array_key_last($rows);
+                continue;
+            }
+
+            $rows[$openedAt]['area_span']++;
+            $rows[] = $criterion;
+        }
+
+        return ['rows' => $rows, 'show_area' => $showArea];
+    }
+
     public function maxTotalFor(string $templateId): float
     {
         $stmt = $this->db->prepare(

@@ -171,7 +171,10 @@ try {
         "INSERT INTO exam_schedule (exam_schedule_id, thesis_schedule_id, starts_at, ends_at, exam_type, exam_stage_id, exam_schedule_description)
          VALUES (?, ?, CURDATE() + INTERVAL 2 DAY, CURDATE() + INTERVAL 20 DAY, 'internal', ?, 'Topic gate test')"
     )->execute([$window, $student['thesis_schedule_id'], $stage]);
-    $pdo->prepare("DELETE FROM exam_readiness WHERE student_id = ? AND meeting_id IS NULL")->execute([$student['student_id']]);
+    // Clear every booking they hold, scheduled ones included: a student
+    // whose exam is already scheduled cannot book, and this suite is
+    // about what the topic gates rather than about their real exam.
+    $pdo->prepare("DELETE FROM exam_readiness WHERE student_id = ?")->execute([$student['student_id']]);
 
     check('the exam page says the topic comes first',
         str_contains((string) send($pdo, 'GET', '/student/exam', $student['user_id'], 'student')->getBody(), 'approved by your supervisors'));

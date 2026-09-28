@@ -213,6 +213,9 @@ try {
     send($pdo, 'POST', '/student/requirements/upload', $student, ['exam_schedule_id' => $current, 'document_type_id' => $docCurrent['doc_type_id']]);
     $message = ($_SESSION['flash_error'] ?? '') . ($_SESSION['flash_success'] ?? '');
     check('uploading to it is refused until they do', str_contains($message, 'Book this exam'), $message);
+    // Clear any booking they already hold — a student whose exam is
+    // scheduled cannot book, and this suite is about what they may see.
+    $pdo->prepare("DELETE FROM exam_readiness WHERE student_id = ?")->execute([$sid]);
     // The Proposal Approval exam now waits for the supervisors to approve the
     // topic, so put an approved topic on record before booking.
     $pdo->prepare(

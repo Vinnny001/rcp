@@ -1,0 +1,11 @@
+{# The code the coordinator reads out during the exam. Nothing about the
+   exam is recorded without it, so it is asked for at every submission. #}
+<div class="field" style="max-width:280px; margin:16px 0;">
+  <label>{{ label|default('Attendance code') }}</label>
+  <input type="text" name="secure_code" maxlength="7" required autocomplete="off"
+         placeholder="7-character code"
+         style="text-transform:uppercase; letter-spacing:.18em; font-family:'IBM Plex Mono',monospace;">
+  <div class="meta" style="margin-top:6px;">
+    The research coordinator gives this out during the exam. Nothing is recorded until it matches.
+  </div>
+</div>

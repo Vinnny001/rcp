@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\ExaminerAssignment;
+use App\Models\Meeting;
 use App\Models\Rubric;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -78,13 +79,15 @@ class ExaminerMarkingController
         $rubric = new Rubric($this->db);
         $leader = $rubric->panelLeader($meeting['meeting_id']);
         $isLeader = $leader !== null && $leader['examiner_id'] === $_SESSION['user_id'];
+        $layout = Rubric::sheetLayout($rubric->criteriaFor($meeting['template_id']));
 
         return $this->twig->render($response, 'lecturers/marking_sheet.twig', [
             'active_page'  => 'l-examining',
             'first_name'   => $_SESSION['first_name'] ?? '',
             'last_name'    => $_SESSION['last_name'] ?? '',
             'meeting'      => $meeting,
-            'criteria'     => $rubric->criteriaFor($meeting['template_id']),
+            'criteria'     => $layout['rows'],
+            'show_area'    => $layout['show_area'],
             'max_total'    => $rubric->maxTotalFor($meeting['template_id']),
             'my_scores'    => $rubric->scoresFor($meeting['meeting_id'], $_SESSION['user_id']),
             'my_result'    => $rubric->examinerResult($meeting['meeting_id'], $_SESSION['user_id'], $meeting['template_id']),
@@ -132,8 +135,9 @@ class ExaminerMarkingController
     }
 
     /**
-     * Shared guard: authenticate, verify CSRF, and re-check that this
-     * user is an examiner on the meeting being posted about.
+     * Shared guard: authenticate, verify CSRF, re-check that this user is
+     * an examiner on the meeting being posted about, and take the
+     * attendance code that proves they were at the exam.
      */
     private function handle(
         ServerRequestInterface $request,
@@ -157,6 +161,15 @@ class ExaminerMarkingController
         if (!$meeting || !$meeting['template_id']) {
             $_SESSION['flash_error'] = 'You are not an examiner on that meeting.';
             return $this->redirect($response, '/lecturer/examining');
+        }
+
+        // Attendance gate, as on a document review: the code is only known
+        // to people the coordinator read it out to, which is to say people
+        // who were actually at the exam. Marks are an account of what
+        // happened in the room, so nothing is written without it.
+        if (!(new Meeting($this->db))->verifySecureCode($meetingId, (string) ($data['secure_code'] ?? ''))) {
+            $_SESSION['flash_error'] = 'That attendance code is not correct. Ask the research coordinator for the code given out during the exam.';
+            return $this->redirect($response, $back);
         }
 
         try {

@@ -77,6 +77,7 @@ $meeting = $pdo->query(
 )->fetch();
 $templateId = $meeting['rubric_template_id'];
 $criteria = $rubric->criteriaFor($templateId);
+$layout = Rubric::sheetLayout($criteria);
 
 // Not the candidate, and not anyone studying on the candidate's
 // program: one of these becomes that program's coordinator below, and
@@ -121,7 +122,7 @@ echo "\n=== The sheet renders ===\n";
 $ctx = $assign->findForExaminer($meeting['meeting_id'], $examA);
 $sheetVars = fn(bool $isLeader, ?array $leader) => [
     'active_page' => 'l-examining', 'first_name' => 'E', 'last_name' => 'X',
-    'meeting' => $ctx, 'criteria' => $criteria,
+    'meeting' => $ctx, 'criteria' => $layout['rows'], 'show_area' => $layout['show_area'],
     'max_total' => $rubric->maxTotalFor($templateId),
     'my_scores' => $rubric->scoresFor($meeting['meeting_id'], $examA),
     'my_result' => $rubric->examinerResult($meeting['meeting_id'], $examA, $templateId),
@@ -135,6 +136,24 @@ $html = render($twig, 'lecturers/marking_sheet.twig', $sheetVars(false, null));
 check('every criterion gets an input', substr_count($html, 'name="score[') === count($criteria), count($criteria) . ' rows');
 check('the scheme maximum is shown', str_contains($html, (string) (int) $rubric->maxTotalFor($templateId)));
 check('a non-leader is not shown the panel', !str_contains($html, 'Panel average'));
+
+echo "\n=== The area column, as the printed sheet has it ===\n";
+$areas = array_column($criteria, 'section_name');
+$groups = count(array_filter($areas, fn($name, $i) => $i === 0 || $areas[$i - 1] !== $name, ARRAY_FILTER_USE_BOTH));
+check('each area is one cell spanning its criteria', substr_count($html, 'rowspan="') === $groups,
+    $groups . ' areas over ' . count($criteria) . ' rows');
+check('every row of an area is inside that cell',
+    array_sum(array_column($layout['rows'], 'area_span')) === count($criteria));
+check('no blank area cells are left behind', !str_contains($html, '<td class="mark-area" rowspan="1"></td>'));
+
+// A scheme that names each area after the criterion itself says nothing
+// twice — the column is dropped rather than repeated.
+$flat = Rubric::sheetLayout([
+    ['criterion_id' => 'a', 'section_name' => 'Abstract', 'criterion_text' => 'Abstract', 'max_score' => '5.00'],
+    ['criterion_id' => 'b', 'section_name' => 'Results', 'criterion_text' => 'Results', 'max_score' => '15.00'],
+]);
+check('a scheme whose areas repeat the criteria hides the column', $flat['show_area'] === false);
+check('but a grouped scheme keeps it', $layout['show_area'] === true);
 
 echo "\n=== Marking ===\n";
 $full = [];
@@ -152,6 +171,62 @@ $rubric->saveScores($meeting['meeting_id'], $examB, $templateId, $half, []);
 check('examiner A scored 100%', $rubric->examinerResult($meeting['meeting_id'], $examA, $templateId)['percentage'] === 100.0);
 check('examiner B scored 50%', $rubric->examinerResult($meeting['meeting_id'], $examB, $templateId)['percentage'] === 50.0);
 check('the calculated average is 75%', $rubric->calculatedAverage($meeting['meeting_id'], $templateId) === 75.0);
+
+echo "\n=== Marks need the attendance code ===\n";
+// Everything above went through the model. The code is asked for by the
+// screen an examiner actually uses, so these go through the app.
+$code = (new \App\Models\Meeting($pdo))->ensureSecureCode($meeting['meeting_id']);
+$pdo->prepare("DELETE FROM rubric_scores WHERE meeting_id = ? AND examiner_id = ?")
+    ->execute([$meeting['meeting_id'], $examA]);
+
+$post = function (array $form) use ($pdo, $examA): string {
+    $_SESSION = ['user_id' => $examA, 'role' => 'lecturer', 'first_name' => 'E', 'last_name' => 'X',
+                 'csrf_token' => str_repeat('c', 64)];
+
+    $builder = new DI\ContainerBuilder();
+    (require __DIR__ . '/../app/settings.php')($builder);
+    (require __DIR__ . '/../app/dependencies.php')($builder);
+    (require __DIR__ . '/../app/repositories.php')($builder);
+    $container = $builder->build();
+    $container->set(PDO::class, $pdo);
+    Slim\Factory\AppFactory::setContainer($container);
+    $app = Slim\Factory\AppFactory::create();
+    (require __DIR__ . '/../app/middleware.php')($app);
+    (require __DIR__ . '/../app/routes.php')($app);
+    $app->addRoutingMiddleware();
+    $app->addBodyParsingMiddleware();
+    $app->addErrorMiddleware(true, false, false);
+
+    $request = (new Slim\Psr7\Factory\ServerRequestFactory())
+        ->createServerRequest('POST', '/lecturer/examining/save')
+        ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
+        ->withParsedBody($form + ['csrf_token' => str_repeat('c', 64)]);
+    @$app->handle($request);
+
+    $message = ($_SESSION['flash_error'] ?? '') . ($_SESSION['flash_success'] ?? '');
+    unset($_SESSION['flash_error'], $_SESSION['flash_success']);
+
+    return $message;
+};
+
+$sheet = ['meeting_id' => $meeting['meeting_id'], 'score' => $full, 'remark' => []];
+$marked = fn(): int => (int) $pdo->query(
+    "SELECT COUNT(*) FROM rubric_scores WHERE meeting_id = " . $pdo->quote($meeting['meeting_id'])
+    . " AND examiner_id = " . $pdo->quote($examA)
+)->fetchColumn();
+
+$message = $post($sheet);
+check('marking with no code is refused', str_contains($message, 'attendance code is not correct'), $message);
+check('and nothing is recorded', $marked() === 0);
+
+$message = $post($sheet + ['secure_code' => 'WRONG12']);
+check('a wrong code is refused too', str_contains($message, 'attendance code is not correct'), $message);
+check('still nothing recorded', $marked() === 0);
+
+$message = $post($sheet + ['secure_code' => strtolower($code)]);
+check('the code the coordinator read out records the marks', str_contains($message, 'Marks recorded'), $message);
+check('every criterion is on record', $marked() === count($criteria));
+check('the sheet asks for the code', str_contains($html, 'name="secure_code"'));
 
 echo "\n=== Only the leader confirms ===\n";
 $rubric->designateLeader($meeting['meeting_id'], $examA);
